@@ -15,7 +15,7 @@
  */
 package ghidra.program.model.data;
 
-import java.util.*;
+import java.util.Arrays;
 
 import ghidra.program.model.lang.Language;
 import ghidra.util.datastruct.IntIntHashtable;
@@ -48,7 +48,7 @@ public class DataOrganizationImpl implements DataOrganization {
 	private boolean bigEndian = false;
 	private boolean isSignedChar = true;
 
-	private String[] callingConventionNames;
+	private BitFieldPacking bitFieldPacking = new BitFieldPackingImpl();
 
 	/*
 	 * Map for determining the alignment of a data type based upon its size.
@@ -82,27 +82,83 @@ public class DataOrganizationImpl implements DataOrganization {
 			dataOrganization.setPointerSize(language.getDefaultSpace().getPointerSize());
 			dataOrganization.setBigEndian(language.isBigEndian());
 		}
-
-		// Create list of acceptable calling conventions (include all generic conventions by default)
-		GenericCallingConvention[] genericCallingConventions = GenericCallingConvention.values();
-		List<String> names = new ArrayList<>();
-		for (GenericCallingConvention convention : genericCallingConventions) {
-			if (convention != GenericCallingConvention.unknown) {
-				names.add(convention.name());
-			}
-		}
-		Collections.sort(names);
-		dataOrganization.callingConventionNames = new String[names.size()];
-		names.toArray(dataOrganization.callingConventionNames);
-
 		return dataOrganization;
 	}
 
 	/**
-	 * Creates a new default DataOrganization with an empty size to alignment mapping which 
-	 * defines the alignment of a data type based on its size.
+	 * Creates a new default DataOrganization with an empty size to alignment mapping.
 	 */
 	private DataOrganizationImpl() {
+	}
+
+	@Override
+	public boolean isBigEndian() {
+		return bigEndian;
+	}
+
+	@Override
+	public int getPointerSize() {
+		return pointerSize;
+	}
+
+	@Override
+	public int getPointerShift() {
+		return pointerShift;
+	}
+
+	@Override
+	public boolean isSignedChar() {
+		return isSignedChar;
+	}
+
+	@Override
+	public int getCharSize() {
+		return charSize;
+	}
+
+	@Override
+	public int getWideCharSize() {
+		return wideCharSize;
+	}
+
+	@Override
+	public int getShortSize() {
+		return shortSize;
+	}
+
+	@Override
+	public int getIntegerSize() {
+		return integerSize;
+	}
+
+	@Override
+	public int getLongSize() {
+		return longSize;
+	}
+
+	@Override
+	public int getLongLongSize() {
+		return longLongSize;
+	}
+
+	@Override
+	public int getFloatSize() {
+		return floatSize;
+	}
+
+	@Override
+	public int getDoubleSize() {
+		return doubleSize;
+	}
+
+	@Override
+	public int getLongDoubleSize() {
+		return longDoubleSize;
+	}
+
+	@Override
+	public BitFieldPacking getBitFieldPacking() {
+		return bitFieldPacking;
 	}
 
 	/**
@@ -114,112 +170,8 @@ public class DataOrganizationImpl implements DataOrganization {
 	}
 
 	/**
-	 * @return true if data stored big-endian byte order
-	 */
-	@Override
-	public boolean isBigEndian() {
-		return bigEndian;
-	}
-
-	/**
-	 * @return the size of a pointer data type.
-	 */
-	@Override
-	public int getPointerSize() {
-		return pointerSize;
-	}
-
-	/**
-	 * Shift amount affects interpretation of in-memory pointer values only
-	 * and will also be reflected within instruction pcode.  A value of zero indicates
-	 * that shifted-pointers are not supported.
-	 * @return the left shift amount for shifted-pointers.
-	 */
-	@Override
-	public int getPointerShift() {
-		return pointerShift;
-	}
-
-	@Override
-	public boolean isSignedChar() {
-		return isSignedChar;
-	}
-
-	/**
-	 * @return the size of a char (char) primitive data type.
-	 */
-	@Override
-	public int getCharSize() {
-		return charSize;
-	}
-
-	/**
-	 * @return the size of a wide-char (wchar_t) primitive data type.
-	 */
-	@Override
-	public int getWideCharSize() {
-		return wideCharSize;
-	}
-
-	/**
-	 * @return the size of a short primitive data type.
-	 */
-	@Override
-	public int getShortSize() {
-		return shortSize;
-	}
-
-	/**
-	 * @return the size of a int primitive data type.
-	 */
-	@Override
-	public int getIntegerSize() {
-		return integerSize;
-	}
-
-	/**
-	 * @return the size of a long primitive data type.
-	 */
-	@Override
-	public int getLongSize() {
-		return longSize;
-	}
-
-	/**
-	 * @return the size of a long long primitive data type.
-	 */
-	@Override
-	public int getLongLongSize() {
-		return longLongSize;
-	}
-
-	/**
-	 * @return the size of a float primitive data type.
-	 */
-	@Override
-	public int getFloatSize() {
-		return floatSize;
-	}
-
-	/**
-	 * @return the size of a double primitive data type.
-	 */
-	@Override
-	public int getDoubleSize() {
-		return doubleSize;
-	}
-
-	/**
-	 * @return the size of a long double primitive data type.
-	 */
-	@Override
-	public int getLongDoubleSize() {
-		return longDoubleSize;
-	}
-
-	/**
 	 * Defines the size of a pointer data type.
-	 * @param shortSize the size of a short.
+	 * @param pointerSize the size of a pointer.
 	 */
 	public void setPointerSize(int pointerSize) {
 		this.pointerSize = pointerSize;
@@ -245,7 +197,7 @@ public class DataOrganizationImpl implements DataOrganization {
 
 	/**
 	 * Defines the size of a char (char) data type.
-	 * @param wideCharSize the size of a char (char).
+	 * @param charSize the size of a char (char).
 	 */
 	public void setCharSize(int charSize) {
 		this.charSize = charSize;
@@ -425,8 +377,6 @@ public class DataOrganizationImpl implements DataOrganization {
 		this.defaultPointerAlignment = defaultPointerAlignment;
 	}
 
-	// ALIGNMENTS BASED ON SIZE
-
 	/**
 	 * Gets the alignment that is defined for a data type of the indicated size if one is defined.
 	 * @param size the size of the data type
@@ -439,12 +389,20 @@ public class DataOrganizationImpl implements DataOrganization {
 	}
 
 	/**
-	 * Gets the alignment that is defined for a data type of the indicated size if one is defined.
+	 * Sets the alignment that is defined for a data type of the indicated size if one is defined.
 	 * @param size the size of the data type
 	 * @param alignment the alignment of the data type.
 	 */
 	public void setSizeAlignment(int size, int alignment) {
 		sizeAlignmentMap.put(size, alignment);
+	}
+
+	/**
+	 * Set the bitfield packing information associated with this data organization.
+	 * @param bitFieldPacking bitfield packing information
+	 */
+	public void setBitFieldPacking(BitFieldPacking bitFieldPacking) {
+		this.bitFieldPacking = bitFieldPacking;
 	}
 
 	/**
@@ -504,13 +462,6 @@ public class DataOrganizationImpl implements DataOrganization {
 		return ctype;
 	}
 
-	/**
-	 * Determines the alignment value for the indicated data type. (i.e. how the dat type gets
-	 * aligned within other data types.)
-	 * @param dataType the data type
-	 * @param dtSize the data type's size
-	 * @return the alignment
-	 */
 	@Override
 	public int getAlignment(DataType dataType, int dtSize) {
 		// Don't do alignment on dynamic data types.
@@ -538,7 +489,14 @@ public class DataOrganizationImpl implements DataOrganization {
 		// Structure's or Union's alignment is a multiple of the least common multiple of
 		// the components. It can also be adjusted by packing and alignment attributes.
 		if (dataType instanceof Composite) {
-			return getAlignment((Composite) dataType);
+			// IMPORTANT: composites are now responsible for computing their own alignment !!
+			return ((Composite) dataType).getAlignment();
+		}
+		// Bit field alignment must be determined within the context of the containing structure.
+		// See AlignedStructurePacker.
+		if (dataType instanceof BitFieldDataType) {
+			BitFieldDataType bitfieldDt = (BitFieldDataType) dataType;
+			return getAlignment(bitfieldDt.getBaseDataType(), bitfieldDt.getBaseTypeSize());
 		}
 		// Otherwise get the alignment based on the size.
 		if (sizeAlignmentMap.contains(dtSize)) {
@@ -583,6 +541,7 @@ public class DataOrganizationImpl implements DataOrganization {
 		if (dataType instanceof Pointer) {
 			return 0;
 		}
+
 		// Structure's or Union's alignment is a multiple of the least common multiple of
 		// the components. It can also be adjusted by packing and alignment attributes.
 		if (dataType instanceof Composite) {
@@ -599,14 +558,10 @@ public class DataOrganizationImpl implements DataOrganization {
 
 			// Check each component and get the least common multiple of their forced minimum alignments.
 			int componentForcedLCM = 0;
-			DataTypeComponent[] dataTypeComponents;
-			if (composite instanceof Structure) {
-				dataTypeComponents = ((Structure) composite).getDefinedComponents();
-			}
-			else {
-				dataTypeComponents = composite.getComponents();
-			}
-			for (DataTypeComponent dataTypeComponent : dataTypeComponents) {
+			for (DataTypeComponent dataTypeComponent : composite.getDefinedComponents()) {
+				if (dataTypeComponent.isBitFieldComponent()) {
+					continue;
+				}
 				DataType componentDt = dataTypeComponent.getDataType();
 				int forcedAlignment = getForcedAlignment(componentDt);
 				if (forcedAlignment > 0) {
@@ -633,66 +588,6 @@ public class DataOrganizationImpl implements DataOrganization {
 		}
 		// Otherwise not forcing alignment.
 		return 0;
-	}
-
-	private int getComponentAlignmentMultiple(Composite dataType) {
-		int allComponentsLCM = 1;
-		int packingValue = dataType.getPackingValue();
-		DataTypeComponent[] dataTypeComponents = dataType.getComponents();
-		for (DataTypeComponent dataTypeComponent : dataTypeComponents) {
-			allComponentsLCM =
-				getComponentAlignmentLCM(allComponentsLCM, packingValue, dataTypeComponent);
-		}
-		if (dataType instanceof Structure) {
-			Structure struct = (Structure) dataType;
-			DataTypeComponent flexibleArrayComponent = struct.getFlexibleArrayComponent();
-			if (flexibleArrayComponent != null) {
-				allComponentsLCM = getComponentAlignmentLCM(allComponentsLCM, packingValue,
-					flexibleArrayComponent);
-			}
-		}
-		return allComponentsLCM;
-	}
-
-	private int getComponentAlignmentLCM(int allComponentsLCM, int packingValue,
-			DataTypeComponent component) {
-		DataType componentDt = component.getDataType();
-		int dtSize = componentDt.getLength();
-		if (dtSize <= 0) {
-			dtSize = component.getLength();
-		}
-		int componentAlignment = getAlignment(componentDt, dtSize);
-		int componentForcedAlignment = getForcedAlignment(componentDt);
-		boolean componentForcingAlignment = componentForcedAlignment > 0;
-		if (componentForcingAlignment) {
-			componentAlignment =
-				getLeastCommonMultiple(componentAlignment, componentForcedAlignment);
-		}
-		// Only do packing if we are not forcing an alignment.
-		if (packingValue != Composite.NOT_PACKING) { // TODO Should this be packingValue > 0?
-			if (componentForcedAlignment > packingValue) {
-				componentAlignment = componentForcedAlignment;
-			}
-			else if (componentAlignment > packingValue) {
-				componentAlignment = packingValue;
-			}
-		}
-		allComponentsLCM = getLeastCommonMultiple(allComponentsLCM, componentAlignment);
-		return allComponentsLCM;
-	}
-
-	private int getAlignment(Composite dataType) {
-		if (!dataType.isInternallyAligned()) {
-			return 1; // Unaligned
-		}
-		int lcm = getComponentAlignmentMultiple(dataType);
-		int minimumAlignment = dataType.getMinimumAlignment();
-		if ((minimumAlignment != Composite.DEFAULT_ALIGNMENT_VALUE) &&
-			(lcm % minimumAlignment != 0)) {
-			lcm = getLeastCommonMultiple(lcm, minimumAlignment);
-		}
-		return ((absoluteMaxAlignment == 0) || (lcm < absoluteMaxAlignment)) ? lcm
-				: absoluteMaxAlignment;
 	}
 
 	/**

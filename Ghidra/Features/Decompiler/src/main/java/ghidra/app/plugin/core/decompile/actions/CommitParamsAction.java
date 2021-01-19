@@ -17,31 +17,23 @@ package ghidra.app.plugin.core.decompile.actions;
 
 import java.awt.event.KeyEvent;
 
-import docking.ActionContext;
-import docking.action.*;
-import ghidra.app.decompiler.ClangFunction;
-import ghidra.app.decompiler.ClangToken;
-import ghidra.app.decompiler.component.DecompilerController;
-import ghidra.app.decompiler.component.DecompilerPanel;
+import docking.action.KeyBindingData;
+import docking.action.MenuData;
 import ghidra.app.plugin.core.decompile.DecompilerActionContext;
-import ghidra.framework.plugintool.PluginTool;
-import ghidra.program.model.listing.Function;
+import ghidra.app.util.HelpTopics;
 import ghidra.program.model.listing.Program;
 import ghidra.program.model.pcode.HighFunction;
 import ghidra.program.model.pcode.HighFunctionDBUtil;
 import ghidra.program.model.symbol.SourceType;
+import ghidra.util.HelpLocation;
 import ghidra.util.Msg;
-import ghidra.util.UndefinedFunction;
 import ghidra.util.exception.*;
 
-public class CommitParamsAction extends DockingAction {
-	private final DecompilerController controller;
-	private final PluginTool tool;
+public class CommitParamsAction extends AbstractDecompilerAction {
 
-	public CommitParamsAction(String owner, PluginTool tool, DecompilerController controller) {
-		super("Commit Params/Return", owner);
-		this.tool = tool;
-		this.controller = controller;
+	public CommitParamsAction() {
+		super("Commit Params/Return");
+		setHelpLocation(new HelpLocation(HelpTopics.DECOMPILER, "ActionCommitParams"));
 		setPopupMenuData(new MenuData(new String[] { "Commit Params/Return" }, "Commit"));
 		setKeyBindingData(new KeyBindingData(KeyEvent.VK_P, 0));
 		setDescription(
@@ -49,49 +41,26 @@ public class CommitParamsAction extends DockingAction {
 	}
 
 	@Override
-	public boolean isEnabledForContext(ActionContext context) {
-		if (!(context instanceof DecompilerActionContext)) {
+	protected boolean isEnabledForDecompilerContext(DecompilerActionContext context) {
+		if (!context.hasRealFunction()) {
 			return false;
 		}
-
-		DecompilerActionContext decompilerActionContext = (DecompilerActionContext) context;
-		if (decompilerActionContext.isDecompiling()) {
-			// Let this through here and handle it in actionPerformed().  This lets us alert 
-			// the user that they have to wait until the decompile is finished.  If we are not
-			// enabled at this point, then the keybinding will be propagated to the global 
-			// actions, which is not what we want.
-			return true;
-		}
-
-		Function function = controller.getFunction();
-		if (function == null || function instanceof UndefinedFunction) {
-			return false;
-		}
-		return getHighFunction() != null;
+		return context.getHighFunction() != null;
 	}
 
 	@Override
-	public void actionPerformed(ActionContext context) {
-		// Note: we intentionally do this check here and not in isEnabledForContext() so 
-		// that global events do not get triggered.
-		DecompilerActionContext decompilerActionContext = (DecompilerActionContext) context;
-		if (decompilerActionContext.isDecompiling()) {
-			Msg.showInfo(getClass(), context.getComponentProvider().getComponent(),
-				"Decompiler Action Blocked",
-				"You cannot perform Decompiler actions while the Decompiler is busy");
-			return;
-		}
-
-		Program program = controller.getProgram();
+	protected void decompilerActionPerformed(DecompilerActionContext context) {
+		Program program = context.getProgram();
 		int transaction = program.startTransaction("Commit Params/Return");
 		try {
-			HighFunction hfunc = getHighFunction();
+			HighFunction hfunc = context.getHighFunction();
 			SourceType source = SourceType.ANALYSIS;
 			if (hfunc.getFunction().getSignatureSource() == SourceType.USER_DEFINED) {
 				source = SourceType.USER_DEFINED;
 			}
-			HighFunctionDBUtil.commitParamsToDatabase(hfunc, true, source);
+
 			HighFunctionDBUtil.commitReturnToDatabase(hfunc, source);
+			HighFunctionDBUtil.commitParamsToDatabase(hfunc, true, source);
 		}
 		catch (DuplicateNameException e) {
 			throw new AssertException("Unexpected exception", e);
@@ -102,22 +71,6 @@ public class CommitParamsAction extends DockingAction {
 		finally {
 			program.endTransaction(transaction, true);
 		}
-	}
 
-	private HighFunction getHighFunction() {
-		DecompilerPanel decompilerPanel = controller.getDecompilerPanel();
-		ClangToken tokenAtCursor = decompilerPanel.getTokenAtCursor();
-
-		// getTokenAtCursor can explicitly return null, so we must check here
-		// before dereferencing it.
-		if (tokenAtCursor == null) {
-			return null;
-		}
-
-		ClangFunction clfunc = tokenAtCursor.getClangFunction();
-		if (clfunc == null) {
-			return null;
-		}
-		return clfunc.getHighFunction();
 	}
 }

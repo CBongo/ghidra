@@ -15,7 +15,7 @@
  */
 package docking.widgets.table.threaded;
 
-import static org.hamcrest.CoreMatchers.is;
+import static org.hamcrest.CoreMatchers.*;
 import static org.junit.Assert.*;
 
 import java.awt.BorderLayout;
@@ -57,15 +57,14 @@ public abstract class AbstractThreadedTableTest extends AbstractDockingTest {
 			table = threadedTablePanel.getTable();
 			header = table.getTableHeader();
 
-			buildFrame();
+			buildFrame(threadedTablePanel);
 		});
-
 	}
 
 	protected abstract TestDataKeyModel createTestModel();
 
 	protected TestThreadedTableModelListener createListener() {
-		return new TestThreadedTableModelListener();
+		return new TestThreadedTableModelListener(model);
 	}
 
 	@After
@@ -74,11 +73,11 @@ public abstract class AbstractThreadedTableTest extends AbstractDockingTest {
 		dispose();
 	}
 
-	protected void buildFrame() {
+	protected void buildFrame(GThreadedTablePanel<Long> tablePanel) {
 		runSwing(() -> {
 			frame = new JFrame("Threaded Table Test");
 			frame.getContentPane().setLayout(new BorderLayout());
-			frame.getContentPane().add(new JScrollPane(threadedTablePanel));
+			frame.getContentPane().add(new JScrollPane(tablePanel));
 			frame.pack();
 			frame.setVisible(true);
 		});
@@ -86,16 +85,16 @@ public abstract class AbstractThreadedTableTest extends AbstractDockingTest {
 
 	protected void dispose() {
 		close(frame);
-		threadedTablePanel.dispose();
+		runSwing(threadedTablePanel::dispose);
 	}
 
 	protected void addItemToModel(long value) {
-		model.addObject(new Long(value));
+		model.addObject(Long.valueOf(value));
 		waitForTableModel(model);
 	}
 
 	protected void removeItemFromModel(int value) {
-		model.removeObject(new Long(value));
+		model.removeObject(Long.valueOf(value));
 		waitForTableModel(model);
 	}
 
@@ -161,10 +160,20 @@ public abstract class AbstractThreadedTableTest extends AbstractDockingTest {
 
 		SortedTableModel sortedModel = (SortedTableModel) table.getModel();
 		TableSortState sortState = getSortState(sortedModel);
-		ColumnSortState originalColumnSortState = sortState.iterator().next();
-		int currentSortedIndex = originalColumnSortState.getColumnModelIndex();
-		boolean checkSortDirection = (columnToClick == currentSortedIndex);
-		boolean isAscending = originalColumnSortState.isAscending();
+		record("sortByClick() - initial sort state: " + sortState);
+
+		int currentSortColunn = -1;
+		boolean isAscending = true;
+		boolean checkSortDirection = false;
+		if (!sortState.isUnsorted()) {
+
+			// check to see if the tests is clicking the same column twice (to change the 
+			// sort direction)
+			ColumnSortState originalColumnSortState = sortState.iterator().next();
+			currentSortColunn = originalColumnSortState.getColumnModelIndex();
+			checkSortDirection = (columnToClick == currentSortColunn);
+			isAscending = originalColumnSortState.isAscending();
+		}
 
 		testTableModelListener.reset(model);
 		Rectangle rect = header.getHeaderRect(columnToClick);
@@ -172,10 +181,14 @@ public abstract class AbstractThreadedTableTest extends AbstractDockingTest {
 			waitForPostedSwingRunnables();
 		}
 
+		record("Clicking table at column " + columnToClick);
 		clickMouse(header, MouseEvent.BUTTON1, rect.x + 10, rect.y + 10, 1, modifiers);
 		waitForNotBusy();
+		record("\tafter click; table not busy");
 
 		sortState = getSortState(sortedModel);
+		record("Updated sort state: " + sortState);
+
 		ColumnSortState columnSortState = sortState.iterator().next();
 		int sortedIndex = columnSortState.getColumnModelIndex();
 		verifyColumnSorted(sortedIndex, sortState);
@@ -188,10 +201,8 @@ public abstract class AbstractThreadedTableTest extends AbstractDockingTest {
 		}
 	}
 
-	protected TableSortState getSortState(final SortedTableModel sortedModel) {
-		final TableSortState[] box = new TableSortState[1];
-		runSwing(() -> box[0] = sortedModel.getTableSortState());
-		return box[0];
+	protected TableSortState getSortState(SortedTableModel sortedModel) {
+		return runSwing(() -> sortedModel.getTableSortState());
 	}
 
 	protected void removeSortByClicking(int columnToClick) throws Exception {
@@ -212,26 +223,41 @@ public abstract class AbstractThreadedTableTest extends AbstractDockingTest {
 		assertNotNull(columnSortState);
 	}
 
+	protected void resetBusyListener() {
+		testTableModelListener.reset(model);
+	}
+
 	protected void waitForNotBusy() {
 		sleep(50);
-		int nWaits = 0;
-		int maxWaits = 500;
-		while (!testTableModelListener.doneWork() && nWaits++ < maxWaits) {
-			sleep(50);
-		}
-
-		assertTrue("Timed-out waiting for table model to update.", nWaits < maxWaits);
+		waitForCondition(() -> testTableModelListener.doneWork(),
+			"Timed-out waiting for table model to update.");
 		waitForSwing();
 	}
 
 	protected void addLong(final long value) {
-		runSwing(() -> model.addObject(new Long(value)));
+		runSwing(() -> model.addObject(Long.valueOf(value)));
+	}
+
+	protected int getRowCount() {
+		return runSwing(() -> model.getRowCount());
+	}
+
+	protected int getUnfilteredRowCount() {
+		return runSwing(() -> model.getUnfilteredRowCount());
+	}
+
+	protected List<Long> getModelData() {
+		return runSwing(() -> model.getModelData());
+	}
+
+	protected void record(String message) {
+		// no-op for base class; subclasses know how to record debug
 	}
 
 	protected void assertRowCount(int expectedCount) {
 		int rowCount = model.getRowCount();
-		assertThat("Have different number of table rows than expected after filtering",
-			expectedCount, is(rowCount));
+		assertThat("Have different number of table rows than expected after filtering", rowCount,
+			is(expectedCount));
 	}
 
 	protected void assertNoRowsFilteredOut() {

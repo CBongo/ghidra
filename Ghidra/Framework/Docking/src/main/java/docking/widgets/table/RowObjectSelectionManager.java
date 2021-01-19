@@ -22,7 +22,6 @@ import java.util.*;
 
 import javax.swing.*;
 import javax.swing.event.*;
-import javax.swing.table.TableModel;
 
 import org.apache.commons.collections4.map.LazyMap;
 import org.apache.logging.log4j.LogManager;
@@ -40,17 +39,8 @@ import utilities.util.reflection.ReflectionUtilities;
  * filtered, the contents change (and then change back when the filter is removed).  It is nice
  * to be able to filter a table, select an item of interest, and then unfilter the table to see
  * that item in more context.
- * <p>
- * Notes on usage:
- * <ul>
- * 		<li>Some table models are sensitive to the order in which {@link TableModel#tableChanged()}
- * 		 is called.  These models should either not use this SelectionManger, or need to
- * 		 change their code to be more robust.  As an example, the {@link DefaultSortedTableModel}
- * 	     updates its indexes in odd ways.   Further, there is a chance that the state of its
- *       indexing is incorrect when <tt>tableChanged</tt> is called.  So, that model has to
- *       account for the fact that it may get called by this class when it is in a bad state.
- *       </li>
- * </ul>
+ * 
+ * @param <T> the row type 
  */
 public class RowObjectSelectionManager<T> extends DefaultListSelectionModel
 		implements SelectionManager {
@@ -107,14 +97,6 @@ public class RowObjectSelectionManager<T> extends DefaultListSelectionModel
 
 		modelAdapter.addTableModelListener(this);
 		installListSelectionListener();
-	}
-
-	/**
-	 * Sets the logger used by this class.  Useful for debugging individual table issues.
-	 */
-	@Override
-	public void setLogger(Logger logger) {
-		this.log = logger;
 	}
 
 	@Override
@@ -411,21 +393,22 @@ public class RowObjectSelectionManager<T> extends DefaultListSelectionModel
 			return; // either no previous selection, or selection has been filtered out
 		}
 
-		restoreSelectedRows(selectedViewRows);
+		if (restoreSelectedRows(selectedViewRows)) {
 
-		// scroll to the beginning of the selection
-		Rectangle cellRect = table.getCellRect(selectedViewRows[0], 0, true);
-		if (cellRect != null) {
-			table.scrollRectToVisible(cellRect);
+			// scroll to the beginning of the selection
+			Rectangle cellRect = table.getCellRect(selectedViewRows[0], 0, true);
+			if (cellRect != null) {
+				table.scrollRectToVisible(cellRect);
+			}
 		}
 	}
 
-	private void restoreSelectedRows(int[] rows) {
+	private boolean restoreSelectedRows(int[] rows) {
 		traceRows("restoreSelectedRows(): ", rows);
 		if (ArrayUtilities.isArrayPrimativeEqual(rows, table.getSelectedRows())) {
 			trace("\tselection hasn't changed--nothing to do");
 			// the selection is the same, nothing to change; don't send out excess events
-			return;
+			return false;
 		}
 
 		trace("\tpreparing to restore selection");
@@ -443,6 +426,7 @@ public class RowObjectSelectionManager<T> extends DefaultListSelectionModel
 		restoringSelection = false;
 		notifyRestoringSelection(false);
 		trace("\tdone restoring selection");
+		return true;
 	}
 
 	private void notifyRestoringSelection(boolean isPreRestore) {

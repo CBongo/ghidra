@@ -20,6 +20,8 @@ import java.awt.Component;
 import javax.swing.JComponent;
 import javax.swing.table.TableCellRenderer;
 
+import docking.widgets.GComponent;
+
 public class DefaultTableCellRendererWrapper extends GTableCellRenderer {
 
 	private final TableCellRenderer renderer;
@@ -35,14 +37,14 @@ public class DefaultTableCellRendererWrapper extends GTableCellRenderer {
 	/**
 	 * Enables and disables the rendering of HTML content in this renderer.  If enabled, this
 	 * renderer will interpret HTML content when the text this renderer is showing begins with 
-	 * <tt>&lt;html&gt;</tt>
+	 * {@code <html>}
 	 * 
 	 * @param enable true to enable HTML rendering; false to disable it
 	 */
 	@Override
 	public void setHTMLRenderingEnabled(boolean enable) {
 		if (renderer instanceof JComponent) {
-			((JComponent) renderer).putClientProperty(HTML_DISABLE_STRING, !enable);
+			((JComponent) renderer).putClientProperty(GComponent.HTML_DISABLE_STRING, !enable);
 		}
 		super.setHTMLRenderingEnabled(enable);
 	}

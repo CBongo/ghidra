@@ -1,6 +1,5 @@
 /* ###
  * IP: GHIDRA
- * REVIEWED: YES
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,14 +15,14 @@
  */
 package ghidra.program.model.listing;
 
+import java.util.List;
+
 import ghidra.program.model.address.Address;
 import ghidra.program.model.address.UniqueAddressFactory;
 import ghidra.program.model.lang.*;
 import ghidra.program.model.pcode.PcodeOp;
 import ghidra.program.model.symbol.FlowType;
 import ghidra.program.model.symbol.RefType;
-
-import java.util.List;
 
 /**
  * Interface to define an instruction for a processor.
@@ -101,6 +100,8 @@ public interface Instruction extends CodeUnit, ProcessorContext {
 	 *
 	 * @param opIndex the index of the operand. (zero based)
 	 * @return the type of the operand.
+	 *
+	 * @see OperandType
 	 */
 	public int getOperandType(int opIndex);
 
@@ -198,7 +199,7 @@ public interface Instruction extends CodeUnit, ProcessorContext {
 	 * performs.  NOTE: If includeOverrides is true, unique temporary varnodes
 	 * may be produced which vary in size to those produced for other instructions.
 	 * If your analysis is sensitive to this you should consider using 
-	 * {@link InstructionPrototype#getPcode(ghidra.program.model.mem.MemBuffer, ProcessorContext, FlowOverride, ghidra.program.model.address.UniqueAddressFactory)}
+	 * {@link InstructionPrototype#getPcode(InstructionContext, PcodeOverride, UniqueAddressFactory)}
 	 * instead with your own {@link UniqueAddressFactory} to prevent duplication within 
 	 * your scope of analysis.
 	 * by this method may not be suitable for use with certain analysis
@@ -265,7 +266,7 @@ public interface Instruction extends CodeUnit, ProcessorContext {
 	public boolean isFallThroughOverridden();
 
 	/**
-	 * @returns the instruction context for this instruction
+	 * @return the instruction context for this instruction
 	 */
 	public InstructionContext getInstructionContext();
 

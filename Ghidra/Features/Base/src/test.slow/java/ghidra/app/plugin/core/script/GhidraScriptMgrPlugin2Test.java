@@ -15,8 +15,7 @@
  */
 package ghidra.app.plugin.core.script;
 
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.*;
 
 import java.io.*;
 
@@ -24,9 +23,11 @@ import org.apache.logging.log4j.*;
 import org.apache.logging.log4j.core.config.Configurator;
 import org.junit.Test;
 
+import docking.test.AbstractDockingTest;
 import docking.widgets.table.SelectionManager;
 import generic.jar.ResourceFile;
-import generic.test.AbstractGenericTest;
+import generic.test.AbstractGTest;
+import ghidra.app.plugin.core.osgi.GhidraSourceBundle;
 import ghidra.app.script.GhidraScriptUtil;
 import ghidra.app.script.JavaScriptProvider;
 import ghidra.test.ScriptTaskListener;
@@ -55,49 +56,7 @@ public class GhidraScriptMgrPlugin2Test extends AbstractGhidraScriptMgrPluginTes
 		String consoleText = getConsoleText();
 		assertTrue("ConsoleText was \"" + consoleText + "\".",
 			consoleText.indexOf("> Hello World") >= 0);
-	}
 
-	@Test
-	public void testRunLastScriptActionWithDifferentRowSelected() throws Exception {
-
-		//
-		// Run a script once...
-		//
-		String scriptName = "HelloWorldScript.java";
-		selectScript(scriptName);
-		String fullOutput = runScript(scriptName);
-		String expectedOutput = "Hello World";
-		assertTrue("Script did not run - output: " + fullOutput,
-			fullOutput.indexOf(expectedOutput) != -1);
-
-		selectScript("PrintStructureScript.java");// note: this script will error out
-
-		//
-		// Run the script again
-		//
-		fullOutput = runLastScript(scriptName);
-		assertTrue("Did not rerun last run script", fullOutput.indexOf(expectedOutput) != -1);
-	}
-
-	@Test
-	public void testRunLastScriptActionWithScriptProviderClosed() throws Exception {
-		//
-		// Run a script once...
-		//
-		String scriptName = "HelloWorldScript.java";
-		selectScript(scriptName);
-		String fullOutput = runScript(scriptName);
-		String expectedOutput = "Hello World";
-		assertTrue("Script did not run - output: " + fullOutput,
-			fullOutput.indexOf(expectedOutput) != -1);
-
-		closeScriptProvider();
-
-		//
-		// Run the script again
-		//
-		fullOutput = runGlobalLastScriptAction(scriptName);
-		assertTrue("Did not rerun last run script", fullOutput.indexOf(expectedOutput) != -1);
 	}
 
 	@Test
@@ -117,6 +76,7 @@ public class GhidraScriptMgrPlugin2Test extends AbstractGhidraScriptMgrPluginTes
 		// Test that if a user uses a parent class other than GhidraScript, that parent
 		// class will get recompiled when it changes.
 		//
+
 		ResourceFile parentScriptFile = createTempScriptFile("AbstractParentScript");
 
 		String v1Message = "Hello from version 1";
@@ -139,7 +99,6 @@ public class GhidraScriptMgrPlugin2Test extends AbstractGhidraScriptMgrPluginTes
 
 	@Test
 	public void testScriptWithParentInPackageRecompile() throws Exception {
-
 		final String parentName = "ParentInPackageScript";
 		final String packageName = parentName + "Pkg";
 
@@ -166,7 +125,6 @@ public class GhidraScriptMgrPlugin2Test extends AbstractGhidraScriptMgrPluginTes
 		// Test that compiling a script to the user's script dir will use a bin dir for the
 		// output.
 		//
-
 		// create a new dummy script
 		File userScriptsDir = new File(GhidraScriptUtil.USER_SCRIPTS_DIR);
 		String rawScriptName = testName.getMethodName();
@@ -191,10 +149,14 @@ public class GhidraScriptMgrPlugin2Test extends AbstractGhidraScriptMgrPluginTes
 		assertTrue("Unable to delete class files from the user scripts directory", isEmpty);
 
 		// remove all class files from the user script bin dir
-		File userScriptsBinDir = new File(GhidraScriptUtil.USER_SCRIPTS_BIN_DIR);
-		File[] userScriptBinDirFiles = userScriptsBinDir.listFiles(classFileFilter);
-		for (File file : userScriptBinDirFiles) {
-			file.delete();
+		File userScriptsBinDir =
+			GhidraSourceBundle.getBindirFromScriptFile(new ResourceFile(newScriptFile)).toFile();
+		File[] userScriptBinDirFiles;
+		if (userScriptsBinDir.exists()) {
+			userScriptBinDirFiles = userScriptsBinDir.listFiles(classFileFilter);
+			for (File file : userScriptBinDirFiles) {
+				file.delete();
+			}
 		}
 		userScriptBinDirFiles = userScriptsDir.listFiles(classFileFilter);
 		isEmpty = userScriptBinDirFiles == null || userScriptBinDirFiles.length == 0;
@@ -223,7 +185,6 @@ public class GhidraScriptMgrPlugin2Test extends AbstractGhidraScriptMgrPluginTes
 		// Tests that a system script will not get compiled to the source tree in which it lives,
 		// but will instead get compiled to the user scripts directory
 		//
-
 		// find a system script
 		String scriptName = "HelloWorldScript.java";
 		ResourceFile systemScriptFile = findScript(scriptName);
@@ -233,11 +194,12 @@ public class GhidraScriptMgrPlugin2Test extends AbstractGhidraScriptMgrPluginTes
 		waitForScriptCompletion(scriptID, 20000);
 
 		// verify that the generated class file is placed in the default scripting home/bin
-		File userScriptsBinDir = new File(GhidraScriptUtil.USER_SCRIPTS_BIN_DIR);
+		File userScriptsBinDir =
+			GhidraSourceBundle.getBindirFromScriptFile(systemScriptFile).toFile();
 		String className = scriptName.replace(".java", ".class");
 		File expectedClassFile = new File(userScriptsBinDir, className);
 
-		assertTrue("System script not compiled to the exptected directory",
+		assertTrue("System script not compiled to the expected directory",
 			expectedClassFile.exists());
 	}
 
@@ -247,34 +209,41 @@ public class GhidraScriptMgrPlugin2Test extends AbstractGhidraScriptMgrPluginTes
 		// Tests that we can create a user-defined scripts directory and that compiling a
 		// script will put the output in the bin directory under the user settings directory.
 		//
-
 		// create a user-defined directory
-		File tempDir = new File(AbstractGenericTest.getTestDirectoryPath());
+		File tempDir = new File(AbstractGTest.getTestDirectoryPath());
 		File tempScriptDir = new File(tempDir, "TestScriptDir");
 		FileUtilities.deleteDir(tempScriptDir);
 		tempScriptDir.mkdir();
 
-		addScriptPath(tempScriptDir);
+		ResourceFile scriptDir = new ResourceFile(tempScriptDir);
+		provider.getBundleHost().enable(scriptDir);
 
-		// create a script file in that directory
-		String rawScriptName = testName.getMethodName();
-		String scriptFilename = rawScriptName + ".java";
-		File newScriptFile = new File(tempScriptDir, scriptFilename);
+		try {
+			// create a script file in that directory
+			String rawScriptName = testName.getMethodName();
+			String scriptFilename = rawScriptName + ".java";
+			ResourceFile newScriptFile = new ResourceFile(scriptDir, scriptFilename);
 
-		JavaScriptProvider scriptProvider = new JavaScriptProvider();
-		scriptProvider.createNewScript(new ResourceFile(newScriptFile), null);
+			JavaScriptProvider scriptProvider = new JavaScriptProvider();
+			scriptProvider.createNewScript(newScriptFile, null);
 
-		// compile the script
-		ScriptTaskListener scriptID = env.runScript(newScriptFile);
-		waitForScriptCompletion(scriptID, 20000);
+			// compile the script
+			ScriptTaskListener scriptID = env.runScript(newScriptFile.getFile(false));
+			waitForScriptCompletion(scriptID, 20000);
 
-		// verify a bin dir was created and that the class file is in it
-		File binDir = new File(GhidraScriptUtil.USER_SCRIPTS_BIN_DIR);
-		assertTrue("bin output dir not created", binDir.exists());
+			// verify a bin dir was created and that the class file is in it
+			File binDir = GhidraSourceBundle.getBindirFromScriptFile(newScriptFile).toFile();
+			assertTrue("bin output dir not created", binDir.exists());
 
-		File scriptClassFile = new File(binDir, rawScriptName + ".class");
-		assertTrue("Script not compiled to the user-defined script directory",
-			scriptClassFile.exists());
+			File scriptClassFile = new File(binDir, rawScriptName + ".class");
+			assertTrue("Script not compiled to the user-defined script directory",
+				scriptClassFile.exists());
+
+			deleteFile(newScriptFile);
+		}
+		finally {
+			deleteFile(scriptDir);
+		}
 	}
 
 	@Test
@@ -288,8 +257,8 @@ public class GhidraScriptMgrPlugin2Test extends AbstractGhidraScriptMgrPluginTes
 
 		chooseJavaProvider();
 
-		SaveDialog sd = env.waitForDialogComponent(SaveDialog.class, MAX_TIME);
-		pressButtonByText(sd, "OK");
+		SaveDialog saveDialog = AbstractDockingTest.waitForDialogComponent(SaveDialog.class);
+		pressButtonByText(saveDialog, "OK");
 
 		refreshProvider();
 
@@ -316,7 +285,7 @@ public class GhidraScriptMgrPlugin2Test extends AbstractGhidraScriptMgrPluginTes
 		assertScriptManagerForgotAbout(oldScript);
 		assertScriptManagerKnowsAbout(newScript);
 
-		newScript.delete();
+		deleteFile(newScript);
 	}
 
 	@Test
@@ -411,12 +380,13 @@ public class GhidraScriptMgrPlugin2Test extends AbstractGhidraScriptMgrPluginTes
 
 		assertFileSaved(script, changedContents);
 		assertFileInEditor(script);
+
+		deleteFile(script);
 	}
 
 	@Test
 	public void testSaveAsDoesNotAllowOverwriteExistingFileThatScriptManagerDoesNotYetKnowAbout()
 			throws Exception {
-
 		//
 		// In this scenario the script manager does not 'know' about the script in question
 		// since we have created it 'behind the scenes'
@@ -438,6 +408,7 @@ public class GhidraScriptMgrPlugin2Test extends AbstractGhidraScriptMgrPluginTes
 		loadTempScriptIntoEditor();
 
 		assertCannotPerformSaveAsByNameDueToDuplicate(existingScript.getName());
+		deleteFile(existingScript);
 	}
 
 	@Test
@@ -466,7 +437,7 @@ public class GhidraScriptMgrPlugin2Test extends AbstractGhidraScriptMgrPluginTes
 	}
 
 	@Test
-	public void testSaveButtonEnablement() throws IOException {
+	public void testSaveButtonEnablement() throws Exception {
 		loadTempScriptIntoEditor();
 		assertSaveButtonDisabled();
 
@@ -495,12 +466,10 @@ public class GhidraScriptMgrPlugin2Test extends AbstractGhidraScriptMgrPluginTes
 
 	@Test
 	public void testScriptInstancesAreNotReused() throws Exception {
-
 		//
 		// Checks for the error where script fields accumulated state because script
 		// instances were reused.  Script instances should be recreated for each run.
 		//
-
 		ResourceFile script = createInstanceFieldScript();
 		String output = runScriptAndGetOutput(script);
 		assertContainsText("*1*", output);
@@ -512,12 +481,10 @@ public class GhidraScriptMgrPlugin2Test extends AbstractGhidraScriptMgrPluginTes
 
 	@Test
 	public void testStaticVariableSupport() throws Exception {
-
 		//
 		// If the script is not changed, do not reload, which allows for clients to use
 		// static variables to maintain state.
 		//
-
 		ResourceFile script = createStaticFieldScript();
 		String output = runScriptAndGetOutput(script);
 		assertContainsText("*1*", output);

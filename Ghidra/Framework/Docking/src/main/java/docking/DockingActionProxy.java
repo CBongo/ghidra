@@ -118,19 +118,13 @@ public class DockingActionProxy
 	}
 
 	@Override
-	public boolean isValidGlobalContext(ActionContext context) {
-		return dockingAction.isValidGlobalContext(context);
-	}
-
-	@Override
 	public void removePropertyChangeListener(PropertyChangeListener listener) {
 		propertyListeners.remove(listener);
 	}
 
 	@Override
-	public boolean setEnabled(boolean newValue) {
-		boolean oldValue = dockingAction.setEnabled(newValue);
-		return oldValue;
+	public void setEnabled(boolean newValue) {
+		dockingAction.setEnabled(newValue);
 	}
 
 	@Override
@@ -200,8 +194,8 @@ public class DockingActionProxy
 	}
 
 	@Override
-	public boolean isKeyBindingManaged() {
-		return dockingAction.isKeyBindingManaged();
+	public KeyBindingType getKeyBindingType() {
+		return dockingAction.getKeyBindingType();
 	}
 
 	@Override
@@ -212,6 +206,11 @@ public class DockingActionProxy
 	@Override
 	public void setUnvalidatedKeyBindingData(KeyBindingData newKeyBindingData) {
 		dockingAction.setUnvalidatedKeyBindingData(newKeyBindingData);
+	}
+
+	@Override
+	public void dispose() {
+		dockingAction.dispose();
 	}
 
 	@Override
@@ -226,6 +225,16 @@ public class DockingActionProxy
 
 	@Override
 	public String toString() {
-		return dockingAction.getName();
+		return dockingAction.toString();
+	}
+
+	@Override
+	public void setSupportsDefaultToolContext(boolean newValue) {
+		dockingAction.setSupportsDefaultToolContext(newValue);
+	}
+
+	@Override
+	public boolean supportsDefaultToolContext() {
+		return dockingAction.supportsDefaultToolContext();
 	}
 }

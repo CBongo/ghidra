@@ -23,17 +23,17 @@ import generic.jar.ResourceFile;
 import ghidra.util.Msg;
 
 /**
- * Handles processing for a .properties files associated with a GhidraScript (.properties file and
+ * Handles processing for .properties files associated with a GhidraScript (.properties file and
  * script should share the same basename).
  * 
- * This should only be called/used by the GhidraScript class. 
+ * <p>This should only be called/used by the GhidraScript class. 
  */
 public class GhidraScriptProperties {
 
 	private HashMap<String, String> propertiesMap;
 	private String baseName;
 
-	public GhidraScriptProperties() {
+	GhidraScriptProperties() {
 		propertiesMap = new HashMap<>();
 	}
 
@@ -43,6 +43,7 @@ public class GhidraScriptProperties {
 	 * 
 	 * @param scriptLocation  location of the GhidraScript
 	 * @param newBaseName  name of the GhidraScript (without the extension)
+	 * @throws IOException if there is an exception loading the properties file
 	 */
 	protected void loadGhidraScriptProperties(ResourceFile scriptLocation, String newBaseName)
 			throws IOException {
@@ -72,6 +73,9 @@ public class GhidraScriptProperties {
 		}
 	}
 
+	/**
+	 * @return the properties file name
+	 */
 	public String getFilename() {
 		return baseName + ".properties";
 	}
@@ -79,8 +83,9 @@ public class GhidraScriptProperties {
 	/**
 	 * Look for a .properties file corresponding to the basename in the given locations.
 	 * 
-	 * @param possibleLocations   possible locations where the .properties file can be found
-	 * @param basename	name of the GhidraScript (without the extension)
+	 * @param possibleLocations possible locations where the .properties file can be found
+	 * @param newBaseName name of the GhidraScript (without the extension)
+	 * @throws IOException if there is an exception loading the properties file
 	 */
 	protected void loadGhidraScriptProperties(List<ResourceFile> possibleLocations,
 			String newBaseName) throws IOException {
@@ -98,6 +103,7 @@ public class GhidraScriptProperties {
 	 * Load a .properties file.
 	 * 
 	 * @param file  the .properties file
+	 * @throws IOException if there is an exception loading the properties file
 	 */
 	protected void loadGhidraScriptProperties(ResourceFile file) throws IOException {
 
@@ -135,6 +141,10 @@ public class GhidraScriptProperties {
 		return propertiesMap.put(key.trim(), value);
 	}
 
+	/**
+	 * @param keyString the property name
+	 * @return the value of the key in the properties file, or an empty string if no property exists
+	 */
 	public String getValue(String keyString) {
 
 		if (propertiesMap.size() == 0) {
@@ -148,10 +158,19 @@ public class GhidraScriptProperties {
 		return "";
 	}
 
+	/**
+	 * @return true if there are no properties
+	 */
 	public boolean isEmpty() {
 		return (propertiesMap.size() == 0);
 	}
 
+	/**
+	 * Remove the named property
+	 * 
+	 * @param keyString the property name
+	 * @return the previous value or null
+	 */
 	protected String remove(String keyString) {
 		return propertiesMap.remove(keyString);
 	}
@@ -160,14 +179,25 @@ public class GhidraScriptProperties {
 		propertiesMap.clear();
 	}
 
+	/**
+	 * @param keyString a property name
+	 * @return true if the key exists in the property file
+	 */
 	public boolean containsKey(String keyString) {
 		return propertiesMap.containsKey(keyString);
 	}
 
+	/**
+	 * @param valueString a value string
+	 * @return true if any property has the given value
+	 */
 	public boolean containsValue(String valueString) {
 		return propertiesMap.containsValue(valueString);
 	}
 
+	/**
+	 * @return the property names for all properties
+	 */
 	public Set<String> keySet() {
 		return propertiesMap.keySet();
 	}

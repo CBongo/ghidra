@@ -23,7 +23,6 @@ import db.DBHandle;
 import db.buffers.BufferFile;
 import generic.test.AbstractGTest;
 import generic.test.AbstractGenericTest;
-import ghidra.app.util.importer.MemoryConflictHandler;
 import ghidra.app.util.xml.*;
 import ghidra.framework.data.DomainObjectAdapterDB;
 import ghidra.framework.model.*;
@@ -34,7 +33,8 @@ import ghidra.program.model.listing.Program;
 import ghidra.program.util.DefaultLanguageService;
 import ghidra.util.*;
 import ghidra.util.exception.*;
-import ghidra.util.task.*;
+import ghidra.util.task.ConsoleTaskMonitor;
+import ghidra.util.task.TaskMonitor;
 import utilities.util.FileUtilities;
 
 /**
@@ -57,7 +57,7 @@ public class TestProgramManager {
 	 * Open a read-only test program from the test data directory.
 	 * This program must be released prior to disposing this test environment.
 	 * NOTE: Some tests rely on this method returning null when file does
-	 * not yet exist within the resource area (e.g., CUnit binaries for Processor Tests)
+	 * not yet exist within the resource area (e.g., test binaries for P-Code Tests)
 	 *
 	 * @param progName name of program database within the test data directory.
 	 * @return program or null if program file not found
@@ -124,11 +124,14 @@ public class TestProgramManager {
 	/**
 	 * Save a program to the cached program store.  A SaveAs will be performed on the
 	 * program to its cached storage location.
+	 * 
 	 * @param progName program name
 	 * @param program program object
 	 * @param replace if true any existing cached database with the same name will be replaced
 	 * @param monitor task monitor
+	 * @throws IOException if the database cannot be created
 	 * @throws DuplicateNameException if already cached
+	 * @throws CancelledException if the save operation is cancelled
 	 */
 	public void saveToCache(String progName, ProgramDB program, boolean replace,
 			TaskMonitor monitor) throws IOException, DuplicateNameException, CancelledException {
@@ -206,7 +209,9 @@ public class TestProgramManager {
 	 * the only reason to use this method vice openProgram().
 	 *
 	 * @param project the project into which the file will be restored
-	 * @param programName the name of the program zip file without the ".gzf" extension.
+	 * @param programName the name of the program zip file without the ".gzf" extension
+	 * @return the file
+	 * @throws FileNotFoundException if the file cannot be found 
 	 */
 	public DomainFile addProgramToProject(Project project, String programName)
 			throws FileNotFoundException {
@@ -222,6 +227,8 @@ public class TestProgramManager {
 	 *
 	 * @param folder the folder into which the domain file will be inserted
 	 * @param programName the name of the program zip file without the ".gzf" extension.
+	 * @return the file
+	 * @throws FileNotFoundException if the file cannot be found 
 	 */
 	public DomainFile addProgramToProject(DomainFolder folder, String programName)
 			throws FileNotFoundException {
@@ -235,7 +242,7 @@ public class TestProgramManager {
 		int oneUp = 0;
 		while (true) {
 			try {
-				DomainFile df = folder.createFile(name, gzf, TaskMonitorAdapter.DUMMY_MONITOR);
+				DomainFile df = folder.createFile(name, gzf, TaskMonitor.DUMMY);
 				AbstractGenericTest.waitForPostedSwingRunnables();
 				DomainObject dobj = df.getDomainObject(this, true, false, null);
 				try {
@@ -282,7 +289,7 @@ public class TestProgramManager {
 		DBHandle dbh = null;
 		boolean success = false;
 		try {
-			dbh = db.open(TaskMonitorAdapter.DUMMY_MONITOR);
+			dbh = db.open(TaskMonitor.DUMMY);
 			program = new ProgramDB(dbh, DBConstants.UPDATE, null, this);
 			success = true;
 		}
@@ -313,7 +320,7 @@ public class TestProgramManager {
 			}
 
 			Msg.info(this, message + (endTime - startTime));
-			dbh = db.open(TaskMonitorAdapter.DUMMY_MONITOR);
+			dbh = db.open(TaskMonitor.DUMMY);
 			program = new ProgramDB(dbh, DBConstants.UPDATE, null, this);
 			dbh = null;
 			success = true;
@@ -342,7 +349,7 @@ public class TestProgramManager {
 		File gzf = AbstractGenericTest.findTestDataFile(programName + ".gzf");
 		if (gzf != null && gzf.exists()) {
 			Msg.info(this, "Unpacking: " + gzf);
-			db = new PrivateDatabase(dbDir, gzf, TaskMonitorAdapter.DUMMY_MONITOR);
+			db = new PrivateDatabase(dbDir, gzf, TaskMonitor.DUMMY);
 			testPrograms.put(programName, db);
 			return db;
 		}
@@ -387,7 +394,7 @@ public class TestProgramManager {
 		ProgramDB p = new ProgramDB(programName, language, compilerSpec, this);
 		int txId = p.startTransaction("Import");
 		try {
-			mgr.read(p, monitor, new XmlProgramOptions(), MemoryConflictHandler.ALWAYS_OVERWRITE);
+			mgr.read(p, monitor, new XmlProgramOptions());
 		}
 		finally {
 			p.endTransaction(txId, true);
@@ -452,12 +459,12 @@ public class TestProgramManager {
 
 	private void upgradeDatabase(PrivateDatabase db) throws Exception {
 
-		DBHandle dbh = db.openForUpdate(TaskMonitorAdapter.DUMMY_MONITOR);
+		DBHandle dbh = db.openForUpdate(TaskMonitor.DUMMY);
 		try {
 			ProgramDB program =
-				new ProgramDB(dbh, DBConstants.UPGRADE, TaskMonitorAdapter.DUMMY_MONITOR, this);
+				new ProgramDB(dbh, DBConstants.UPGRADE, TaskMonitor.DUMMY, this);
 			if (dbh != null) {
-				dbh.save(null, null, TaskMonitorAdapter.DUMMY_MONITOR);
+				dbh.save(null, null, TaskMonitor.DUMMY);
 			}
 			dbh = null;
 			program.release(this);

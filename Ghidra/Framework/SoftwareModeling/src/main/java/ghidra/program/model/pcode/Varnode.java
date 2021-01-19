@@ -50,7 +50,7 @@ public class Varnode {
 	public Varnode(Address a, int sz) {
 		address = a;
 		AddressSpace space = address.getAddressSpace();
-		spaceID = space.getBaseSpaceID();
+		spaceID = space.getSpaceID();
 		size = sz;
 		offset = address.getOffset();
 	}
@@ -127,7 +127,7 @@ public class Varnode {
 	 * @return true if this varnode contains the specified address
 	 */
 	public boolean contains(Address address) {
-		if (spaceID != address.getAddressSpace().getUniqueSpaceID()) {
+		if (spaceID != address.getAddressSpace().getSpaceID()) {
 			return false;
 		}
 		if (isConstant() || isUnique() || isHash()) {
@@ -193,7 +193,7 @@ public class Varnode {
 		}
 		for (AddressRange range : set.getAddressRanges()) {
 			Address minAddr = range.getMinAddress();
-			if (minAddr.getAddressSpace().getUniqueSpaceID() != spaceID) {
+			if (minAddr.getAddressSpace().getSpaceID() != spaceID) {
 				continue;
 			}
 			Address maxAddr = range.getMaxAddress();
@@ -244,7 +244,7 @@ public class Varnode {
 	}
 
 	public boolean isHash() {
-		return spaceID == AddressSpace.HASH_SPACE.getUniqueSpaceID();
+		return spaceID == AddressSpace.HASH_SPACE.getSpaceID();
 	}
 
 	/**
@@ -406,8 +406,10 @@ public class Varnode {
 	public static void appendSpaceOffset(StringBuilder buf, Address addr) {
 		AddressSpace space = addr.getAddressSpace();
 		if (space.isOverlaySpace()) {
-			space = space.getPhysicalSpace();
-			addr = space.getAddress(addr.getOffset());
+			if (space.getType() != AddressSpace.TYPE_OTHER) {
+				space = space.getPhysicalSpace();
+				addr = space.getAddress(addr.getOffset());
+			}
 		}
 		SpecXmlUtils.encodeStringAttribute(buf, "space", space.getName());
 		SpecXmlUtils.encodeUnsignedIntegerAttribute(buf, "offset", addr.getUnsignedOffset());
@@ -586,7 +588,7 @@ public class Varnode {
 		String localName = el.getName();
 		if (localName.equals("spaceid")) {
 			AddressSpace spc = addrFactory.getAddressSpace(el.getAttribute("name"));
-			int spaceid = spc.getBaseSpaceID();
+			int spaceid = spc.getSpaceID();
 			spc = addrFactory.getConstantSpace();
 			return spc.getAddress(spaceid);
 		}
@@ -611,7 +613,7 @@ public class Varnode {
 			AddressFactory addrFactory) {
 		if (localName.equals("spaceid")) {
 			AddressSpace spc = addrFactory.getAddressSpace(attr.getValue("name"));
-			int spaceid = spc.getBaseSpaceID();
+			int spaceid = spc.getSpaceID();
 			spc = addrFactory.getConstantSpace();
 			return spc.getAddress(spaceid);
 		}
@@ -656,7 +658,7 @@ public class Varnode {
 					if (nameend >= 0) {
 						AddressSpace spc =
 							addrfactory.getAddressSpace(addrstring.substring(attrstart, nameend));
-						int spaceid = spc.getBaseSpaceID();
+						int spaceid = spc.getSpaceID();
 						spc = addrfactory.getConstantSpace();
 						return spc.getAddress(spaceid);
 					}

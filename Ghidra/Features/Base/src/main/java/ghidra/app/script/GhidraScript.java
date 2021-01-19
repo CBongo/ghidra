@@ -17,11 +17,9 @@ package ghidra.app.script;
 
 import java.awt.Color;
 import java.io.*;
-import java.lang.reflect.Array;
 import java.lang.reflect.InvocationTargetException;
 import java.rmi.ConnectException;
 import java.util.*;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 import javax.swing.SwingUtilities;
@@ -75,7 +73,7 @@ import ghidra.util.table.AddressSetTableModel;
 import ghidra.util.task.TaskMonitor;
 
 /**
- * <h1>Ghidra Script Development.</h1>
+ * <h2>Ghidra Script Development.</h2>
  * In order to write a script:
  * <ol>
  * 	<li>Ghidra script must be written in Java.</li>
@@ -98,11 +96,11 @@ import ghidra.util.task.TaskMonitor;
  * 		}
  * 	}
  * </pre>
- * <h2>Ghidra Script State</h2>
+ * <h3>Ghidra Script State</h3>
  * <blockquote>
- * <p>
- * All scripts, when run, will be handed the current state in the form of class
- * instance variable. These variables are:</p>
+ * 
+ * <p>All scripts, when run, will be handed the current state in the form of class instance 
+ * variable. These variables are:
  * <ol>
  *   <li><code>currentProgram</code>: the active program</li>
  *   <li><code>currentAddress</code>: the address of the current cursor location in the tool</li>
@@ -115,7 +113,7 @@ import ghidra.util.task.TaskMonitor;
  * </ol>
  * </blockquote>
  *
- * <h2>Hello World Example</h2>
+ * <h3>Hello World Example</h3>
  * This example, when run, will simply print &quot;Hello World&quot; into the Ghidra console.
  * <pre>
  * 	public class HelloWorldScript extends GhidraScript {
@@ -131,6 +129,9 @@ import ghidra.util.task.TaskMonitor;
  * @see ghidra.program.model.listing.Program
  */
 public abstract class GhidraScript extends FlatProgramAPI {
+	// Stores last-selected value for askXxx() methods, used to pre-populate askXxx()
+	// GUI dialogs if they are run more than once
+	private static Map<String, Map<Class<?>, Object>> askMap = new HashMap<>();
 
 	protected ResourceFile sourceFile;
 	protected GhidraState state;
@@ -176,16 +177,19 @@ public abstract class GhidraScript extends FlatProgramAPI {
 		SUSPENDED
 	}
 
-	// Stores last-selected value for askXxx() methods, used to pre-populate askXxx()
-	// GUI dialogs if they are run more than once
-	private static Map<String, Map<Class<?>, Object>> askMap = new HashMap<>();
-
 	/**
 	 * The run method is where the script specific code is placed.
 	 * @throws Exception if any exception occurs.
 	 */
 	protected abstract void run() throws Exception;
 
+	/**
+	 * Set the context for this script.
+	 * 
+	 * @param state state object
+	 * @param monitor the monitor to use during run
+	 * @param writer the target of script "print" statements
+	 */
 	public final void set(GhidraState state, TaskMonitor monitor, PrintWriter writer) {
 		this.state = state;
 		this.monitor = monitor;
@@ -193,6 +197,14 @@ public abstract class GhidraScript extends FlatProgramAPI {
 		loadVariablesFromState();
 	}
 
+	/**
+	 * Execute/run script and {@link #doCleanup} afterwards.
+	 * 
+	 * @param runState state object
+	 * @param runMonitor the monitor to use during run
+	 * @param runWriter the target of script "print" statements
+	 * @throws Exception if the script excepts
+	 */
 	public final void execute(GhidraState runState, TaskMonitor runMonitor, PrintWriter runWriter)
 			throws Exception {
 		boolean success = false;
@@ -205,8 +217,8 @@ public abstract class GhidraScript extends FlatProgramAPI {
 		}
 	}
 
-	private final void doExecute(GhidraState runState, TaskMonitor runMonitor,
-			PrintWriter runWriter) throws Exception {
+	private void doExecute(GhidraState runState, TaskMonitor runMonitor, PrintWriter runWriter)
+			throws Exception {
 		this.state = runState;
 		this.monitor = runMonitor;
 		this.writer = runWriter;
@@ -262,15 +274,12 @@ public abstract class GhidraScript extends FlatProgramAPI {
 	}
 
 	private void doCleanup(boolean success) {
-
-		// TODO transient cleanup
-
 		cleanup(success);
 	}
 
 	/**
-	 * Will ye, nill ye?
-	 * @param success
+	 * A callback for scripts to perform any needed cleanup after the script is finished
+	 * @param success true if the script was successful
 	 */
 	public void cleanup(boolean success) {
 		// for users to override
@@ -296,7 +305,7 @@ public abstract class GhidraScript extends FlatProgramAPI {
 	 *
 	 * @param dirLocation  String representation of the path to the .properties file
 	 * @param basename     base name of the file
-	 * @throws IOException
+	 * @throws IOException if there is an exception loading the new properties file
 	 */
 	public void setPropertiesFileLocation(String dirLocation, String basename) throws IOException {
 		File testIfDir = new File(dirLocation);
@@ -376,7 +385,7 @@ public abstract class GhidraScript extends FlatProgramAPI {
 	}
 
 	@Override
-	protected DomainFolder getProjectRootFolder() {
+	public DomainFolder getProjectRootFolder() {
 		if (isRunningHeadless()) {
 			Project project = state.getProject();
 			ProjectData projectData = project.getProjectData();
@@ -387,7 +396,8 @@ public abstract class GhidraScript extends FlatProgramAPI {
 
 	protected boolean promptToKeepChangesOnException() {
 
-		String message = "<html>Encountered exception running script \"" + sourceFile.getName() +
+		String message = "<html>Encountered exception running script \"" +
+			HTMLUtilities.escapeHTML(sourceFile.getName()) +
 			"\".<br><br>Keep the changes to the program?";
 		//@formatter:off
 			int choice =
@@ -404,23 +414,6 @@ public abstract class GhidraScript extends FlatProgramAPI {
 			return true;
 		}
 		return false;
-	}
-
-	/**
-	 * Starts auto-analysis on the specified program and performs complete analysis
-	 * of the entire program.  This is usually only necessary if full analysis was never
-	 * performed. This method blocks until analysis completes.
-	 *
-	 * @param program the program to analyze
-	 * @deprecated the method {@link #analyzeAll} or {@link #analyzeChanges} should be invoked.
-	 * These separate methods were created to clarify their true behavior since many times it is
-	 * only necessary to analyze changes and not the entire program which can take much
-	 * longer and affect more of the program than is necessary.
-	 */
-	@Deprecated
-	@Override
-	public void analyze(Program program) {
-		analyzeAll(program);
 	}
 
 	@Override
@@ -499,6 +492,11 @@ public abstract class GhidraScript extends FlatProgramAPI {
 		return state;
 	}
 
+	/**
+	 * Set the script {@link #currentAddress}, {@link #currentLocation}, and update state object.
+	 * 
+	 * @param address the new address
+	 */
 	public final void setCurrentLocation(Address address) {
 		state.setCurrentAddress(address);
 		this.currentAddress = address;
@@ -507,7 +505,7 @@ public abstract class GhidraScript extends FlatProgramAPI {
 
 	/**
 	 * Set associated source file
-	 * @param sourceFile
+	 * @param sourceFile the source file
 	 */
 	public final void setSourceFile(ResourceFile sourceFile) {
 		this.sourceFile = sourceFile;
@@ -566,8 +564,8 @@ public abstract class GhidraScript extends FlatProgramAPI {
 		if (isRunningHeadless()) {
 			// only change client authenticator in headless mode
 			try {
-				HeadlessClientAuthenticator.installHeadlessClientAuthenticator(
-					ClientUtil.getUserName(), null, false);
+				HeadlessClientAuthenticator
+					.installHeadlessClientAuthenticator(ClientUtil.getUserName(), null, false);
 			}
 			catch (IOException e) {
 				throw new RuntimeException("Unexpected Exception", e);
@@ -614,19 +612,6 @@ public abstract class GhidraScript extends FlatProgramAPI {
 	 */
 	public String getCategory() {
 		return null;
-	}
-
-	/**
-	 * This method is no longer supported.
-	 * Calling it will result in an UnsupportedOperationException being thrown.
-	 * @param name the name of the script
-	 *
-	 * @deprecated you can no longer change a script's name
-	 * @throws UnsupportedOperationException
-	 */
-	@Deprecated
-	public void setName(String name) {
-		throw new UnsupportedOperationException("You cannot change a script's name.");
 	}
 
 	/**
@@ -824,35 +809,32 @@ public abstract class GhidraScript extends FlatProgramAPI {
 	 */
 	public void runScript(String scriptName, String[] scriptArguments, GhidraState scriptState)
 			throws Exception {
-		List<ResourceFile> dirs = GhidraScriptUtil.getScriptSourceDirectories();
-		for (ResourceFile dir : dirs) {
-			ResourceFile scriptSource = new ResourceFile(dir, scriptName);
-			if (scriptSource.exists()) {
-				GhidraScriptProvider provider = GhidraScriptUtil.getProvider(scriptSource);
+		ResourceFile scriptSource = GhidraScriptUtil.findScriptByName(scriptName);
+		if (scriptSource != null) {
+			GhidraScriptProvider provider = GhidraScriptUtil.getProvider(scriptSource);
 
-				if (provider == null) {
-					throw new IOException("Attempting to run subscript '" + scriptName +
-						"': unable to run this script type.");
-				}
-
-				GhidraScript script = provider.getScriptInstance(scriptSource, writer);
-				script.setScriptArgs(scriptArguments);
-
-				if (potentialPropertiesFileLocs.size() > 0) {
-					script.setPotentialPropertiesFileLocations(potentialPropertiesFileLocs);
-				}
-
-				if (scriptState == state) {
-					updateStateFromVariables();
-				}
-
-				script.execute(scriptState, monitor, writer);
-
-				if (scriptState == state) {
-					loadVariablesFromState();
-				}
-				return;
+			if (provider == null) {
+				throw new IOException("Attempting to run subscript '" + scriptName +
+					"': unable to run this script type.");
 			}
+
+			GhidraScript script = provider.getScriptInstance(scriptSource, writer);
+			script.setScriptArgs(scriptArguments);
+
+			if (potentialPropertiesFileLocs.size() > 0) {
+				script.setPotentialPropertiesFileLocations(potentialPropertiesFileLocs);
+			}
+
+			if (scriptState == state) {
+				updateStateFromVariables();
+			}
+
+			script.execute(scriptState, monitor, writer);
+
+			if (scriptState == state) {
+				loadVariablesFromState();
+			}
+			return;
 		}
 
 		boolean shouldContinue = false;
@@ -958,7 +940,7 @@ public abstract class GhidraScript extends FlatProgramAPI {
 	public void println(String message) {
 		String decoratedMessage = getScriptName() + "> " + message;
 
-		// note: use a Message object to facilite script message log filtering
+		// note: use a Message object to facilitate script message log filtering
 		Msg.info(GhidraScript.class, new ScriptMessage(decoratedMessage));
 
 		if (isRunningHeadless()) {
@@ -984,23 +966,22 @@ public abstract class GhidraScript extends FlatProgramAPI {
 	}
 
 	/**
-	 * A convenience method to print a formatted String using Java's <tt>printf</tt>
+	 * A convenience method to print a formatted String using Java's <code>printf</code>
 	 * feature, which is similar to that of the C programming language.
 	 * For a full description on Java's
-	 * <tt>printf</tt> usage, see {@link java.util.Formatter}.
+	 * <code>printf</code> usage, see {@link java.util.Formatter}.
 	 * <p>
 	 * For examples, see the included <code>FormatExampleScript</code>.
 	 * <p>
-	 * <b><u>Note:</u> This method will not:
+	 * <b><u>Note:</u> This method will not:</b>
 	 * <ul>
-	 * 	<li>print out the name of the script, as does {@link #println(String)}</li>
-	 *  <li>print a newline</li>
+	 * 	<li><b>print out the name of the script, as does {@link #println(String)}</b></li>
+	 *  <li><b>print a newline</b></li>
 	 * </ul>
-	 * </b>
 	 * If you would like the name of the script to precede you message, then you must add that
 	 * yourself.  The {@link #println(String)} does this via the following code:
 	 * <pre>
-	 *     String messageWithSource = getScriptName() + "> " + message;
+	 *     String messageWithSource = getScriptName() + "&gt; " + message;
 	 * </pre>
 	 *
 	 * @param message the message to format
@@ -1026,7 +1007,7 @@ public abstract class GhidraScript extends FlatProgramAPI {
 	 * If you would like the name of the script to precede you message, then you must add that
 	 * yourself.  The {@link #println(String)} does this via the following code:
 	 * <pre>
-	 *     String messageWithSource = getScriptName() + "> " + message;
+	 *     String messageWithSource = getScriptName() + "&gt; " + message;
 	 * </pre>
 	 *
 	 * @param message the message to print
@@ -1096,22 +1077,6 @@ public abstract class GhidraScript extends FlatProgramAPI {
 		catch (Exception e) {
 			Msg.error(this, "Script Message: " + message, e);
 		}
-	}
-
-	/**
-	 * Returns a list of valid choices, given an analysis option name (if they exist for this
-	 * option). If the analysis option is unconstrained (does not have to be one of a list
-	 * of specific options), returns an empty array.
-	 *
-	 * @param program  the program to get analysis option choices from
-	 * @param analysisOption  the analysis option to get choices for
-	 * @return an String array of the only valid choices for this analysis option (array is empty if
-	 * 	choices are unconstrained)
-	 * @deprecated
-	 */
-	@Deprecated
-	public String[] getAnalysisOptionChoices(Program program, String analysisOption) {
-		return new String[0];
 	}
 
 	/**
@@ -1462,7 +1427,7 @@ public abstract class GhidraScript extends FlatProgramAPI {
 					// Tests if text actually equals "true" or "false
 					String tempBool = analysisOptionValue.toLowerCase();
 
-					if (tempBool.equals("true") || tempBool.equals("false")) {
+					if ("true".equals(tempBool) || "false".equals(tempBool)) {
 						options.setBoolean(analysisOption, Boolean.valueOf(tempBool));
 					}
 
@@ -1586,8 +1551,8 @@ public abstract class GhidraScript extends FlatProgramAPI {
 
 	/**
 	 * Sets this script's highlight state (both the local variable
-	 * <tt>currentHighlight</tt> and the
-	 * <tt>GhidraState</tt>'s currentHighlight) to the given address set.  Also sets the tool's highlight
+	 * <code>currentHighlight</code> and the
+	 * <code>GhidraState</code>'s currentHighlight) to the given address set.  Also sets the tool's highlight
 	 * if the tool exists. (Same as calling setCurrentHightlight(set);
 	 * @param set the set of addresses to include in the highlight.  May be null.
 	 */
@@ -1839,13 +1804,13 @@ public abstract class GhidraScript extends FlatProgramAPI {
 			}
 			else {
 				try {
-					SwingUtilities.invokeAndWait(
-						() -> Msg.showInfo(getClass(), null, name, message));
+					SwingUtilities
+						.invokeAndWait(() -> Msg.showInfo(getClass(), null, name, message));
 				}
-				catch (InterruptedException e1) {
+				catch (InterruptedException e) {
 					// shouldn't happen
 				}
-				catch (InvocationTargetException e1) {
+				catch (InvocationTargetException e) {
 					// shouldn't happen
 				}
 			}
@@ -1910,8 +1875,8 @@ public abstract class GhidraScript extends FlatProgramAPI {
 	/**
 	 * Attempts to locate a value from script arguments
 	 *  or a script properties file using
-	 * the given <tt>keys</tt> as the lookup key for the latter.  The given <tt>parser</tt> will
-	 * be called to turn the String into a <tt>T</tt>.
+	 * the given <code>keys</code> as the lookup key for the latter.  The given <code>parser</code> will
+	 * be called to turn the String into a <code>T</code>.
 	 *
 	 * @param transformer the function to turn a String into a T
 	 * @param key the values used to create a key for lookup in the script properties file
@@ -1934,7 +1899,7 @@ public abstract class GhidraScript extends FlatProgramAPI {
 	 * @return null if no value was found in the aforementioned sources
 	 *
 	 * @throws IllegalArgumentException if the loaded String value cannot be parsed into a
-	 *                                  <tt>T</tt>.
+	 *                                  <code>T</code>.
 	 */
 	private <T> T loadAskValue(T defaultValue, StringTransformer<T> transformer, String key) {
 
@@ -1987,7 +1952,7 @@ public abstract class GhidraScript extends FlatProgramAPI {
 	/**
 	 * A generic method to execute user prompting for a value.  This method handles:
 	 * <ol>
-	 * 	<li>Checking for a previously chosen value; using the optional <tt>defaultValue</tt> as a fallback</li>
+	 * 	<li>Checking for a previously chosen value; using the optional <code>defaultValue</code> as a fallback</li>
 	 * 	<li>Calling the provided function to execute the client-specific ask UI</li>
 	 * 	<li>Storing the chosen result after the dialog is closed</li>
 	 * </ol>
@@ -2024,7 +1989,7 @@ public abstract class GhidraScript extends FlatProgramAPI {
 	}
 
 	private interface CancellableFunction<T, R> {
-		public R apply(T t) throws CancelledException;
+		R apply(T t) throws CancelledException;
 	}
 
 	/**
@@ -2052,7 +2017,6 @@ public abstract class GhidraScript extends FlatProgramAPI {
 	 *			invalid or missing .properties value.
 	 *		</li>
 	 * </ol>
-	 * </p>
 	 *
 	 * @param title the title of the dialog (in GUI mode) or the first part of the variable name
 	 * 			(in headless mode or when using using .properties file)
@@ -2085,7 +2049,7 @@ public abstract class GhidraScript extends FlatProgramAPI {
 				chooser.setFileSelectionMode(GhidraFileChooserMode.FILES_ONLY);
 				ref.set(chooser.getSelectedFile());
 			};
-			SystemUtilities.runSwingNow(r);
+			Swing.runNow(r);
 
 			if (chooser.wasCancelled()) {
 				throw new CancelledException();
@@ -2135,7 +2099,6 @@ public abstract class GhidraScript extends FlatProgramAPI {
 	 *			the .properties value (if it exists), or throws an Exception if there is an invalid
 	 *			or missing .properties value.</li>
 	 * </ol>
-	 * </p>
 	 *
 	 * @param title the title of the dialog (in GUI mode) or the first part of the variable name
 	 * 			(in headless mode or when using .properties file)
@@ -2168,7 +2131,7 @@ public abstract class GhidraScript extends FlatProgramAPI {
 				chooser.setFileSelectionMode(GhidraFileChooserMode.DIRECTORIES_ONLY);
 				ref.set(chooser.getSelectedFile());
 			};
-			SystemUtilities.runSwingNow(r);
+			Swing.runNow(r);
 
 			if (chooser.wasCancelled()) {
 				throw new CancelledException();
@@ -2243,7 +2206,6 @@ public abstract class GhidraScript extends FlatProgramAPI {
 	 *			representing the .properties value (if it exists), or throws an Exception if there
 	 *			is an invalid or missing .properties value.</li>
 	 * </ol>
-	 * </p>
 	 * @param title the title of the dialog (in GUI mode) or the first part of the variable name
 	 * 			(in headless mode or when using .properties file)
 	 * @param approveButtonText the approve button text (in GUI mode - typically, this would be
@@ -2275,7 +2237,7 @@ public abstract class GhidraScript extends FlatProgramAPI {
 					dialog.setSelectedLanguage(lastValue);
 					ref.set(dialog.getSelectedLanguage());
 				};
-				SystemUtilities.runSwingNow(r);
+				Swing.runNow(r);
 
 				if (dialog.wasCancelled()) {
 					throw new CancelledException();
@@ -2330,7 +2292,6 @@ public abstract class GhidraScript extends FlatProgramAPI {
 	 *			project, then that value is returned. Otherwise, an Exception is thrown if there is
 	 *			an invalid or missing .properties value.</li>
 	 * </ol>
-	 * </p>
 	 *
 	 * @param title the title of the dialog (GUI) or the variable name	(headless or when
 	 * 			using .properties file)
@@ -2357,7 +2318,7 @@ public abstract class GhidraScript extends FlatProgramAPI {
 			});
 
 			Runnable r = () -> dtd.showComponent();
-			SystemUtilities.runSwingNow(r);
+			Swing.runNow(r);
 
 			if (dtd.wasCancelled()) {
 				throw new CancelledException();
@@ -2409,7 +2370,6 @@ public abstract class GhidraScript extends FlatProgramAPI {
 	 *			or missing .properties value.
 	 *		</li>
 	 * </ol>
-	 * </p>
 	 *
 	 * @param title the title of the dialog (in GUI mode) or the first part of the variable name
 	 * 			(in headless mode or when using .properties file)
@@ -2489,7 +2449,7 @@ public abstract class GhidraScript extends FlatProgramAPI {
 	 *			.properties value (if it exists), or throws an Exception if there is an invalid or
 	 *			missing .properties	value.</li>
 	 * </ol>
-	 * </p>
+	 * 
 	 *
 	 * @param title the title of the dialog (in GUI mode) or the first part of the variable name
 	 * 			(in headless mode or when using .properties file)
@@ -2562,7 +2522,7 @@ public abstract class GhidraScript extends FlatProgramAPI {
 	 *			.properties value (if it exists), or throws an Exception if there is an invalid or
 	 *			missing .properties value.</li>
 	 * </ol>
-	 * </p>
+	 * 
 	 *
 	 * @param title the title of the dialog (in GUI mode) or the first part of the variable name
 	 * 			(in headless mode or when using .properties file)
@@ -2636,7 +2596,7 @@ public abstract class GhidraScript extends FlatProgramAPI {
 	 *			.properties byte pattern value (if it exists), or throws an Exception if there is
 	 *			an invalid or missing .properties value.</li>
 	 * </ol>
-	 * </p>
+	 * 
 	 *
 	 * @param title the title of the dialog (in GUI mode) or the first part of the variable
 	 * 			name (in headless mode or when using .properties file)
@@ -2695,7 +2655,7 @@ public abstract class GhidraScript extends FlatProgramAPI {
 	 *			then that value	is returned. Otherwise, an Exception is thrown if there is an
 	 *			invalid or missing .properties value.</li>
 	 * </ol>
-	 * </p>
+	 * 
 	 *
 	 * @param title the title of the pop-up dialog (in GUI mode) or the variable name (in
 	 * 			headless mode)
@@ -2725,7 +2685,7 @@ public abstract class GhidraScript extends FlatProgramAPI {
 			});
 
 			Runnable r = () -> dtd.showComponent();
-			SystemUtilities.runSwingNow(r);
+			Swing.runNow(r);
 
 			if (dtd.wasCancelled()) {
 				throw new CancelledException();
@@ -2790,7 +2750,7 @@ public abstract class GhidraScript extends FlatProgramAPI {
 	 *			then that value is returned. Otherwise, an Exception is thrown if there is an invalid
 	 *			or missing .properties value.</li>
 	 * </ol>
-	 * </p>
+	 * 
 	 * @param title the title of the pop-up dialog (in GUI mode) or the variable name (in headless
 	 * 		mode or when using .properties file)
 	 * @throws IllegalArgumentException if in headless mode, there was a missing or invalid	domain
@@ -2817,7 +2777,12 @@ public abstract class GhidraScript extends FlatProgramAPI {
 			});
 
 			Runnable r = () -> dtd.showComponent();
-			SystemUtilities.runSwingNow(r);
+			Swing.runNow(r);
+
+			if (dtd.wasCancelled()) {
+				throw new CancelledException();
+			}
+
 			return ref.get();
 		});
 
@@ -2832,10 +2797,10 @@ public abstract class GhidraScript extends FlatProgramAPI {
 	 * @throws IllegalArgumentException if the parsed value is not a valid double.
 	 */
 	public double parseDouble(String val) {
-		if (val.equalsIgnoreCase("pi")) {
+		if ("pi".equalsIgnoreCase(val)) {
 			return Math.PI;
 		}
-		if (val.equalsIgnoreCase("e")) {
+		if ("e".equalsIgnoreCase(val)) {
 			return Math.E;
 		}
 		try {
@@ -2869,10 +2834,9 @@ public abstract class GhidraScript extends FlatProgramAPI {
 	 *			.properties value (if it exists), or throws an Exception if there is an	invalid or
 	 *			missing .properties value.</li>
 	 * </ol>
-	 * </p>
 	 * <p>
 	 * Note that in both headless and GUI modes, you may specify "PI" or "E" and get the
-	 * corresponding floating point value to 15 decimal places.</p>
+	 * corresponding floating point value to 15 decimal places.
 	 * <p>
 	 *
 	 * @param title the title of the dialog (in GUI mode) or the first part of the variable name
@@ -2932,7 +2896,7 @@ public abstract class GhidraScript extends FlatProgramAPI {
 	 *			.properties value (if it exists), or throws an Exception if there is an invalid or
 	 *			missing .properties value.</li>
 	 * </ol>
-	 * </p>
+	 * 
 	 *
 	 * @param title the title of the dialog (in GUI mode) or the first part of the variable	name
 	 * 			(in headless mode or when using .properties file)
@@ -2975,7 +2939,7 @@ public abstract class GhidraScript extends FlatProgramAPI {
 	 *			not null or an empty String, it is returned. In all other cases, an exception
 	 *			is thrown.</li>
 	 * </ol>
-	 * </p>
+	 * 
 	 *
 	 * @param title the title of the dialog (in GUI mode) or the first part of the variable name
 	 * 			(in headless mode or when using .properties file)
@@ -3049,7 +3013,7 @@ public abstract class GhidraScript extends FlatProgramAPI {
 	 *			.properties value (if it exists and is a valid choice), or throws an Exception if
 	 *			there is an invalid or missing .properties value.</li>
 	 * </ol>
-	 * </p>
+	 * 
 	 * @param title the title of the dialog (in GUI mode) or the first part of the variable name
 	 * 			(in headless mode or when using .properties file)
 	 * @param message the message to display next to the input field (in GUI mode) or the second
@@ -3175,7 +3139,7 @@ public abstract class GhidraScript extends FlatProgramAPI {
 	 * 			by searching for a property name equal to a space-separated concatenation of the
 	 * 			String parameters (title + " " + message). If that property name exists and
 	 * 			represents a list (one or more) of valid choice(s) in the form
-	 * 			"choice1;choice2;choice3;..." (<-- note the quotes surrounding the choices), then
+	 * 			"choice1;choice2;choice3;..." (&lt;-- note the quotes surrounding the choices), then
 	 * 			an Object array of those choices is returned. Otherwise, an Exception is thrown if
 	 * 			there is an invalid or missing .properties value.</li>
 	 *</ol>
@@ -3212,7 +3176,7 @@ public abstract class GhidraScript extends FlatProgramAPI {
 				new MultipleOptionsDialog<>(title, message, choices, true);
 
 			Runnable r = () -> reference.set(dialog.getUserChoices());
-			SystemUtilities.runSwingNow(r);
+			Swing.runNow(r);
 
 			if (dialog.isCanceled()) {
 				throw new CancelledException();
@@ -3249,7 +3213,7 @@ public abstract class GhidraScript extends FlatProgramAPI {
 	 * 			by searching for a property name equal to a space-separated concatenation of the
 	 * 			String parameters (title + " " + message). If that property name exists and
 	 * 			represents a list (one or more) of valid choice(s) in the form
-	 * 			"choice1;choice2;choice3;..." (<-- note the quotes surrounding the choices), then
+	 * 			"choice1;choice2;choice3;..." (&lt;-- note the quotes surrounding the choices), then
 	 * 			an Object array of those choices is returned. Otherwise, an Exception is thrown if
 	 * 			there is an invalid or missing .properties value. NOTE: the choice names for
 	 * 			this method must match those in the stringRepresentationOfChoices array.</li>
@@ -3289,7 +3253,7 @@ public abstract class GhidraScript extends FlatProgramAPI {
 				new MultipleOptionsDialog<>(title, message, choices, choiceLabels, true);
 
 			Runnable r = () -> reference.set(dialog.getUserChoices());
-			SystemUtilities.runSwingNow(r);
+			Swing.runNow(r);
 
 			if (dialog.isCanceled()) {
 				throw new CancelledException();
@@ -3309,7 +3273,7 @@ public abstract class GhidraScript extends FlatProgramAPI {
 	 * @throws IllegalArgumentException if the parsed value is not a valid boolean.
 	 */
 	public Boolean parseBoolean(String val) {
-		if (val.equalsIgnoreCase("true") || val.equalsIgnoreCase("false")) {
+		if ("true".equalsIgnoreCase(val) || "false".equalsIgnoreCase(val)) {
 			return Boolean.parseBoolean(val);
 		}
 		throw new IllegalArgumentException("Invalid boolean: " + val);
@@ -3341,7 +3305,7 @@ public abstract class GhidraScript extends FlatProgramAPI {
 	 * 			then that value	is returned. Otherwise, an Exception is thrown if there is an
 	 * 			invalid or missing .properties value.</li>
 	 * </ol>
-	 * </p>
+	 * 
 	 *
 	 * @param title the title of the dialog (in GUI mode) or the first part of the variable name
 	 * 			(in headless mode)
@@ -3360,16 +3324,7 @@ public abstract class GhidraScript extends FlatProgramAPI {
 			return existingValue;
 		}
 
-		AtomicBoolean yesno = new AtomicBoolean();
-
-		Runnable r = () -> {
-			int choice = OptionDialog.showYesNoDialog(null, title, question);
-			yesno.set(choice == OptionDialog.OPTION_ONE);
-		};
-
-		SystemUtilities.runSwingNow(r);
-
-		return yesno.get();
+		return OptionDialog.showYesNoDialog(null, title, question) == OptionDialog.OPTION_ONE;
 	}
 
 	/**
@@ -3751,6 +3706,25 @@ public abstract class GhidraScript extends FlatProgramAPI {
 		return comment;
 	}
 
+	/**
+	 * Returns the repeatable comment at the specified address.  If you want the raw text,
+	 * then you must call {@link #getRepeatableComment(Address)}.  This method returns the text as
+	 * seen in the display.
+	 *
+	 * @param address the address to get the comment
+	 * @return the repeatable comment at the specified address or null if one does not exist
+	 * @see #getRepeatableComment(Address)
+	 */
+	public String getRepeatableCommentAsRendered(Address address) {
+		String comment =
+			currentProgram.getListing().getComment(CodeUnit.REPEATABLE_COMMENT, address);
+		PluginTool tool = state.getTool();
+		if (tool != null) {
+			comment = CommentUtils.getDisplayString(comment, currentProgram);
+		}
+		return comment;
+	}
+
 	private void show(String title, TableService table, Address[] addresses) {
 		PluginTool tool = state.getTool();
 		if (tool == null) {
@@ -3766,7 +3740,7 @@ public abstract class GhidraScript extends FlatProgramAPI {
 					Color.GREEN, null, "Script Results", null);
 			tableProvider.installRemoveItemsAction();
 		};
-		SystemUtilities.runSwingLater(runnable);
+		Swing.runLater(runnable);
 	}
 
 	private void show(final String title, final TableService table,
@@ -3784,7 +3758,7 @@ public abstract class GhidraScript extends FlatProgramAPI {
 				"GhidraScript", model, Color.GREEN, null, "Script Results", null);
 			tableProvider.installRemoveItemsAction();
 		};
-		SystemUtilities.runSwingLater(runnable);
+		Swing.runLater(runnable);
 	}
 
 	private Map<Class<?>, Object> getScriptMap(String title, String message) {
@@ -3807,217 +3781,4 @@ public abstract class GhidraScript extends FlatProgramAPI {
 		}
 		return buffer.toString();
 	}
-
-//==================================================================================================
-// Deprecated Methods - version 2 - Feb 2017
-//==================================================================================================
-
-	/**
-	 * Fetches the text contained within the given portion of the console.
-	 *
-	 * @param offset  the offset into the console representing the desired start of the text >= 0
-	 * @param length  the length of the desired string >= 0
-	 * @return the text, in a String of length >= 0
-	 * @deprecated deemed not worth supporting due to lack of value
-	 */
-	@Deprecated
-	public String getConsoleText(int offset, int length) {
-
-		PluginTool tool = state.getTool();
-		if (tool == null) {
-			throw new ImproperUseException(
-				"The getConsoleText() method can only be run within a headed Ghidra.");
-		}
-
-		ConsoleService console = tool.getService(ConsoleService.class);
-		if (console == null) {
-			// the console service is not a dependency
-			return "";
-		}
-
-		return console.getText(offset, length);
-	}
-
-	/**
-	 * Returns number of characters of currently in the console.
-	 * <p>
-	 * If the console is cleared, this number is reset.
-	 *
-	 * @return the text in the console, in a String of length >= 0
-	 * @deprecated deemed not worth supporting due to lack of value
-	 */
-	@Deprecated
-	public int getConsoleTextLength() {
-		PluginTool tool = state.getTool();
-		if (tool == null) {
-			return 0;
-		}
-
-		ConsoleService console = tool.getService(ConsoleService.class);
-		if (console == null) {
-			return 0;
-		}
-
-		return console.getTextLength();
-	}
-
-//==================================================================================================
-// Deprecated Methods - version 3 - Nov 30 - Ghidra 7.5
-//==================================================================================================	
-
-	/**
-	 * Returns an array of Objects representing one or more choices from the given list. The actual
-	 * behavior of the method depends on your environment, which can be GUI or headless.
-	 * <p>
-	 * Regardless of environment -- if script arguments have been set, this method will use the
-	 * next argument in the array and advance the array index so the next call to an ask method
-	 * will get the next argument.  If there are no script arguments and a .properties file
-	 * sharing the same base name as the Ghidra Script exists (i.e., Script1.properties for
-	 * Script1.java), then this method will then look there for the String value to return.
-	 * The method will look in the .properties file by searching for a property name that is a
-	 * space-separated concatenation of the input String parameters (title + " " + message).
-	 * If that property name exists and its value represents valid choices, then the
-	 * .properties value will be used in the following way:
-	 * <ol>
-	 * 		<li>In the GUI environment, this method displays a pop-up dialog that presents the user
-	 * 		    with checkbox choices (to allow a more flexible option where the user can pick
-	 * 			some, all, or none).</li>
-	 * 		<li>In the headless environment, if a .properties file sharing the same base name as the
-	 * 			Ghidra Script exists (i.e., Script1.properties for Script1.java), then this method
-	 * 			looks there for the choices to return. The method will look in the .properties file
-	 * 			by searching for a property name equal to a space-separated concatenation of the
-	 * 			String parameters (title + " " + message). If that property name exists and
-	 * 			represents a list (one or more) of valid choice(s) in the form
-	 * 			"choice1;choice2;choice3;..." (<-- note the quotes surrounding the choices), then
-	 * 			an Object array of those choices is returned. Otherwise, an Exception is thrown if
-	 * 			there is an invalid or missing .properties value.</li>
-	 *</ol>
-	 *
-	 * @param title the title of the dialog (in GUI mode) or the first part of the variable name
-	 * 			(in headless mode or when using .properties file)
-	 * @param message the message to display with the choices (in GUI mode) or the second
-	 * 			part of the variable name (in headless mode or when using .properties file)
-	 * @param choices set of choices (toString() value of each object will be displayed in the dialog)
-	 * @return the user-selected value(s); null if no selection was made
-	 *
-	 * @throws CancelledException if the user hits the 'cancel' button
-	 * @throws IllegalArgumentException if in headless mode, there was a missing or invalid	set of
-	 * 			choices specified in the .properties file
-	 * @deprecated use {@link #askChoices(String, String, List)} instead.
-	 * 			   Deprecated in 7.5 
-	 */
-	@Deprecated
-	@SuppressWarnings("unchecked")
-	public <T> T[] askChoices(String title, String message, T[] choices) throws CancelledException {
-
-		List<T> choicesList = Arrays.asList(choices);
-
-		List<T> results = askChoices(title, message, choicesList);
-		T[] array = (T[]) Array.newInstance(choices.getClass().getComponentType(), results.size());
-		return results.toArray(array);
-	}
-
-	/**
-	 * Returns an object that represents one of the choices in the given list. The actual behavior
-	 * of the method depends on your environment, which can be GUI or headless.
-	 * <p>
-	 * Regardless of environment -- if script arguments have been set, this method will use the
-	 * next argument in the array and advance the array index so the next call to an ask method
-	 * will get the next argument.  If there are no script arguments and a .properties file
-	 * sharing the same base name as the Ghidra Script exists (i.e., Script1.properties for
-	 * Script1.java), then this method will then look there for the String value to return.
-	 * The method will look in the .properties file by searching for a property name that is a
-	 * space-separated concatenation of the input String parameters (title + " " + message).
-	 * If that property name exists and its value represents a valid choice, then the
-	 * .properties value will be used in the following way:
-	 * <ol>
-	 * 		<li>In the GUI environment, this method displays a popup dialog that prompts the user
-	 * 			to choose from the given list of objects. The pre-chosen choice will be the last
-	 * 			user-chosen value (if the dialog has been run before). If that does not exist, the
-	 * 			pre-chosen value is the .properties value. If that does not exist or is invalid,
-	 * 			then the 'defaultValue' parameter is used (as long as it is not null).</li>
-	 *		<li>In the headless environment, this method returns an object representing the
-	 *			.properties value (if it exists and is a valid choice), or throws an Exception if
-	 *			there is an invalid or missing .properties value.</li>
-	 * </ol>
-	 * </p>
-	 * @param title the title of the dialog (in GUI mode) or the first part of the variable name
-	 * 			(in headless mode or when using .properties file)
-	 * @param message the message to display next to the input field (in GUI mode) or the second
-	 * 			part of the variable name (in headless mode or when using .properties file)
-	 * @param choices set of choices (toString() value of each object will be displayed in the dialog)
-	 * @param defaultValue the default value to display in the input field; may be
-	 *                     null, but must be a valid choice if non-null.
-	 * @return the user-selected value
-	 * @throws CancelledException if the user hit the 'cancel' button
-	 * @throws IllegalArgumentException if in headless mode, there was a missing or invalid	choice
-	 * 			specified in the .properties file
-	 * @deprecated use {@link #askChoice(String, String, List, Object)} instead.
-	 * 			   Deprecated in 7.5 
-	 */
-	@Deprecated
-	public <T> T askChoice(String title, String message, T[] choices, T defaultValue)
-			throws CancelledException {
-
-		List<T> choicesList = Arrays.asList(choices);
-		return askChoice(title, message, choicesList, defaultValue);
-	}
-
-	/**
-	 * Returns an array of Objects representing one or more choices from the given list. The user
-	 * specifies the choices as Objects, also passing along a corresponding array of String
-	 * representations for each choice (used as the checkbox label). The actual behavior of the
-	 * method depends on your environment, which can be GUI or headless.
-	 * <p>
-	 * Regardless of environment -- if script arguments have been set, this method will use the
-	 * next argument in the array and advance the array index so the next call to an ask method
-	 * will get the next argument.  If there are no script arguments and a .properties file
-	 * sharing the same base name as the Ghidra Script exists (i.e., Script1.properties for
-	 * Script1.java), then this method will then look there for the String value to return.
-	 * The method will look in the .properties file by searching for a property name that is a
-	 * space-separated concatenation of the input String parameters (title + " " + message).
-	 * If that property name exists and its value represents valid choices, then the
-	 * .properties value will be used in the following way:
-	 * <ol>
-	 * 		<li>In the GUI environment, this method displays a pop-up dialog that presents the user
-	 * 		    with checkbox choices (to allow a more flexible option where the user can pick
-	 * 			some, all, or none).</li>
-	 * 		<li>In the headless environment, if a .properties file sharing the same base name as the
-	 * 			Ghidra Script exists (i.e., Script1.properties for Script1.java), then this method
-	 * 			looks there for the choices to return. The method will look in the .properties file
-	 * 			by searching for a property name equal to a space-separated concatenation of the
-	 * 			String parameters (title + " " + message). If that property name exists and
-	 * 			represents a list (one or more) of valid choice(s) in the form
-	 * 			"choice1;choice2;choice3;..." (<-- note the quotes surrounding the choices), then
-	 * 			an Object array of those choices is returned. Otherwise, an Exception is thrown if
-	 * 			there is an invalid or missing .properties value. NOTE: the choice names for
-	 * 			this method must match those in the stringRepresentationOfChoices array.</li>
-	 *</ol>
-	 *
-	 * @param title the title of the dialog (in GUI mode) or the first part of the variable name
-	 * 			(in headless mode or when using .properties file)
-	 * @param message the message to display with the choices (in GUI mode) or the second
-	 * 			part of the variable name (in headless mode or when using .properties file)
-	 * @param choices set of choices
-	 * @param choiceLabels the String representation for each choice, used for
-	 * 			checkbox labels
-	 * @return the user-selected value(s); an empty list if no selection was made
-	 *
-	 * @throws CancelledException if the user hits the 'cancel' button
-	 * @throws IllegalArgumentException if in headless mode, there was a missing or invalid	set of
-	 * 			choices	specified in the .properties file
-	 * @deprecated use {@link #askChoices(String, String, List, List)} instead.
-	 * 			   Deprecated in 7.5 
-	 */
-	@Deprecated
-	public <T> Object[] askChoices(String title, String message, T[] choices, String[] choiceLabels)
-			throws CancelledException {
-
-		List<T> choicesList = Arrays.asList(choices);
-		List<String> labelsList = Arrays.asList(choiceLabels);
-
-		List<T> results = askChoices(title, message, choicesList, labelsList);
-		return results.toArray(new Object[results.size()]);
-	}
-
 }

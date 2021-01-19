@@ -22,6 +22,7 @@ import javax.swing.event.ChangeEvent;
 import javax.swing.event.ChangeListener;
 import javax.swing.table.TableCellRenderer;
 
+import docking.widgets.table.sort.*;
 import ghidra.docking.settings.*;
 import ghidra.framework.plugintool.ServiceProvider;
 import ghidra.util.Msg;
@@ -37,7 +38,7 @@ import utilities.util.reflection.ReflectionUtilities;
  * made visible through the UI.
  * <p>
  * This model will also discover other system columns that understand how to render
- * <tt>ROW_TYPE</tt> data directly.  Also, if you create a {@link TableRowMapper mapper}(s) for
+ * <code>ROW_TYPE</code> data directly.  Also, if you create a {@link TableRowMapper mapper}(s) for
  * your row type, then this model will load columns for each type for which a mapper was created,
  * all as optional, hidden columns.
  * <p>
@@ -63,9 +64,9 @@ public abstract class GDynamicColumnTableModel<ROW_TYPE, DATA_SOURCE>
 	protected ServiceProvider serviceProvider;
 
 	private TableColumnDescriptor<ROW_TYPE> columnDescriptor;
-	protected List<DynamicTableColumn<ROW_TYPE, ?, ?>> tableColumns;
-	private List<DynamicTableColumn<ROW_TYPE, ?, ?>> defaultTableColumns;
-	protected Map<DynamicTableColumn<ROW_TYPE, ?, ?>, Settings> columnSettings;
+	protected List<DynamicTableColumn<ROW_TYPE, ?, ?>> tableColumns = new ArrayList<>();
+	private List<DynamicTableColumn<ROW_TYPE, ?, ?>> defaultTableColumns = new ArrayList<>();
+	protected Map<DynamicTableColumn<ROW_TYPE, ?, ?>, Settings> columnSettings = new HashMap<>();
 
 	private boolean ignoreSettingChanges = false;
 
@@ -74,16 +75,8 @@ public abstract class GDynamicColumnTableModel<ROW_TYPE, DATA_SOURCE>
 		SystemUtilities.assertTrue((serviceProvider != null), "ServiceProvider cannot be null");
 
 		this.serviceProvider = serviceProvider;
-		this.tableColumns = new ArrayList<>();
-		this.defaultTableColumns = new ArrayList<>();
-		loadDefaultTableColumns();
-		loadDiscoveredTableColumns();
 
-		this.columnSettings = new HashMap<>();
-		for (DynamicTableColumn<ROW_TYPE, ?, ?> column : tableColumns) {
-			columnSettings.put(column, new SettingsImpl(this, column));
-		}
-
+		reloadColumns();
 	}
 
 	protected abstract TableColumnDescriptor<ROW_TYPE> createTableColumnDescriptor();
@@ -126,6 +119,29 @@ public abstract class GDynamicColumnTableModel<ROW_TYPE, DATA_SOURCE>
 			sortState = TableSortState.createDefaultSortState(0);
 		}
 		setDefaultTableSortState(sortState);
+	}
+
+	/**
+	 * Allows clients to defer column creation until after this parent class's constructor has
+	 * been called.   This method will not restore any column settings that have been changed
+	 * after construction.  Thus, this method is intended only to be called during the 
+	 * construction process.
+	 */
+	protected void reloadColumns() {
+
+		// note: since we should only be called during construction, there is no need to
+		//       fire an event to signal the table structure has changed
+
+		columnDescriptor = null;
+		tableColumns.clear();
+		defaultTableColumns.clear();
+		loadDefaultTableColumns();
+		loadDiscoveredTableColumns();
+
+		columnSettings.clear();
+		for (DynamicTableColumn<ROW_TYPE, ?, ?> column : tableColumns) {
+			columnSettings.put(column, new SettingsImpl(this, column));
+		}
 	}
 
 	private TableColumnDescriptor<ROW_TYPE> getTableColumnDescriptor() {
@@ -174,11 +190,14 @@ public abstract class GDynamicColumnTableModel<ROW_TYPE, DATA_SOURCE>
 
 	@Override
 	protected Comparator<ROW_TYPE> createSortComparator(int columnIndex) {
-		Comparator<Object> comparator = createSortComparatorForColumn(columnIndex);
-		if (comparator != null) {
-			return new RowToColumnComparator(columnIndex, comparator);
+		Comparator<Object> columnComparator = createSortComparatorForColumn(columnIndex);
+		if (columnComparator != null) {
+			// the given column has its own comparator; wrap and us that
+			return new RowBasedColumnComparator<>(this, columnIndex, columnComparator);
 		}
-		return super.createSortComparator(columnIndex);
+
+		return new RowBasedColumnComparator<>(this, columnIndex, new DefaultColumnComparator(),
+			new ColumnRenderedValueBackupComparator<>(this, columnIndex));
 	}
 
 	/**
@@ -187,7 +206,7 @@ public abstract class GDynamicColumnTableModel<ROW_TYPE, DATA_SOURCE>
 	 * column values.
 	 *
 	 * @param columnIndex the column index
-	 * @return a comparator for the specific column values; may be null
+	 * @return a comparator for the specific column values
 	 */
 	@SuppressWarnings("unchecked") // the column provides the values itself; safe cast
 	protected Comparator<Object> createSortComparatorForColumn(int columnIndex) {
@@ -237,7 +256,7 @@ public abstract class GDynamicColumnTableModel<ROW_TYPE, DATA_SOURCE>
 	 * implementations to add custom column objects, rather than relying on generic, discovered
 	 * DynamicTableColumn implementations.
 	 * 
-	 * <p><b>Note: this method assumes that the columns have already been sorted
+	 * <p><b>Note: this method assumes that the columns have already been sorted</b>
 	 * @param column The field to add
 	 */
 	protected void addTableColumn(DynamicTableColumn<ROW_TYPE, ?, ?> column) {
@@ -265,7 +284,7 @@ public abstract class GDynamicColumnTableModel<ROW_TYPE, DATA_SOURCE>
 	 * This method is intended for implementations to add custom column objects, rather than
 	 * relying on generic, discovered DynamicTableColumn implementations.
 	 * <p>
-	 * <b>Note: this method assumes that the columns have already been sorted.
+	 * <b>Note: this method assumes that the columns have already been sorted.</b>
 	 * @param column The field to add.
 	 * @param index The index at which to add the field.  If the index value is invalid (negative
 	 *        or greater than the number of columns), then the column will be added to the
@@ -437,7 +456,6 @@ public abstract class GDynamicColumnTableModel<ROW_TYPE, DATA_SOURCE>
 		}
 
 		return column.getValue(t, columnSettings.get(column), dataSource, serviceProvider);
-
 	}
 
 	/**
@@ -484,14 +502,6 @@ public abstract class GDynamicColumnTableModel<ROW_TYPE, DATA_SOURCE>
 	public Settings getColumnSettings(int index) {
 		DynamicTableColumn<ROW_TYPE, ?, ?> column = tableColumns.get(index);
 		return columnSettings.get(column);
-	}
-
-	@Override
-	public synchronized void setColumnSettings(int index, Settings newSettings) {
-		ignoreSettingChanges = true;
-		applySettings(index, newSettings);
-		ignoreSettingChanges = false;
-		stateChanged(new ChangeEvent(tableColumns.get(index)));
 	}
 
 	private void applySettings(int index, Settings newSettings) {
@@ -546,44 +556,15 @@ public abstract class GDynamicColumnTableModel<ROW_TYPE, DATA_SOURCE>
 		return column.getMaxLines(columnSettings.get(column));
 	}
 
-	/**
-	 * A comparator for a specific column that will take in a ROW_TYPE object, extract the value
-	 * for the given column and then call the give comparator.
-	 */
-	private class RowToColumnComparator implements Comparator<ROW_TYPE> {
-
-		private int columnIndex;
-		private Comparator<Object> columnComparator;
-
-		RowToColumnComparator(int columnIndex, Comparator<Object> comparator) {
-			this.columnIndex = columnIndex;
-			this.columnComparator = comparator;
-		}
-
-		@Override
-		public int compare(ROW_TYPE t1, ROW_TYPE t2) {
-			Object value1 = getColumnValueForRow(t1, columnIndex);
-			Object value2 = getColumnValueForRow(t2, columnIndex);
-
-			if (value1 == null || value2 == null) {
-				return handleNullValues(value1, value2);
-			}
-
-			return columnComparator.compare(value1, value2);
-		}
-
-		private int handleNullValues(Object o1, Object o2) {
-			// If both values are null return 0
-			if (o1 == null && o2 == null) {
-				return 0;
-			}
-
-			if (o1 == null) { // Define null less than everything.
-				return -1;
-			}
-
-			return 1; // o2 is null, so the o1 comes after
-		}
+	@Override
+	public void dispose() {
+		super.dispose();
+		disposeDynamicColumnData();
 	}
 
+	protected void disposeDynamicColumnData() {
+		tableColumns.clear();
+		defaultTableColumns.clear();
+		columnSettings.clear();
+	}
 }

@@ -16,8 +16,8 @@
 package generic.test;
 
 import java.lang.reflect.*;
-import java.util.*;
-import java.util.Map.Entry;
+import java.util.ArrayList;
+import java.util.List;
 
 import utilities.util.reflection.ReflectionUtilities;
 
@@ -44,36 +44,25 @@ public class TestUtils {
 	 * @return the stack trace string
 	 */
 	public static String createStackTraceForAllThreads() {
-		Map<Thread, StackTraceElement[]> allStackTraces = Thread.getAllStackTraces();
-		Set<Entry<Thread, StackTraceElement[]>> entrySet = allStackTraces.entrySet();
-		StringBuilder builder = new StringBuilder();
-		for (Entry<Thread, StackTraceElement[]> entry : entrySet) {
-			builder.append("Thread: " + entry.getKey().getName()).append('\n');
-			StackTraceElement[] value = entry.getValue();
-			for (StackTraceElement stackTraceElement : value) {
-				builder.append('\t').append("at ").append(stackTraceElement).append('\n');
-			}
-		}
-
-		return builder.toString();
+		return ReflectionUtilities.createStackTraceForAllThreads();
 	}
 
 	/**
 	 * Sets the instance field by the given name on the given object 
 	 * instance.  
 	 * <p>
-	 * Note: if the field is static, then the <tt>ownerInstance</tt> field 
+	 * Note: if the field is static, then the <code>ownerInstance</code> field 
 	 * can be the class of the object that contains the variable.
 	 * 
 	 * @param  fieldName The name of the field to retrieve.
 	 * @param  ownerInstance The object instance from which to get the 
 	 *         variable instance.
 	 * @param  value The value to use when setting the given field
-	 * @throws A RuntimeException if there is a problem accessing the field
+	 * @throws RuntimeException if there is a problem accessing the field
 	 *         using reflection.  A RuntimeException is used so that calling
 	 *         tests can avoid using a try/catch block, but will still fail
 	 *         when an error is encountered.
-	 * @see    Field#set(Object, Object))
+	 * @see    Field#set(Object, Object)
 	 */
 	public static void setInstanceField(String fieldName, Object ownerInstance, Object value)
 			throws RuntimeException {
@@ -103,14 +92,14 @@ public class TestUtils {
 	 * Gets the instance field by the given name on the given object 
 	 * instance.  The value is a primitive wrapper if it is a primitive type.
 	 * <p>
-	 * Note: if the field is static, then the <tt>ownerInstance</tt> field 
+	 * Note: if the field is static, then the <code>ownerInstance</code> field 
 	 * can be the class of the object that contains the variable.
 	 * 
 	 * @param  fieldName The name of the field to retrieve.
 	 * @param  ownerInstance The object instance from which to get the 
 	 *         variable instance.
 	 * @return The field instance.
-	 * @throws A RuntimeException if there is a problem accessing the field
+	 * @throws RuntimeException if there is a problem accessing the field
 	 *         using reflection.  A RuntimeException is used so that calling
 	 *         tests can avoid using a try/catch block, but will still fail
 	 *         when an error is encountered.
@@ -179,9 +168,9 @@ public class TestUtils {
 	/**
 	 * Uses reflection to execute the method denoted by the given method
 	 * name.  If any value is returned from the method execution, then it 
-	 * will be returned from this method.  Otherwise, <tt>null</tt> is returned.
+	 * will be returned from this method.  Otherwise, <code>null</code> is returned.
 	 * <p>
-	 * Note: if the method is static, then the <tt>ownerInstance</tt> field 
+	 * Note: if the method is static, then the <code>ownerInstance</code> field 
 	 * can be the class of the object that contains the method.
 	 * 
 	 * @param methodName The name of the method to execute.
@@ -193,7 +182,7 @@ public class TestUtils {
 	 *        to pass
 	 * @return The return value as returned from executing the method.
 	 * @see    Method#invoke(java.lang.Object, java.lang.Object[])
-	 * @throws A RuntimeException if there is a problem accessing the field
+	 * @throws RuntimeException if there is a problem accessing the field
 	 *         using reflection.  A RuntimeException is used so that calling
 	 *         tests can avoid using a try/catch block, but will still fail
 	 *         when an error is encountered.
@@ -237,9 +226,9 @@ public class TestUtils {
 	/**
 	 * Uses reflection to execute the method denoted by the given method
 	 * name.  If any value is returned from the method execution, then it 
-	 * will be returned from this method.  Otherwise, <tt>null</tt> is returned.
+	 * will be returned from this method.  Otherwise, <code>null</code> is returned.
 	 * <p>
-	 * Note: if the method is static, then the <tt>ownerInstance</tt> field 
+	 * Note: if the method is static, then the <code>ownerInstance</code> field 
 	 * can be the class of the object that contains the method.
 	 * 
 	 * <P>This method is just a convenience for calling 
@@ -259,7 +248,7 @@ public class TestUtils {
 	 *        This value can be null or zero length if there are no parameters
 	 *        to pass
 	 * @return The return value as returned from executing the method.
-	 * @throws A RuntimeException if there is a problem accessing the field
+	 * @throws RuntimeException if there is a problem accessing the field
 	 *         using reflection.  A RuntimeException is used so that calling
 	 *         tests can avoid using a try/catch block, but will still fail
 	 *         when an error is encountered.
@@ -275,9 +264,9 @@ public class TestUtils {
 	/**
 	 * Uses reflection to execute the method denoted by the given method
 	 * name.  If any value is returned from the method execution, then it 
-	 * will be returned from this method.  Otherwise, <tt>null</tt> is returned.
+	 * will be returned from this method.  Otherwise, <code>null</code> is returned.
 	 * <p>
-	 * Note: if the method is static, then the <tt>ownerInstance</tt> field 
+	 * Note: if the method is static, then the <code>ownerInstance</code> field 
 	 * can be the class of the object that contains the method.
 	 * 
 	 * <P>If the method you are calling takes no parameters, then call 
@@ -301,7 +290,7 @@ public class TestUtils {
 	 * @param parameterType The parameter types that the method takes.
 	 * @param arg The parameter value that should be passed to the method.
 	 * @return The return value as returned from executing the method.
-	 * @throws A RuntimeException if there is a problem accessing the field
+	 * @throws RuntimeException if there is a problem accessing the field
 	 *         using reflection.  A RuntimeException is used so that calling
 	 *         tests can avoid using a try/catch block, but will still fail
 	 *         when an error is encountered.
@@ -316,9 +305,9 @@ public class TestUtils {
 	/**
 	 * Uses reflection to execute the method denoted by the given method
 	 * name.  If any value is returned from the method execution, then it 
-	 * will be returned from this method.  Otherwise, <tt>null</tt> is returned.
+	 * will be returned from this method.  Otherwise, <code>null</code> is returned.
 	 * <p>
-	 * Note: if the method is static, then the <tt>ownerInstance</tt> field 
+	 * Note: if the method is static, then the <code>ownerInstance</code> field 
 	 * can be the class of the object that contains the method.
 	 * 
 	 * <P><B>Warning: The exact class of each <CODE>arg</CODE> will be used as the class type
@@ -350,10 +339,9 @@ public class TestUtils {
 	 * @param methodName The name of the method to execute.
 	 * @param ownerInstance The object instance of which the method will be
 	 *        executed.
-	 * @param parameterType The parameter types that the method takes.
-	 * @param arg The parameter value that should be passed to the method.
+	 * @param args The parameter value that should be passed to the method.
 	 * @return The return value as returned from executing the method.
-	 * @throws A RuntimeException if there is a problem accessing the field
+	 * @throws RuntimeException if there is a problem accessing the field
 	 *         using reflection.  A RuntimeException is used so that calling
 	 *         tests can avoid using a try/catch block, but will still fail
 	 *         when an error is encountered.
@@ -385,7 +373,7 @@ public class TestUtils {
 	 *        executed.
 	 * @return The return value as returned from executing the method.
 	 * @see    Method#invoke(java.lang.Object, java.lang.Object[])
-	 * @throws A RuntimeException if there is a problem accessing the field
+	 * @throws RuntimeException if there is a problem accessing the field
 	 *         using reflection.  A RuntimeException is used so that calling
 	 *         tests can avoid using a try/catch block, but will still fail
 	 *         when an error is encountered.
@@ -409,7 +397,7 @@ public class TestUtils {
 	 *        This value can be null or zero length if there are no parameters
 	 *        to pass
 	 * @return The new class instance
-	 * @throws A RuntimeException if there is a problem accessing the constructor
+	 * @throws RuntimeException if there is a problem accessing the constructor
 	 *         using reflection.  A RuntimeException is used so that calling
 	 *         tests can avoid using a try/catch block, but will still fail
 	 *         when an error is encountered.
@@ -470,9 +458,9 @@ public class TestUtils {
 	}
 
 	/**
-	 * Locates the method of the name <tt>methodName</tt> on the given 
+	 * Locates the method of the name <code>methodName</code> on the given 
 	 * class.  If the given class does not contain the method, then this 
-	 * method will recursively call up <tt>containingClass</tt>'s 
+	 * method will recursively call up <code>containingClass</code>'s 
 	 * implementation tree looking for a parent implementation of the 
 	 * requested method.
 	 * 
@@ -492,9 +480,10 @@ public class TestUtils {
 	 * Get the first field object contained within object ownerInstance which has the type classType.
 	 * This method is only really useful if it is known that only a single field of 
 	 * classType exists within the ownerInstance.
-	 * @param <T>
-	 * @param classType
-	 * @param ownerInstance
+	 * 
+	 * @param <T> the type
+	 * @param classType the class type of the desired field
+	 * @param ownerInstance the object instance that owns the field
 	 * @return field object of type classType or null
 	 */
 	@SuppressWarnings("unchecked")
@@ -533,8 +522,9 @@ public class TestUtils {
 	 * Get the first field specification contained within containingClass which has the type classType.
 	 * This method is only really useful if it is known that only a single field of 
 	 * classType exists within the containingClass hierarchy.
-	 * @param classType
-	 * @param containingClass
+	 * 
+	 * @param classType the class
+	 * @param containingClass the class that contains a field of the given type
 	 * @return field which corresponds to type classType or null
 	 */
 	public static Field locateFieldByTypeOnClass(Class<?> classType, Class<?> containingClass) {

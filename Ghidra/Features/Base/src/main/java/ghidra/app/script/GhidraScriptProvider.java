@@ -1,6 +1,5 @@
 /* ###
  * IP: GHIDRA
- * REVIEWED: YES
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,19 +15,19 @@
  */
 package ghidra.app.script;
 
-import generic.jar.ResourceFile;
-import ghidra.util.classfinder.ExtensionPoint;
-
 import java.io.IOException;
 import java.io.PrintWriter;
+
+import generic.jar.ResourceFile;
+import ghidra.util.classfinder.ExtensionPoint;
 
 /**
  * NOTE:  ALL GhidraScriptProvider CLASSES MUST END IN "ScriptProvider".  If not,
  * the ClassSearcher will not find them.
  *
  */
-public abstract class GhidraScriptProvider implements ExtensionPoint,
-		Comparable<GhidraScriptProvider> {
+public abstract class GhidraScriptProvider
+		implements ExtensionPoint, Comparable<GhidraScriptProvider> {
 
 	@Override
 	public String toString() {
@@ -60,11 +59,7 @@ public abstract class GhidraScriptProvider implements ExtensionPoint,
 	 * @return true if the script was completely deleted and cleaned up
 	 */
 	public boolean deleteScript(ResourceFile scriptSource) {
-		boolean deleted = !scriptSource.exists() || scriptSource.delete();
-		if (deleted) {
-			GhidraScriptUtil.unloadScript(scriptSource);
-		}
-		return deleted;
+		return !scriptSource.exists() || scriptSource.delete();
 	}
 
 	/**
@@ -138,4 +133,19 @@ public abstract class GhidraScriptProvider implements ExtensionPoint,
 	protected void writeBody(PrintWriter writer) {
 		writer.println(getCommentCharacter() + "TODO Add User Code Here");
 	}
+
+	/**
+	 * Fixup a script name for searching in script directories.
+	 *
+	 * <p>This method is part of a poorly specified behavior that is due for future amendment, 
+	 * see {@link GhidraScriptUtil#fixupName(String)}.
+	 * 
+	 * @param scriptName the name of the script, must end with this provider's extension
+	 * @return a (relative) file path to the corresponding script
+	 */
+	@Deprecated
+	protected String fixupName(String scriptName) {
+		return scriptName;
+	}
+
 }

@@ -15,19 +15,16 @@
  */
 package docking.widgets.table;
 
-import java.util.ArrayList;
-import java.util.List;
+import java.util.*;
 
-import javax.swing.JLabel;
 import javax.swing.table.TableColumnModel;
 
-import ghidra.docking.settings.Settings;
 import ghidra.util.table.column.GColumnRenderer;
 import ghidra.util.table.column.GColumnRenderer.ColumnConstraintFilterMode;
 
 public class DefaultRowFilterTransformer<ROW_OBJECT> implements RowFilterTransformer<ROW_OBJECT> {
 
-	private List<String> columnData = new ArrayList<String>();
+	private List<String> columnData = new ArrayList<>();
 	private TableColumnModel columnModel;
 	private final RowObjectTableModel<ROW_OBJECT> model;
 
@@ -58,67 +55,29 @@ public class DefaultRowFilterTransformer<ROW_OBJECT> implements RowFilterTransfo
 			}
 		}
 
-		Object value = model.getColumnValueForRow(rowObject, column);
-		if (value == null) {
+		if (columnUsesConstraintFilteringOnly(column)) {
+			// This allows columns to be ignored for default text filtering while still being
+			// filterable through the column constraints API
 			return null;
 		}
 
-		/*
-		 	Methods for turning the cell value into a string to be filtered (in preference order):
-		 		1) Use the dynamic column's renderer (if applicable), as this is the most
-		 		   direct way for clients to specify the filter value
-		 		2) See if the value is an instance of DisplayStringProvider, which describes how
-		 		   it should be rendered
-		 		3) See if it is a label (this is uncommon)
-		 		4) Rely on the toString(); this works as intended for Strings.  This is the 
-		 		   default way that built-in table cell renderers will generate display text
-		 */
-
-		// 1)
-		String renderedString = getRenderedColumnValue(value, column);
-		if (renderedString != null) {
-			return renderedString;
-		}
-
-		// 2) special plug-in point where clients can specify a value object that can return 
-		// its display string
-		if (value instanceof DisplayStringProvider) {
-			return ((DisplayStringProvider) value).toString();
-		}
-
-		// 3
-		if (value instanceof JLabel) { // some models do this odd thing
-			JLabel label = (JLabel) value;
-			String valueString = label.getText();
-			return valueString == null ? "" : valueString;
-		}
-
-		// 4)
-		return value.toString();
+		return TableUtils.getTableCellStringValue(model, rowObject, column);
 	}
 
-	@SuppressWarnings("unchecked")
-	private String getRenderedColumnValue(Object columnValue, int columnIndex) {
-
+	private boolean columnUsesConstraintFilteringOnly(int column) {
 		if (!(model instanceof DynamicColumnTableModel)) {
-			return null;
+			return false;
 		}
 
 		DynamicColumnTableModel<ROW_OBJECT> columnBasedModel =
 			(DynamicColumnTableModel<ROW_OBJECT>) model;
-		GColumnRenderer<Object> renderer = getColumnRenderer(columnBasedModel, columnIndex);
+		GColumnRenderer<Object> renderer = getColumnRenderer(columnBasedModel, column);
 		if (renderer == null) {
-			return null;
+			return false;
 		}
 
 		ColumnConstraintFilterMode mode = renderer.getColumnConstraintFilterMode();
-		if (mode == ColumnConstraintFilterMode.USE_COLUMN_CONSTRAINTS_ONLY) {
-			return null; // this renderer does not support text
-		}
-
-		Settings settings = columnBasedModel.getColumnSettings(columnIndex);
-		String s = renderer.getFilterString(columnValue, settings);
-		return s;
+		return mode == ColumnConstraintFilterMode.ALLOW_CONSTRAINTS_FILTER_ONLY;
 	}
 
 	private GColumnRenderer<Object> getColumnRenderer(
@@ -128,5 +87,39 @@ public class DefaultRowFilterTransformer<ROW_OBJECT> implements RowFilterTransfo
 		GColumnRenderer<Object> columnRenderer =
 			(GColumnRenderer<Object>) column.getColumnRenderer();
 		return columnRenderer;
+	}
+
+	@Override
+	public int hashCode() {
+		// not meant to put in hashing structures; the data for equals may change over time
+		throw new UnsupportedOperationException();
+	}
+
+	@Override
+	public boolean equals(Object obj) {
+		if (this == obj) {
+			return true;
+		}
+		if (obj == null) {
+			return false;
+		}
+		if (getClass() != obj.getClass()) {
+			return false;
+		}
+
+		DefaultRowFilterTransformer<?> other = (DefaultRowFilterTransformer<?>) obj;
+		if (!Objects.equals(columnData, other.columnData)) {
+			return false;
+		}
+
+		if (!Objects.equals(columnModel, other.columnModel)) {
+			return false;
+		}
+
+		// use '==' so that we don't end up comparing all table data
+		if (model != other.model) {
+			return false;
+		}
+		return true;
 	}
 }

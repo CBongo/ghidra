@@ -22,7 +22,8 @@ import java.util.List;
 import javax.swing.Icon;
 import javax.swing.JButton;
 
-import docking.*;
+import docking.ActionContext;
+import docking.DockingWindowManager;
 import docking.action.*;
 import docking.widgets.EventTrigger;
 import ghidra.util.HelpLocation;
@@ -35,6 +36,11 @@ import resources.icons.EmptyIcon;
  * drop-down icon that allows users to change the state of the button.  Also, by default, as
  * the user presses the button, it will execute the action corresponding to the current 
  * state.
+ * 
+ * <p>Warning: if you use this action in a toolbar, then be sure to call the 
+ * {@link #MultiStateDockingAction(String, String, boolean) correct constructor}.  If you call
+ * another constructor, or pass false for this boolean above, your 
+ * {@link #doActionPerformed(ActionContext)} method will get called twice.
  *
  * @param <T> the type of the user data
  * @see MultiActionDockingAction
@@ -47,6 +53,7 @@ public abstract class MultiStateDockingAction<T> extends DockingAction {
 	private int currentStateIndex = 0;
 	private MultiActionDockingActionIf multiActionGenerator;
 	private MultipleActionDockingToolbarButton multipleButton;
+	private boolean fireFirstEvent = true;
 
 	private boolean performActionOnPrimaryButtonClick = true;
 
@@ -56,10 +63,25 @@ public abstract class MultiStateDockingAction<T> extends DockingAction {
 		// stub for toolbar actions
 	};
 
+	/**
+	 * Call this constructor with this action will not be added to a toolbar
+	 * 
+	 * @param name the action name
+	 * @param owner the owner
+	 * @see #MultiStateDockingAction(String, String, boolean)
+	 */
 	public MultiStateDockingAction(String name, String owner) {
 		this(name, owner, false);
 	}
 
+	/**
+	 * Use this constructor explicitly when this action is used in a toolbar, passing true 
+	 * for <code>isToolbarAction</code> (see the javadoc header note).
+	 * 
+	 * @param name the action name
+	 * @param owner the owner
+	 * @param isToolbarAction true if this action is a toolbar action
+	 */
 	protected MultiStateDockingAction(String name, String owner, boolean isToolbarAction) {
 		super(name, owner);
 		multiActionGenerator = context -> getStateActions();
@@ -79,14 +101,17 @@ public abstract class MultiStateDockingAction<T> extends DockingAction {
 	public abstract void actionStateChanged(ActionState<T> newActionState, EventTrigger trigger);
 
 	/**
-	 * If <tt>doPerformAction</tt> is <tt>true</tt>, then, when the user clicks the
+	 * If <code>doPerformAction</code> is <code>true</code>, then, when the user clicks the
 	 * button and not the drop-down arrow, the {@link #doActionPerformed(ActionContext)}
-	 * method will be called.  If <tt>doPerformAction</tt> is <tt>false</tt>, then, when
+	 * method will be called.  If <code>doPerformAction</code> is <code>false</code>, then, when
 	 * the user clicks the button and not the drop-down arrow, the popup menu will be shown, just
 	 * as if the user had clicked the drop-down arrow.
 	 * <p>
 	 * Also, if the parameter is true, then the button will behave like a button in terms of
 	 * mouse feedback.  If false, then the button will behave more like a label.
+	 * 
+	 * @param doPerformAction true to call {@link #doActionPerformed(ActionContext)} when the
+	 *        user presses the button for this action (not the drop-down menu; see above)
 	 */
 	public void setPerformActionOnPrimaryButtonClick(boolean doPerformAction) {
 		performActionOnPrimaryButtonClick = doPerformAction;
@@ -113,9 +138,26 @@ public abstract class MultiStateDockingAction<T> extends DockingAction {
 	}
 
 	/**
+	 * @return {@code true} if the first action automatically fire its event
+	 */
+	public boolean isFireFirstEvent() {
+		return fireFirstEvent;
+	}
+
+	/**
+	 * set the flag to fire an event on the first action
+	 * @param fireFirstEvent whether to fire the event
+	 */
+	public void setFireFirstEvent(boolean fireFirstEvent) {
+		this.fireFirstEvent = fireFirstEvent;
+	}
+
+	/**
 	 * This is the callback to be overridden when the child wishes to respond to user button
 	 * presses that are on the button and not the drop-down.  This will only be called if
 	 * {@link #performActionOnPrimaryButtonClick} is true.
+	 * 
+	 * @param context the action context 
 	 */
 	protected void doActionPerformed(ActionContext context) {
 		// override me to do work
@@ -123,11 +165,13 @@ public abstract class MultiStateDockingAction<T> extends DockingAction {
 
 	private ActionContext getActionContext() {
 		DockingWindowManager manager = DockingWindowManager.getActiveInstance();
-		ComponentProvider provider = manager.getActiveComponentProvider();
-		ActionContext localContext = provider == null ? null : provider.getActionContext(null);
-		final ActionContext actionContext =
-			localContext == null ? manager.getGlobalContext() : localContext;
-		return actionContext;
+
+		ActionContext context = manager.getActionContext(this);
+
+		if (context == null) {
+			context = new ActionContext();
+		}
+		return context;
 	}
 
 	protected List<DockingActionIf> getStateActions() {
@@ -148,9 +192,14 @@ public abstract class MultiStateDockingAction<T> extends DockingAction {
 		tbd.setToolBarSubGroup(subGroup);
 	}
 
+	/**
+	 * add the supplied {@code ActionState}
+	 * if {@code fireFirstEvent} is {@code true} the first one will fire its event
+	 * @param actionState the {@code ActionState} to add
+	 */
 	public void addActionState(ActionState<T> actionState) {
 		actionStates.add(actionState);
-		if (actionStates.size() == 1) {
+		if (actionStates.size() == 1 && fireFirstEvent) {
 			setCurrentActionState(actionState);
 		}
 	}
@@ -160,7 +209,9 @@ public abstract class MultiStateDockingAction<T> extends DockingAction {
 			throw new IllegalArgumentException("You must provide at least one ActionState");
 		}
 		actionStates = new ArrayList<>(newStates);
-		setCurrentActionState(actionStates.get(0));
+		if (fireFirstEvent) {
+			setCurrentActionState(actionStates.get(0));
+		}
 	}
 
 	public T getCurrentUserData() {
@@ -207,7 +258,7 @@ public abstract class MultiStateDockingAction<T> extends DockingAction {
 		ToolBarData tbd = getToolBarData();
 		tbd.setIcon(getIcon(actionState));
 
-		setDescription(getTooTipText());
+		setDescription(getToolTipText());
 		actionStateChanged(actionState, trigger);
 	}
 
@@ -260,7 +311,7 @@ public abstract class MultiStateDockingAction<T> extends DockingAction {
 		throw new UnsupportedOperationException();
 	}
 
-	public String getTooTipText() {
+	public String getToolTipText() {
 		return getName() + ": " + getCurrentState().getName();
 	}
 

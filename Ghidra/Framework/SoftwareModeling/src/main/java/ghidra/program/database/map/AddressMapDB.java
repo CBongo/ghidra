@@ -199,8 +199,8 @@ public class AddressMapDB implements AddressMap {
 	 * @throws IOException thrown if a dabase io error occurs.
 	 * @throws VersionException if the database version does not match the expected version.
 	 */
-	public AddressMapDB(DBHandle handle, int openMode, AddressFactory factory,
-			long baseImageOffset, TaskMonitor monitor) throws IOException, VersionException {
+	public AddressMapDB(DBHandle handle, int openMode, AddressFactory factory, long baseImageOffset,
+			TaskMonitor monitor) throws IOException, VersionException {
 		this.readOnly = (openMode == DBConstants.READ_ONLY);
 		this.addrFactory = factory;
 		this.baseImageOffset = baseImageOffset;
@@ -215,7 +215,7 @@ public class AddressMapDB implements AddressMap {
 	/**
 	 * Notification when the memory map changes.  If we are segemented, we need to update our
 	 * list of address ranges used for address normalization.
-	 * @param memory
+	 * @param mem the changed memory map.
 	 */
 	public synchronized void memoryMapChanged(MemoryMapDB mem) {
 		if (!(addrFactory.getDefaultAddressSpace() instanceof SegmentedAddressSpace)) {
@@ -240,7 +240,8 @@ public class AddressMapDB implements AddressMap {
 			max = max < 0 ? MAX_OFFSET : Math.min(max, MAX_OFFSET);
 			// Avoid use of add which fails for overlay addresses which have restricted min/max offsets
 			long off = sortedBaseStartAddrs[i].getOffset() | max;
-			sortedBaseEndAddrs[i] = sortedBaseStartAddrs[i].getAddressSpace().getAddressInThisSpaceOnly(off);
+			sortedBaseEndAddrs[i] =
+				sortedBaseStartAddrs[i].getAddressSpace().getAddressInThisSpaceOnly(off);
 		}
 		if (rebuildAddrToIndexMap) {
 			addrToIndexMap.clear();
@@ -268,17 +269,11 @@ public class AddressMapDB implements AddressMap {
 		return useOldAddrMap ? this : oldAddrMap;
 	}
 
-	/**
-	 * @see ghidra.program.database.map.AddressMap#isUpgraded()
-	 */
 	@Override
 	public boolean isUpgraded() {
 		return getOldAddressMap() != this;
 	}
 
-	/**
-	 * @see ghidra.program.database.map.AddressMap#getKey(ghidra.program.model.address.Address, boolean)
-	 */
 	@Override
 	public synchronized long getKey(Address addr, boolean create) {
 		if (useOldAddrMap) {
@@ -307,9 +302,6 @@ public class AddressMapDB implements AddressMap {
 		return offset;
 	}
 
-	/**
-	 * @see ghidra.program.database.map.AddressMap#getAbsoluteEncoding(ghidra.program.model.address.Address, boolean)
-	 */
 	@Override
 	public synchronized long getAbsoluteEncoding(Address addr, boolean create) {
 		if (useOldAddrMap) {
@@ -402,13 +394,14 @@ public class AddressMapDB implements AddressMap {
 		Integer tIndex = addrToIndexMap.get(tBase);
 		if (tIndex != null) {
 			return tIndex;
-		} else if (indexOperation == INDEX_MATCH) {
+		}
+		else if (indexOperation == INDEX_MATCH) {
 			return Integer.MIN_VALUE;
 		}
 
-		int search =
-			normalize ? Arrays.binarySearch(sortedBaseStartAddrs, addr,
-				normalizingAddressComparator) : Arrays.binarySearch(sortedBaseStartAddrs, addr);
+		int search = normalize
+				? Arrays.binarySearch(sortedBaseStartAddrs, addr, normalizingAddressComparator)
+				: Arrays.binarySearch(sortedBaseStartAddrs, addr);
 
 		if (search < 0) {
 			search = -search - 2;
@@ -448,7 +441,8 @@ public class AddressMapDB implements AddressMap {
 			// Create new base without modifying database
 			Address[] newBaseAddrs = new Address[baseAddrs.length + 1];
 			System.arraycopy(baseAddrs, 0, newBaseAddrs, 0, baseAddrs.length);
-			newBaseAddrs[index] = addr.getAddressSpace().getAddressInThisSpaceOnly(normalizedBaseOffset);
+			newBaseAddrs[index] =
+				addr.getAddressSpace().getAddressInThisSpaceOnly(normalizedBaseOffset);
 			baseAddrs = newBaseAddrs;
 		}
 		else {
@@ -466,8 +460,8 @@ public class AddressMapDB implements AddressMap {
 
 	void checkAddressSpace(AddressSpace addrSpace) {
 		AddressSpace[] spaces = addrFactory.getPhysicalSpaces();
-		for (int i = 0; i < spaces.length; i++) {
-			if (addrSpace.equals(spaces[i])) {
+		for (AddressSpace space : spaces) {
+			if (addrSpace.equals(space)) {
 				return;
 			}
 		}
@@ -476,9 +470,6 @@ public class AddressMapDB implements AddressMap {
 		}
 	}
 
-	/**
-	 * @see ghidra.program.model.address.AddressMap#decodeAddress(long)
-	 */
 	@Override
 	public synchronized Address decodeAddress(long value) {
 		return decodeAddress(value, true);
@@ -578,8 +569,8 @@ public class AddressMapDB implements AddressMap {
 					}
 					catch (AddressOutOfBoundsException e) {
 						// Recover bad stack address as best we can (used to be a common 32-bit stack space)
-						return new OldGenericNamespaceAddress(stackSpace, truncateStackOffset(
-							offset, stackSpace), nameSpaceID);
+						return new OldGenericNamespaceAddress(stackSpace,
+							truncateStackOffset(offset, stackSpace), nameSpaceID);
 					}
 				}
 				try {
@@ -705,17 +696,11 @@ public class AddressMapDB implements AddressMap {
 		throw new IllegalArgumentException("Address can not be encoded");
 	}
 
-	/**
-	 * @see ghidra.program.model.address.AddressMap#getAddressFactory()
-	 */
 	@Override
 	public AddressFactory getAddressFactory() {
 		return addrFactory;
 	}
 
-	/**
-	 * @see ghidra.program.database.map.AddressMap#setImageBase(ghidra.program.model.address.Address)
-	 */
 	@Override
 	public void setImageBase(Address base) {
 		if (useOldAddrMap) {
@@ -730,18 +715,11 @@ public class AddressMapDB implements AddressMap {
 		baseImageOffset = base.getOffset();
 	}
 
-	/**
-	 * @see ghidra.program.database.map.AddressMap#getModCount()
-	 */
 	@Override
 	public synchronized int getModCount() {
 		return baseAddrs.length;
 	}
 
-	/**
-	 * 
-	 * @see ghidra.program.model.address.AddressMap#findKeyRange(java.util.List, ghidra.program.model.address.Address)
-	 */
 	@Override
 	public int findKeyRange(List<KeyRange> keyRangeList, Address addr) {
 		// TODO: Will not handle mixed list of relative and absolute key ranges
@@ -751,25 +729,16 @@ public class AddressMapDB implements AddressMap {
 		return Collections.binarySearch(keyRangeList, addr, addressInsertionKeyRangeComparator);
 	}
 
-	/**
-	 * @see ghidra.program.database.map.AddressMap#getKeyRanges(ghidra.program.model.address.Address, ghidra.program.model.address.Address, boolean)
-	 */
 	@Override
 	public List<KeyRange> getKeyRanges(Address start, Address end, boolean create) {
 		return getKeyRanges(start, end, false, create);
 	}
 
-	/**
-	 * @see ghidra.program.database.map.AddressMap#getKeyRanges(ghidra.program.model.address.AddressSetView, boolean)
-	 */
 	@Override
 	public List<KeyRange> getKeyRanges(AddressSetView set, boolean create) {
 		return getKeyRanges(set, false, create);
 	}
 
-	/**
-	 * @see ghidra.program.database.map.AddressMap#getKeyRanges(ghidra.program.model.address.Address, ghidra.program.model.address.Address, boolean, boolean)
-	 */
 	@Override
 	public synchronized List<KeyRange> getKeyRanges(Address start, Address end, boolean absolute,
 			boolean create) {
@@ -794,9 +763,6 @@ public class AddressMapDB implements AddressMap {
 		return fullSet;
 	}
 
-	/**
-	 * @see ghidra.program.database.map.AddressMap#getKeyRanges(ghidra.program.model.address.AddressSetView, boolean, boolean)
-	 */
 	@Override
 	public synchronized List<KeyRange> getKeyRanges(AddressSetView set, boolean absolute,
 			boolean create) {
@@ -833,7 +799,6 @@ public class AddressMapDB implements AddressMap {
 				create);
 		}
 	}
-
 
 	/**
 	 * Create all memory base segments within the specified range.
@@ -899,13 +864,11 @@ public class AddressMapDB implements AddressMap {
 
 		// Try optimized single range approach first
 		long maxKey;
-		long minKey =
-			absolute ? encodeAbsolute(normalizedStart, INDEX_MATCH) : encodeRelative(
-				normalizedStart, true, INDEX_MATCH);
+		long minKey = absolute ? encodeAbsolute(normalizedStart, INDEX_MATCH)
+				: encodeRelative(normalizedStart, true, INDEX_MATCH);
 		if (minKey != INVALID_ADDRESS_KEY) {
-			maxKey =
-				absolute ? encodeAbsolute(normalizedEnd, INDEX_MATCH) : encodeRelative(
-					normalizedEnd, true, INDEX_MATCH);
+			maxKey = absolute ? encodeAbsolute(normalizedEnd, INDEX_MATCH)
+					: encodeRelative(normalizedEnd, true, INDEX_MATCH);
 			if (maxKey != INVALID_ADDRESS_KEY && (minKey & BASE_MASK) == (maxKey & BASE_MASK)) {
 				keyRangeList.add(new KeyRange(minKey, maxKey));
 				return;
@@ -926,12 +889,10 @@ public class AddressMapDB implements AddressMap {
 			Address addr2 = min(normalizedEnd, sortedBaseEndAddrs[index]);
 			if (addr1.compareTo(addr2) <= 0) {
 				// Collapse range where minKey and maxKey fall within existing base segments
-				minKey =
-					absolute ? encodeAbsolute(addr1, INDEX_MATCH_OR_NEXT) : encodeRelative(addr1,
-						true, INDEX_MATCH_OR_NEXT);
-				maxKey =
-					absolute ? encodeAbsolute(addr2, INDEX_MATCH_OR_PREVIOUS) : encodeRelative(
-						addr2, true, INDEX_MATCH_OR_PREVIOUS);
+				minKey = absolute ? encodeAbsolute(addr1, INDEX_MATCH_OR_NEXT)
+						: encodeRelative(addr1, true, INDEX_MATCH_OR_NEXT);
+				maxKey = absolute ? encodeAbsolute(addr2, INDEX_MATCH_OR_PREVIOUS)
+						: encodeRelative(addr2, true, INDEX_MATCH_OR_PREVIOUS);
 				if (minKey != INVALID_ADDRESS_KEY && maxKey != INVALID_ADDRESS_KEY) {
 					keyRangeList.add(new KeyRange(minKey, maxKey));
 				}
@@ -955,9 +916,6 @@ public class AddressMapDB implements AddressMap {
 		return addr;
 	}
 
-	/**
-	 * @see ghidra.program.database.map.AddressMap#getImageBase()
-	 */
 	@Override
 	public Address getImageBase() {
 		if (defaultAddrSpace instanceof SegmentedAddressSpace) {

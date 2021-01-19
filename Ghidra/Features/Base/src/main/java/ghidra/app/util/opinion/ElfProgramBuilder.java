@@ -19,23 +19,23 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.math.BigInteger;
 import java.text.NumberFormat;
-import java.util.HashMap;
-import java.util.List;
+import java.util.*;
 import java.util.function.Consumer;
 
 import ghidra.app.cmd.label.SetLabelPrimaryCmd;
-import ghidra.app.util.MemoryBlockUtil;
+import ghidra.app.util.MemoryBlockUtils;
 import ghidra.app.util.Option;
+import ghidra.app.util.bin.ByteProvider;
 import ghidra.app.util.bin.format.MemoryLoadable;
 import ghidra.app.util.bin.format.elf.*;
 import ghidra.app.util.bin.format.elf.ElfDynamicType.ElfDynamicValueType;
 import ghidra.app.util.bin.format.elf.extend.ElfLoadAdapter;
 import ghidra.app.util.bin.format.elf.relocation.ElfRelocationContext;
 import ghidra.app.util.bin.format.elf.relocation.ElfRelocationHandler;
-import ghidra.app.util.importer.MemoryConflictHandler;
 import ghidra.app.util.importer.MessageLog;
 import ghidra.framework.options.Options;
 import ghidra.framework.store.LockException;
+import ghidra.program.database.mem.FileBytes;
 import ghidra.program.database.register.AddressRangeObjectMap;
 import ghidra.program.model.address.*;
 import ghidra.program.model.data.*;
@@ -68,10 +68,11 @@ class ElfProgramBuilder extends MemorySectionResolver implements ElfLoadHelper {
 	private static final int DISCARDABLE_SEGMENT_SIZE = 0xff;
 
 	private List<Option> options;
+	private Long dataImageBase; // cached data image base option or null if not applicable
 	private MessageLog log;
 
 	private ElfHeader elf;
-	private MemoryBlockUtil mbu;
+	private FileBytes fileBytes;
 
 	private Listing listing;
 	private Memory memory;
@@ -79,14 +80,13 @@ class ElfProgramBuilder extends MemorySectionResolver implements ElfLoadHelper {
 	private HashMap<ElfSymbol, Address> symbolMap = new HashMap<>();
 
 	protected ElfProgramBuilder(ElfHeader elf, Program program, List<Option> options,
-			MessageLog log, MemoryConflictHandler handler) {
+			MessageLog log) {
 		super(program);
 		this.elf = elf;
 		this.options = options;
 		this.log = log;
 		memory = program.getMemory();
 		listing = program.getListing();
-		mbu = new MemoryBlockUtil(program, handler);
 	}
 
 	@Override
@@ -94,16 +94,9 @@ class ElfProgramBuilder extends MemorySectionResolver implements ElfLoadHelper {
 		return elf;
 	}
 
-	@Override
-	public MemoryBlockUtil getMemoryBlockUtil() {
-		return mbu;
-	}
-
 	static void loadElf(ElfHeader elf, Program program, List<Option> options, MessageLog log,
-			MemoryConflictHandler handler, TaskMonitor monitor)
-			throws IOException, CancelledException {
-		ElfProgramBuilder elfProgramBuilder =
-			new ElfProgramBuilder(elf, program, options, log, handler);
+			TaskMonitor monitor) throws IOException, CancelledException {
+		ElfProgramBuilder elfProgramBuilder = new ElfProgramBuilder(elf, program, options, log);
 		elfProgramBuilder.load(monitor);
 	}
 
@@ -114,17 +107,26 @@ class ElfProgramBuilder extends MemorySectionResolver implements ElfLoadHelper {
 		elf.parse();
 		monitor.setCancelEnabled(true);
 
-		int id = program.startTransaction("loading program from ELF");
+		int id = program.startTransaction("Load ELF program");
 		boolean success = false;
 		try {
+
+			addProgramProperties(monitor);
+
 			setImageBase();
 			program.setExecutableFormat(ElfLoader.ELF_NAME);
+
+			// resolve segment/sections and create program memory blocks
+			ByteProvider byteProvider = elf.getReader().getByteProvider();
+			try (InputStream fileIn = byteProvider.getInputStream(0)) {
+				fileBytes = program.getMemory().createFileBytes(byteProvider.getName(), 0,
+					byteProvider.length(), fileIn, monitor);
+			}
 
 			// process headers and define "section" within memory elfProgramBuilder
 			processProgramHeaders(monitor);
 			processSectionHeaders(monitor);
 
-			// resolve segment/sections and create program memory blocks
 			resolve(monitor);
 
 			if (elf.e_shnum() == 0) {
@@ -156,32 +158,24 @@ class ElfProgramBuilder extends MemorySectionResolver implements ElfLoadHelper {
 
 			elf.getLoadAdapter().processElf(this, monitor);
 
+			processRelocations(monitor);
 			processEntryPoints(monitor);
 			processImports(monitor);
-			processRelocations(monitor);
 
 			monitor.setMessage("Processing PLT/GOT ...");
 			elf.getLoadAdapter().processGotPlt(this, monitor);
 
 			markupHashTable(monitor);
 			markupGnuHashTable(monitor);
+			markupGnuBuildId(monitor);
+			markupGnuDebugLink(monitor);
 
 			processGNU(monitor);
 			processGNU_readOnly(monitor);
 
-			createFileComment(program.getMinAddress(), monitor);
-			addProgramProperties(monitor);
-
 			success = true;
 		}
 		finally {
-			if (mbu != null) {
-				if (log != null) {
-					log(mbu.getMessages());
-				}
-				mbu.dispose();
-				mbu = null;
-			}
 			program.endTransaction(id, success);
 		}
 	}
@@ -257,37 +251,83 @@ class ElfProgramBuilder extends MemorySectionResolver implements ElfLoadHelper {
 			Msg.error(this, "Can't set image base.", e);
 		}
 	}
-
-	private void addProgramProperties(TaskMonitor monitor) {
-		if (monitor.isCancelled()) {
-			return;
+	
+	private long getImageDataBase() {
+		if (dataImageBase == null) {
+			dataImageBase = 0L;
+			String imageBaseStr = ElfLoaderOptionsFactory.getDataImageBaseOption(options);
+			if (imageBaseStr != null) {
+				dataImageBase = NumericUtilities.parseHexLong(imageBaseStr);
+			}
 		}
+		return dataImageBase;
+	}
+
+	private void addProgramProperties(TaskMonitor monitor) throws CancelledException {
+
+		monitor.checkCanceled();
+		monitor.setMessage("Adding program properties...");
+
 		Options props = program.getOptions(Program.PROGRAM_INFO);
+
+		// Preserve original image base which may be required for DWARF address fixup.
+		// String is used to avoid decimal rendering of long values in display.
+		props.setString(ElfLoader.ELF_ORIGINAL_IMAGE_BASE_PROPERTY,
+			"0x" + Long.toHexString(elf.getImageBase()));
+		props.setBoolean(ElfLoader.ELF_PRELINKED_PROPERTY, elf.isPreLinked());
+
+		String elfFileType;
+		boolean isRelocatable = false;
 		switch (elf.e_type()) {
-			case ElfConstants.ET_CORE:
-			case ElfConstants.ET_DYN:
+			case ElfConstants.ET_NONE:
+				elfFileType = "unspecified";
+				break;
 			case ElfConstants.ET_REL:
-				props.setBoolean(RelocationTable.RELOCATABLE_PROP_NAME, true);
+				elfFileType = "relocatable";
+				isRelocatable = true;
+				break;
+			case ElfConstants.ET_EXEC:
+				elfFileType = "executable";
+				break;
+			case ElfConstants.ET_DYN:
+				elfFileType = "shared object";
+				isRelocatable = true;
+				break;
+			case ElfConstants.ET_CORE:
+				elfFileType = "core";
+				isRelocatable = true;
 				break;
 			default:
-				props.setBoolean(RelocationTable.RELOCATABLE_PROP_NAME, false);
+				elfFileType = "unknown";
 				break;
 		}
+		props.setString(ElfLoader.ELF_FILE_TYPE_PROPERTY, elfFileType);
+		props.setBoolean(RelocationTable.RELOCATABLE_PROP_NAME, isRelocatable);
 
-// TODO: What was the intent of the following block? I'm commenting out for now because this
-//		code does nothing useful. But I'll leave it here in case it's a template for 
-//		something that 'should' be implemented.
-//		
-//		// save order list of library dependencies
-//		
-//		String[] dynamicLibraryNames = elf.getDynamicLibraryNames();
-//		if (dynamicLibraryNames.length != 0) {
-//			StringBuilder buf = new StringBuilder();
-//			for (String libName : dynamicLibraryNames) {
-//				// TODO?
-//			}
-//
-//		}
+		int fileIndex = 0;
+		ElfSymbolTable[] symbolTables = elf.getSymbolTables();
+		for (ElfSymbolTable symbolTable : symbolTables) {
+			monitor.checkCanceled();
+			String[] files = symbolTable.getSourceFiles();
+			for (String file : files) {
+				monitor.checkCanceled();
+				props.setString(ElfLoader.ELF_SOURCE_FILE_PROPERTY_PREFIX + pad(fileIndex++) + "]",
+					file);
+			}
+		}
+
+		int libraryIndex = 0;
+		ElfDynamicTable dynamicTable = elf.getDynamicTable();
+		if (dynamicTable != null) {
+			String[] neededLibs = elf.getDynamicLibraryNames();
+			for (String neededLib : neededLibs) {
+				monitor.checkCanceled();
+				props.setString(
+					ElfLoader.ELF_REQUIRED_LIBRARY_PROPERTY_PREFIX + pad(libraryIndex++) + "]",
+					neededLib);
+			}
+		}
+
 	}
 
 	private AddressRange getMarkupMemoryRangeConstraint(Address addr) {
@@ -442,17 +482,19 @@ class ElfProgramBuilder extends MemorySectionResolver implements ElfLoadHelper {
 		}
 
 		// process dynamic entry points
-		createDynamicEntryPoints(ElfDynamicType.DT_INIT, null, monitor);
+		createDynamicEntryPoints(ElfDynamicType.DT_INIT, null, "_INIT_", monitor);
 		createDynamicEntryPoints(ElfDynamicType.DT_INIT_ARRAY, ElfDynamicType.DT_INIT_ARRAYSZ,
-			monitor);
-		createDynamicEntryPoints(ElfDynamicType.DT_FINI, null, monitor);
+			"_INIT_", monitor);
+		createDynamicEntryPoints(ElfDynamicType.DT_PREINIT_ARRAY, ElfDynamicType.DT_PREINIT_ARRAYSZ,
+			"_PREINIT_", monitor);
+		createDynamicEntryPoints(ElfDynamicType.DT_FINI, null, "_FINI_", monitor);
 		createDynamicEntryPoints(ElfDynamicType.DT_FINI_ARRAY, ElfDynamicType.DT_FINI_ARRAYSZ,
-			monitor);
+			"_FINI_", monitor);
 
 	}
 
 	private void createDynamicEntryPoints(ElfDynamicType dynamicEntryType,
-			ElfDynamicType entryArraySizeType, TaskMonitor monitor) {
+			ElfDynamicType entryArraySizeType, String baseName, TaskMonitor monitor) {
 
 		ElfDynamicTable dynamicTable = elf.getDynamicTable();
 		if (dynamicTable == null) {
@@ -475,8 +517,6 @@ class ElfProgramBuilder extends MemorySectionResolver implements ElfLoadHelper {
 			long arraySize = dynamicTable.getDynamicValue(entryArraySizeType);
 			long elementCount = arraySize / dt.getLength();
 
-			String baseName = dynamicEntryType.name.startsWith("DT_INIT") ? "_INIT_" : "_FINI_";
-
 			for (int i = 0; i < elementCount; i++) {
 				Address addr = entryArrayAddr.add(i * dt.getLength());
 				Data data = createData(addr, dt);
@@ -485,6 +525,9 @@ class ElfProgramBuilder extends MemorySectionResolver implements ElfLoadHelper {
 				}
 				Scalar value = (Scalar) data.getValue();
 				if (value != null) {
+					if (i != 0 && value.getValue() == 0) {
+						continue;
+					}
 					long funcAddrOffset = elf.adjustAddressForPrelink(value.getValue());
 					Address funcAddr = createEntryFunction(baseName + i, funcAddrOffset, monitor);
 					if (funcAddr != null) {
@@ -532,10 +575,18 @@ class ElfProgramBuilder extends MemorySectionResolver implements ElfLoadHelper {
 			createOneByteFunction(name, entryAddress, true);
 		}
 		catch (Exception e) {
-			log("Could not create symbol at entry point: " + e);
+			log("Could not create symbol at entry point: " + getMessage(e));
 		}
 
 		return entryAddress;
+	}
+
+	private String getMessage(Exception e) {
+		String msg = e.getMessage();
+		if (msg == null) {
+			msg = e.toString();
+		}
+		return msg;
 	}
 
 	private void markupInterpreter(TaskMonitor monitor) {
@@ -671,11 +722,21 @@ class ElfProgramBuilder extends MemorySectionResolver implements ElfLoadHelper {
 	}
 
 	private void processRelocationTable(ElfRelocationTable relocationTable,
-			ElfRelocationContext context, AddressSpace relocationSpace, long baseOffset,
+			ElfRelocationContext context, AddressSpace relocationSpace, long baseWordOffset,
 			TaskMonitor monitor) throws CancelledException {
 
 		ElfSymbol[] symbols = relocationTable.getAssociatedSymbolTable().getSymbols();
 		ElfRelocation[] relocs = relocationTable.getRelocations();
+
+		boolean relrTypeUnknown = false;
+		long relrRelocationType = 0;
+		if (relocationTable.isRelrTable() && context != null) {
+			relrRelocationType = context.getRelrRelocationType();
+			if (relrRelocationType == 0) {
+				relrTypeUnknown = true;
+				log("Failed to process RELR relocations - extension does not define RELR type");
+			}
+		}
 
 		for (ElfRelocation reloc : relocs) {
 
@@ -687,12 +748,21 @@ class ElfProgramBuilder extends MemorySectionResolver implements ElfLoadHelper {
 				symbolName = symbols[symbolIndex].getNameAsString();
 			}
 
-			long relocationOffset = baseOffset + reloc.getOffset();
-			Address relocAddr = relocationSpace.getTruncatedAddress(relocationOffset, true);
+			Address baseAddress =  relocationSpace.getTruncatedAddress(baseWordOffset, true);
+//			long relocationOffset = baseWordOffset + reloc.getOffset();
+			// r_offset is defined to be a byte offset (assume byte size is 1)
+			Address relocAddr = context != null ? context.getRelocationAddress(baseAddress, reloc.getOffset()) : baseAddress.addWrap(reloc.getOffset());
+//			Address relocAddr = relocationSpace.getTruncatedAddress(relocationOffset, true);
 
 			long[] values = new long[] { reloc.getSymbolIndex() };
 
 			byte[] bytes = elf.is64Bit() ? new byte[8] : new byte[4];
+
+			long type = reloc.getType();
+			if (relrRelocationType != 0) {
+				type = relrRelocationType;
+				reloc.setType(relrRelocationType);
+			}
 
 			try {
 				MemoryBlock relocBlock = memory.getBlock(relocAddr);
@@ -706,7 +776,7 @@ class ElfProgramBuilder extends MemorySectionResolver implements ElfLoadHelper {
 					catch (Exception e) {
 						Msg.error(this, "Unexpected Exception", e);
 						ElfRelocationHandler.markAsUninitializedMemory(program, relocAddr,
-							reloc.getType(), reloc.getSymbolIndex(), symbolName, log);
+							type, reloc.getSymbolIndex(), symbolName, log);
 						continue;
 					}
 				}
@@ -714,15 +784,19 @@ class ElfProgramBuilder extends MemorySectionResolver implements ElfLoadHelper {
 				memory.getBytes(relocAddr, bytes);
 
 				if (context != null && context.hasRelocationHandler()) {
-					context.processRelocation(reloc, relocAddr);
+					if (relrTypeUnknown) {
+						ElfRelocationHandler.markAsUnsupportedRelr(program, relocAddr);
+					}
+					else {
+						context.processRelocation(reloc, relocAddr);
+					}
 				}
 			}
 			catch (MemoryAccessException e) {
-				long type = reloc.getType();
 				if (type != 0) { // ignore if type 0 which is always NONE (no relocation performed)
 					log("Unable to perform relocation: Type = " + type + " (0x" +
 						Long.toHexString(type) + ") at " + relocAddr + " (Symbol = " + symbolName +
-						") - " + e.getMessage());
+						") - " + getMessage(e));
 				}
 			}
 			finally {
@@ -782,7 +856,7 @@ class ElfProgramBuilder extends MemorySectionResolver implements ElfLoadHelper {
 			createData(headerAddr, dt);
 		}
 		catch (Exception e) {
-			log("Failed to markup Elf header: " + e.getMessage());
+			log("Failed to markup Elf header: " + getMessage(e));
 		}
 	}
 
@@ -795,7 +869,7 @@ class ElfProgramBuilder extends MemorySectionResolver implements ElfLoadHelper {
 		}
 
 		Structure phStructDt = (Structure) elf.getProgramHeaders()[0].toDataType();
-		phStructDt = (Structure) phStructDt.clone(program.getDataTypeManager());
+		phStructDt = phStructDt.clone(program.getDataTypeManager());
 
 		Array arrayDt = new ArrayDataType(phStructDt, headerCount, size);
 
@@ -840,7 +914,7 @@ class ElfProgramBuilder extends MemorySectionResolver implements ElfLoadHelper {
 		}
 		catch (Exception e) {
 			e.printStackTrace();
-			log("Failed to markup Elf program/segment headers: " + e.getMessage());
+			log("Failed to markup Elf program/segment headers: " + getMessage(e));
 		}
 	}
 
@@ -853,7 +927,7 @@ class ElfProgramBuilder extends MemorySectionResolver implements ElfLoadHelper {
 		}
 
 		Structure shStructDt = (Structure) elf.getSections()[0].toDataType();
-		shStructDt = (Structure) shStructDt.clone(program.getDataTypeManager());
+		shStructDt = shStructDt.clone(program.getDataTypeManager());
 
 		Array arrayDt = new ArrayDataType(shStructDt, elf.e_shnum(), elf.e_shentsize());
 
@@ -897,20 +971,24 @@ class ElfProgramBuilder extends MemorySectionResolver implements ElfLoadHelper {
 			}
 		}
 		catch (Exception e) {
-			log("Failed to markup Elf section headers: " + e.getMessage());
+			log("Failed to markup Elf section headers: " + getMessage(e));
 		}
 	}
 
 	private void markupRelocationTable(Address relocTableAddr, ElfRelocationTable relocTable,
 			TaskMonitor monitor) {
 		try {
-			listing.createData(relocTableAddr, relocTable.toDataType());
-		}
-		catch (CodeUnitInsertionException e) {
-			log("Failed to properly markup relocation table: " + e.getMessage());
+			DataType dataType = relocTable.toDataType();
+			if (dataType != null) {
+				listing.createData(relocTableAddr, dataType);
+			}
+			else {
+				listing.setComment(relocTableAddr, CodeUnit.PRE_COMMENT,
+					"ELF Relocation Table (markup not yet supported)");
+			}
 		}
 		catch (Exception e) {
-			log("Failed to properly markup relocation table: " + e);
+			log("Failed to properly markup relocation table: " + getMessage(e));
 		}
 	}
 
@@ -1030,6 +1108,12 @@ class ElfProgramBuilder extends MemorySectionResolver implements ElfLoadHelper {
 
 		AddressRange range = new AddressRangeImpl(alignedAddress, freeRange.getMaxAddress());
 		if (size > 0) {
+			long rangeLen = range.getLength();
+			if (rangeLen < 0 || rangeLen > size) {
+				// reduce size of allocation range
+				range = new AddressRangeImpl(range.getMinAddress(),
+					range.getMinAddress().add(size - 1));
+			}
 			// keep track if allocations other than the EXTERNAL block allocation
 			allocatedRegions.add(range);
 		}
@@ -1078,8 +1162,8 @@ class ElfProgramBuilder extends MemorySectionResolver implements ElfLoadHelper {
 	}
 
 	/**
-	 * Create EXTERNAL memory block based upon start of {@link #freeAddressRange} and the
-	 * current {@link #nextFreeAddress}.
+	 * Create EXTERNAL memory block based upon {@link #externalBlockLimits} and
+	 * {@link #lastExternalBlockEntryAddress}.
 	 */
 	private void createExternalBlock() {
 		if (lastExternalBlockEntryAddress == null) {
@@ -1089,7 +1173,8 @@ class ElfProgramBuilder extends MemorySectionResolver implements ElfLoadHelper {
 		long size = lastExternalBlockEntryAddress.subtract(externalBlockAddress) + 1;
 		try {
 			MemoryBlock block =
-				memory.createUninitializedBlock("EXTERNAL", externalBlockAddress, size, false);
+				memory.createUninitializedBlock(MemoryBlock.EXTERNAL_BLOCK_NAME,
+					externalBlockAddress, size, false);
 
 			// assume any value in external is writable.
 			block.setWrite(true);
@@ -1098,7 +1183,7 @@ class ElfProgramBuilder extends MemorySectionResolver implements ElfLoadHelper {
 				"NOTE: This block is artificial and is used to make relocations work correctly");
 		}
 		catch (Exception e) {
-			log("Error creating external memory block: " + " - " + e.getMessage());
+			log("Error creating external memory block: " + " - " + getMessage(e));
 		}
 	}
 
@@ -1187,7 +1272,7 @@ class ElfProgramBuilder extends MemorySectionResolver implements ElfLoadHelper {
 			}
 			catch (Exception e) {
 				log("Error creating symbol: " + elfSymbol.getNameAsString() + " - " +
-					e.getMessage());
+					getMessage(e));
 			}
 		}
 	}
@@ -1216,10 +1301,13 @@ class ElfProgramBuilder extends MemorySectionResolver implements ElfLoadHelper {
 			return null;
 		}
 
+		ElfLoadAdapter loadAdapter = elf.getLoadAdapter();
+
 		ElfSectionHeader[] elfSections = elf.getSections();
 		short sectionIndex = elfSymbol.getSectionHeaderIndex();
 		Address symSectionBase = null;
 		AddressSpace defaultSpace = getDefaultAddressSpace();
+		AddressSpace defaultDataSpace = getDefaultDataSpace();
 		AddressSpace symbolSpace = defaultSpace;
 		long symOffset = elfSymbol.getValue();
 
@@ -1235,25 +1323,33 @@ class ElfProgramBuilder extends MemorySectionResolver implements ElfLoadHelper {
 					return null;
 				}
 				symbolSpace = symSectionBase.getAddressSpace();
-			} // else assume sections have been stripped - always use default space
-			if (symbolSpace.getPhysicalSpace() == defaultSpace) {
+			} // else assume sections have been stripped
+			AddressSpace space = symbolSpace.getPhysicalSpace();
+			symOffset = loadAdapter.getAdjustedMemoryOffset(symOffset, space);
+			if (space == defaultSpace) {
 				symOffset =
 					elf.adjustAddressForPrelink(symOffset) + getImageBaseWordAdjustmentOffset();
+			}
+			else if (space == defaultDataSpace) {
+				symOffset += getImageDataBase();
 			}
 		}
 		else if (sectionIndex == ElfSectionHeaderConstants.SHN_UNDEF) { // Not section relative 0x0000 (e.g., no sections defined)
 			// FIXME: No sections defined or refers to external symbol
 			// Uncertain what if any offset adjustments should apply, although the
 			// EXTERNAL block is affected by the program image base
+			symOffset = loadAdapter.getAdjustedMemoryOffset(symOffset, defaultSpace);
 			symOffset += getImageBaseWordAdjustmentOffset();
 		}
-//FIXME! We are not handling absolute and common symbols properly
-//Should constants be placed in constant space?
 		else if (sectionIndex == ElfSectionHeaderConstants.SHN_ABS) { // Absolute value/address - 0xfff1
-			// TODO: Which space ? Can't distinguish data vs. code/default space
+			// TODO: Which space ? Can't distinguish simple constant vs. data vs. code/default space
 			// The should potentially be assign a constant address instead (not possible currently)
 
 			// Note: Assume data space - symbols will be "pinned"
+
+			// TODO: it may be inappropriate to adjust since value may not actually be a memory address - what to do?
+			// symOffset = loadAdapter.adjustMemoryOffset(symOffset, space);
+
 			symbolSpace = getDefaultDataSpace();
 		}
 		else if (sectionIndex == ElfSectionHeaderConstants.SHN_COMMON) { // Common symbols - 0xfff2 (
@@ -1570,7 +1666,7 @@ class ElfProgramBuilder extends MemorySectionResolver implements ElfLoadHelper {
 			}
 		}
 		catch (Exception e) {
-			log("Error while creating function at " + address + ": " + e.getMessage());
+			log("Error while creating function at " + address + ": " + getMessage(e));
 		}
 
 		try {
@@ -1582,7 +1678,7 @@ class ElfProgramBuilder extends MemorySectionResolver implements ElfLoadHelper {
 			}
 		}
 		catch (Exception e) {
-			log("Error while creating symbol " + name + " at " + address + ": " + e.getMessage());
+			log("Error while creating symbol " + name + " at " + address + ": " + getMessage(e));
 		}
 		return function;
 	}
@@ -1609,7 +1705,7 @@ class ElfProgramBuilder extends MemorySectionResolver implements ElfLoadHelper {
 				SourceType.IMPORTED);
 		}
 		catch (InvalidInputException e) {
-			log.appendMsg("Failed to create external function '" + name + "': " + e.getMessage());
+			log.appendMsg("Failed to create external function '" + name + "': " + getMessage(e));
 			return null;
 		}
 		catch (DuplicateNameException e) {
@@ -1642,7 +1738,7 @@ class ElfProgramBuilder extends MemorySectionResolver implements ElfLoadHelper {
 			}
 			catch (Exception e) {
 				log.appendMsg("Failed to establish linkage to external function '" + name + "': " +
-					e.getMessage());
+					getMessage(e));
 				return null;
 			}
 			// Create constant pointer
@@ -1717,7 +1813,7 @@ class ElfProgramBuilder extends MemorySectionResolver implements ElfLoadHelper {
 			Msg.warn(this, "ELF data markup conflict at " + address);
 		}
 		catch (DataTypeConflictException e) {
-			Msg.error(this, "ELF data type markup conflict:" + e.getMessage());
+			Msg.error(this, "ELF data type markup conflict:" + getMessage(e));
 		}
 		return null;
 	}
@@ -1805,6 +1901,38 @@ class ElfProgramBuilder extends MemorySectionResolver implements ElfLoadHelper {
 //		return new AddressRangeImpl(alignedAddress, freeRange.getMaxAddress());
 //	}
 
+	private void markupGnuBuildId(TaskMonitor monitor) {
+
+		ElfSectionHeader sh = elf.getSection(".note.gnu.build-id");
+		Address addr = findLoadAddress(sh, 0);
+		if (addr == null) {
+			return;
+		}
+		try {
+			listing.createData(addr,
+				new GnuBuildIdSection(program.getDataTypeManager(), sh.getSize()));
+		}
+		catch (Exception e) {
+			log("Failed to properly markup Gnu Build-Id at " + addr + ": " + getMessage(e));
+		}
+	}
+
+	private void markupGnuDebugLink(TaskMonitor monitor) {
+
+		ElfSectionHeader sh = elf.getSection(".gnu_debuglink");
+		Address addr = findLoadAddress(sh, 0);
+		if (addr == null) {
+			return;
+		}
+		try {
+			listing.createData(addr,
+				new GnuDebugLinkSection(program.getDataTypeManager(), sh.getSize()));
+		}
+		catch (Exception e) {
+			log("Failed to properly markup Gnu DebugLink at " + addr + ": " + getMessage(e));
+		}
+	}
+
 	private void markupHashTable(TaskMonitor monitor) {
 
 		ElfDynamicTable dynamicTable = elf.getDynamicTable();
@@ -1841,7 +1969,7 @@ class ElfProgramBuilder extends MemorySectionResolver implements ElfLoadHelper {
 			d.setComment(CodeUnit.EOL_COMMENT, "Hash Table - chains");
 		}
 		catch (Exception e) {
-			log("Failed to properly markup Hash table at " + hashTableAddr + ": " + e);
+			log("Failed to properly markup Hash table at " + hashTableAddr + ": " + getMessage(e));
 			return;
 		}
 
@@ -1911,7 +2039,8 @@ class ElfProgramBuilder extends MemorySectionResolver implements ElfLoadHelper {
 
 		}
 		catch (Exception e) {
-			log("Failed to properly markup GNU Hash table at " + hashTableAddr + ": " + e);
+			log("Failed to properly markup GNU Hash table at " + hashTableAddr + ": " +
+				getMessage(e));
 			return;
 		}
 
@@ -1925,7 +2054,8 @@ class ElfProgramBuilder extends MemorySectionResolver implements ElfLoadHelper {
 			array = listing.createData(symbolTableAddr, symbolTable.toDataType());
 		}
 		catch (Exception e) {
-			log("Failed to properly markup symbol table at " + symbolTableAddr + ": " + e);
+			log("Failed to properly markup symbol table at " + symbolTableAddr + ": " +
+				getMessage(e));
 			return;
 		}
 
@@ -2008,7 +2138,7 @@ class ElfProgramBuilder extends MemorySectionResolver implements ElfLoadHelper {
 			}
 		}
 		catch (Exception e) {
-			log("Failed to process dynamic section: " + e.getMessage());
+			log("Failed to process dynamic section: " + getMessage(e));
 		}
 	}
 
@@ -2119,36 +2249,46 @@ class ElfProgramBuilder extends MemorySectionResolver implements ElfLoadHelper {
 	}
 
 	/**
+	 * Get the load address space for a program segment.
+	 * Non-allocated segments may return the OTHER space.
+	 * @param elfProgramHeader elf program segment header
+	 * @return preferred load address space
+	 */
+	private AddressSpace getSegmentAddressSpace(ElfProgramHeader elfProgramHeader) {
+		if (elfProgramHeader.getType() != ElfProgramHeaderConstants.PT_LOAD &&
+			elfProgramHeader.getVirtualAddress() == 0) {
+			return AddressSpace.OTHER_SPACE;
+		}
+		return elf.getLoadAdapter().getPreferredSegmentAddressSpace(this, elfProgramHeader);
+	}
+
+	/**
 	 * Determine segment preferred load address.
 	 * While this method can produce the intended load address, there is no guarantee that
 	 * the segment data did not get bumped into an overlay area due to a conflict with
 	 * another segment or section.
 	 * @param elfProgramHeader
-	 * @return address or null if range check failed.
-	 * @throws AddressOutOfBoundsException
+	 * @return segment load address
 	 */
-	private Address getPreferredSegmentLoadAddress(ElfProgramHeader elfProgramHeader)
-			throws AddressOutOfBoundsException {
-
-		AddressSpace space =
-			elf.getLoadAdapter().getPreferredSegmentAddressSpace(this, elfProgramHeader);
-
-		long addrWordOffset = elfProgramHeader.getVirtualAddress();
-
-		if (space == getDefaultAddressSpace()) {
-			addrWordOffset += getImageBaseWordAdjustmentOffset();
+	private Address getSegmentLoadAddress(ElfProgramHeader elfProgramHeader) {
+		AddressSpace space = getSegmentAddressSpace(elfProgramHeader);
+		if (!space.isLoadedMemorySpace()) {
+			// handle non-loaded sections into the OTHER space
+			long addrWordOffset = elfProgramHeader.getVirtualAddress();
+			return space.getTruncatedAddress(addrWordOffset, true);
 		}
 
-		return space.getTruncatedAddress(addrWordOffset, true);
+		return elf.getLoadAdapter().getPreferredSegmentAddress(this, elfProgramHeader);
 	}
 
 	/**
 	 * Determine preferred section load address address space prior to load.
+	 * Non-allocated sections may return the OTHER space or an existing OTHER 
+	 * overlay established by a program header.
 	 * @param elfSectionHeader
-	 * @return address space targeted for load.  The OTHER address space signifies that
-	 * and overlay on the OTHER space should be used as the section is not really loaded.
+	 * @return section load address space
 	 */
-	private AddressSpace getPreferredSectionAddressSpace(ElfSectionHeader elfSectionHeader) {
+	private AddressSpace getSectionAddressSpace(ElfSectionHeader elfSectionHeader) {
 
 		if (!elfSectionHeader.isAlloc()) {
 
@@ -2168,23 +2308,20 @@ class ElfProgramBuilder extends MemorySectionResolver implements ElfLoadHelper {
 	}
 
 	/**
-	 * Determine section's preferred load address
+	 * Determine section's load address.  
 	 * @param elfSectionHeader
-	 * @return preferred load address
-	 * @throws AddressOutOfBoundsException
+	 * @return section load address
 	 */
-	private Address getPreferredSectionLoadAddress(ElfSectionHeader elfSectionHeader)
-			throws AddressOutOfBoundsException {
+	private Address getSectionLoadAddress(ElfSectionHeader elfSectionHeader) {
 
-		AddressSpace space = getPreferredSectionAddressSpace(elfSectionHeader);
-
-		long addrWordOffset = elfSectionHeader.getAddress();
-
-		if (space == getDefaultAddressSpace()) {
-			addrWordOffset += getImageBaseWordAdjustmentOffset();
+		AddressSpace space = getSectionAddressSpace(elfSectionHeader);
+		if (!space.isLoadedMemorySpace()) {
+			// handle non-loaded sections into the OTHER space
+			long addrWordOffset = elfSectionHeader.getAddress();
+			return space.getTruncatedAddress(addrWordOffset, true);
 		}
 
-		return space.getTruncatedAddress(addrWordOffset, true);
+		return elf.getLoadAdapter().getPreferredSectionAddress(this, elfSectionHeader);
 	}
 
 	@Override
@@ -2224,7 +2361,7 @@ class ElfProgramBuilder extends MemorySectionResolver implements ElfLoadHelper {
 			else if (section instanceof ElfSectionHeader) {
 				ElfSectionHeader s = (ElfSectionHeader) section;
 				if (s.isAlloc()) {
-					return getPreferredSectionLoadAddress(s);
+					return getSectionLoadAddress(s);
 				}
 			}
 
@@ -2274,6 +2411,9 @@ class ElfProgramBuilder extends MemorySectionResolver implements ElfLoadHelper {
 				continue;
 			}
 			long startOffset = section.getOffset();
+			if (startOffset < 0) {
+				continue;
+			}
 			long endOffset = startOffset + section.getSize() - 1;
 			if (fileOffset >= startOffset && headerEndOffset <= endOffset) {
 				headerAddr = findLoadAddress(section, fileOffset - section.getOffset());
@@ -2289,6 +2429,9 @@ class ElfProgramBuilder extends MemorySectionResolver implements ElfLoadHelper {
 				continue;
 			}
 			long startOffset = segment.getOffset();
+			if (startOffset < 0) {
+				continue;
+			}
 			long endOffset = startOffset + segment.getFileSize() - 1;
 			if (fileOffset >= startOffset && headerEndOffset <= endOffset) {
 				headerAddr = findLoadAddress(segment, fileOffset - segment.getOffset());
@@ -2326,7 +2469,7 @@ class ElfProgramBuilder extends MemorySectionResolver implements ElfLoadHelper {
 
 				long loadSizeBytes = elfProgramHeader.getAdjustedLoadSize();
 				if (loadSizeBytes == 0) {
-					expandStart = getPreferredSegmentLoadAddress(elfProgramHeader);
+					expandStart = getSegmentLoadAddress(elfProgramHeader);
 					space = expandStart.getAddressSpace();
 				}
 				else {
@@ -2407,23 +2550,17 @@ class ElfProgramBuilder extends MemorySectionResolver implements ElfLoadHelper {
 		}
 	}
 
-	/**
-	 * Process the program headers and their loaded segments many of which are normally
-	 * loaded through the section headers.
-	 * This is probably not the correct thing to do unless you have a munged ELF
-	 * @param maintainExecuteBit
-	 * @throws CancelledException
-	 *
-	 */
 	private void processProgramHeaders(TaskMonitor monitor) throws CancelledException {
+
+		if (elf.isRelocatable() && elf.e_phnum() != 0) {
+			log("Ignoring unexpected program headers for relocatable ELF (e_phnum=" +
+				elf.e_phnum() + ")");
+			return;
+		}
+
 		monitor.setMessage("Processing program headers...");
 
 		boolean includeOtherBlocks = ElfLoaderOptionsFactory.includeOtherBlocks(options);
-
-		// TODO: Use of nextRelocStart only works within default space
-		// and cause problems if used within data space - we may need to devise
-		// a better approach to allocating load addresses
-		long nextRelocStart = elf.getImageBase();
 
 		ElfProgramHeader[] elfProgramHeaders = elf.getProgramHeaders();
 		for (int i = 0; i < elfProgramHeaders.length; ++i) {
@@ -2432,39 +2569,55 @@ class ElfProgramBuilder extends MemorySectionResolver implements ElfLoadHelper {
 			if (elfProgramHeader.getType() == ElfProgramHeaderConstants.PT_NULL) {
 				continue;
 			}
+			long fileOffset = elfProgramHeader.getOffset();
 			if (elfProgramHeader.getType() != ElfProgramHeaderConstants.PT_LOAD) {
 				if (!includeOtherBlocks) {
 					continue;
 				}
-				if (elf.getProgramLoadHeaderContainingFileOffset(
-					elfProgramHeader.getOffset()) != null) {
+				if (fileOffset < 0 || fileOffset >= fileBytes.getSize()) {
+					log("Skipping segment[" + i + ", " + elfProgramHeader.getDescription() +
+						"] with invalid file offset");
 					continue;
 				}
-				ElfSectionHeader section = elf.getSectionHeaderContainingFileRange(
-					elfProgramHeader.getOffset(), elfProgramHeader.getFileSize());
+				if (elf.getProgramLoadHeaderContainingFileOffset(fileOffset) != null) {
+					continue;
+				}
+				ElfSectionHeader section = elf.getSectionHeaderContainingFileRange(fileOffset,
+					elfProgramHeader.getFileSize());
 				if (section != null) {
 					log("Skipping segment[" + i + ", " + elfProgramHeader.getDescription() +
 						"] included by section " + section.getNameAsString());
 					continue;
 				}
 			}
-			nextRelocStart = processProgramHeader(elfProgramHeader, nextRelocStart, i, monitor);
+			if (fileOffset < 0 || fileOffset >= fileBytes.getSize()) {
+				log("Skipping PT_LOAD segment[" + i + ", " + elfProgramHeader.getDescription() +
+					"] with invalid file offset");
+				continue;
+			}
+			processProgramHeader(elfProgramHeader, i);
 		}
 	}
 
-	private long processProgramHeader(ElfProgramHeader elfProgramHeader, long relocStart,
-			int segmentNumber, TaskMonitor monitor) throws AddressOutOfBoundsException {
+	/**
+	 * Process the specified program header by ensuring that it has a suitable memory address assigned
+	 * and added to the memory resolver.
+	 * @param elfProgramHeader ELF program header to be processed
+	 * @param segmentNumber program header index number
+	 * @throws AddressOutOfBoundsException if an invalid memory address is encountered
+	 */
+	private void processProgramHeader(
+			ElfProgramHeader elfProgramHeader, 
+			int segmentNumber) throws AddressOutOfBoundsException {
 
-// FIXME: the relocStart concept does not properly consider multiple address spaces
-
-// FIXME: If physical and virtual addresses do not match this may be an overlay situation
+// FIXME: If physical and virtual addresses do not match this may be an overlay situation.
 // If sections exist they should use file offsets to correlate to overlay segment - the
 // problem is that we can only handle a single memory block per overlay range - we may need to
 // not load segment in this case and defer to section!!  Such situations may also
 // occur for mapped memory regions as seen with some Harvard Architecture processors.  The
 // process-specific extension should control the outcome.
 
-		Address address = getPreferredSegmentLoadAddress(elfProgramHeader);
+		Address address = getSegmentLoadAddress(elfProgramHeader);
 		AddressSpace space = address.getAddressSpace();
 
 		long addr = elfProgramHeader.getVirtualAddress();
@@ -2477,30 +2630,13 @@ class ElfProgramBuilder extends MemorySectionResolver implements ElfLoadHelper {
 		if (fullSizeBytes <= 0) {
 			log("Skipping zero-length segment [" + segmentNumber + "," +
 				elfProgramHeader.getDescription() + "] at address " + address.toString(true));
-			return relocStart;
+			return;
 		}
-
-		// In a relocatable ELF, the address of all sections is zero.
-		// Therefore, we shall manufacture an arbitrary address that
-		// will pack the sections together. (may not work with separate Data space!)
-		long nextRelocStart = relocStart;
-		if (elf.isRelocatable() && addr == 0 && fullSizeBytes != 0) {
-			log("Relocatable segment [" + segmentNumber + "] assigned address " +
-				address.toString(true));
-			// TODO: Use of nextRelocStart only works within default space
-			// and cause problems if used within data space - we may need to devise
-			// a better approach to allocating load addresses
-			long vaddr = addr;
-			addr = nextRelocStart; // TODO: Force proper alignment
-			address = address.getNewAddress(nextRelocStart, true);
-			elfProgramHeader.setAddress(addr, vaddr);
-			nextRelocStart += fullSizeBytes / space.getAddressableUnitSize();
-		}
-
+		
 		if (!space.isValidRange(address.getOffset(), fullSizeBytes)) {
 			log("Skipping unloadable segment [" + segmentNumber + "] at address " +
 				address.toString(true) + " (size=" + fullSizeBytes + ")");
-			return relocStart;
+			return;
 		}
 
 		try {
@@ -2528,9 +2664,8 @@ class ElfProgramBuilder extends MemorySectionResolver implements ElfLoadHelper {
 			// be created which correspond to these areas.
 		}
 		catch (AddressOverflowException e) {
-			log(e.getMessage());
+			log("Failed to load segment [" + segmentNumber + "]: " + getMessage(e));
 		}
-		return nextRelocStart;
 	}
 
 	private String getSectionComment(long addr, long byteSize, int addressableUnitSize,
@@ -2587,10 +2722,12 @@ class ElfProgramBuilder extends MemorySectionResolver implements ElfLoadHelper {
 	 * When an image is relocatable generally all sections will have a zero address.  It is only
 	 * when special sections are present (e.g., __ksymtab) that we may encounter sections with
 	 * a non-zero address.
-	 * @param monitor
+	 * @param monitor task monitor
 	 * @return start of relocation area
+	 * @throws CancelledException task cancelled
 	 */
-	private long computeRelocationStartAddress(TaskMonitor monitor) {
+	private long computeRelocationStartAddress(AddressSpace space, long baseOffset,
+			TaskMonitor monitor) throws CancelledException {
 		if (!elf.isRelocatable()) {
 			return 0; // not applicable
 		}
@@ -2598,19 +2735,17 @@ class ElfProgramBuilder extends MemorySectionResolver implements ElfLoadHelper {
 		AddressSpace defaultSpace = getDefaultAddressSpace();
 		ElfSectionHeader[] sections = elf.getSections();
 		for (ElfSectionHeader elfSectionToLoad : sections) {
-			if (monitor.isCancelled()) {
-				return 0;
-			}
+			monitor.checkCanceled();
 			long addr = elfSectionToLoad.getAddress();
 			if (addr < 0) {
 				relocStartAddr = 0;
 				break;
 			}
 			if (elfSectionToLoad.isAlloc() && addr != 0) {
-				AddressSpace loadSpace = getPreferredSectionAddressSpace(elfSectionToLoad);
-				if (loadSpace.equals(defaultSpace)) {
+				AddressSpace loadSpace = getSectionAddressSpace(elfSectionToLoad);
+				if (loadSpace.equals(space)) {
 					long sectionByteLength = elfSectionToLoad.getAdjustedSize(); // size in bytes
-					long sectionLength = sectionByteLength / defaultSpace.getAddressableUnitSize();
+					long sectionLength = sectionByteLength / space.getAddressableUnitSize();
 					relocStartAddr = Math.max(relocStartAddr, addr + sectionLength);
 				}
 			}
@@ -2621,56 +2756,75 @@ class ElfProgramBuilder extends MemorySectionResolver implements ElfLoadHelper {
 		if (testOffset != defaultSpace.getTruncatedAddress(testOffset, true).getOffset()) {
 			relocStartAddr = 0;
 		}
-
-		return relocStartAddr + elf.getImageBase();
+		return relocStartAddr + baseOffset;
 	}
 
-	private void processSectionHeaders(TaskMonitor monitor) {
+	private void processSectionHeaders(TaskMonitor monitor) throws CancelledException {
 		monitor.setMessage("Processing section headers...");
 
 		boolean includeOtherBlocks = ElfLoaderOptionsFactory.includeOtherBlocks(options);
-
-		// TODO: Use of nextRelocStart only works within default space
-		// and cause problems if used within data space - we may need to devise
-		// a better approach to allocating load addresses
-		long nextRelocStart = computeRelocationStartAddress(monitor);
-
+		
+		// establish section address provider for relocatable ELF binaries
+		RelocatableImageBaseProvider relocatableImageBaseProvider = null;
+		if (elf.isRelocatable()) {
+			relocatableImageBaseProvider = new RelocatableImageBaseProvider(monitor);
+		}
+		
 		ElfSectionHeader[] sections = elf.getSections();
-		for (int i = 0; i < sections.length; ++i) {
-			if (monitor.isCancelled()) {
-				return;
-			}
-			ElfSectionHeader elfSectionToLoad = sections[i];
-			if (elfSectionToLoad.getType() != ElfSectionHeaderConstants.SHN_UNDEF &&
+		for (ElfSectionHeader elfSectionToLoad : sections) {
+			monitor.checkCanceled();
+			int type = elfSectionToLoad.getType();
+			if (type != ElfSectionHeaderConstants.SHN_UNDEF &&
 				(includeOtherBlocks || elfSectionToLoad.isAlloc())) {
-				nextRelocStart = processSectionHeader(elfSectionToLoad, i, nextRelocStart, monitor);
+				long fileOffset = elfSectionToLoad.getOffset();
+				if (fileOffset < 0 || fileOffset >= fileBytes.getSize()) {
+					log("Skipping section [" + elfSectionToLoad.getNameAsString() +
+						"] with invalid file offset");
+					continue;
+				}
+				long size = elfSectionToLoad.getSize();
+				if (size <= 0 ||
+					(type != ElfSectionHeaderConstants.SHT_NOBITS && size >= fileBytes.getSize())) {
+					log("Skipping section [" + elfSectionToLoad.getNameAsString() +
+						"] with invalid size");
+					continue;
+				}
+				processSectionHeader(elfSectionToLoad, relocatableImageBaseProvider);
 			}
 		}
 	}
 
-	private long processSectionHeader(ElfSectionHeader elfSectionToLoad, int index, long relocStart,
-			TaskMonitor monitor) throws AddressOutOfBoundsException {
+	/**
+	 * Process the specified section header by ensuring that it has a suitable memory address assigned
+	 * and added to the memory resolver.
+	 * @param elfSectionToLoad ELF section header to be processed
+	 * @param relocatableImageBaseProvider section address provider for relocatable ELF binaries.
+	 * @throws AddressOutOfBoundsException if an invalid memory address is encountered
+	 */
+	private void processSectionHeader(ElfSectionHeader elfSectionToLoad,
+			RelocatableImageBaseProvider relocatableImageBaseProvider)
+			throws AddressOutOfBoundsException {
 
 		long addr = elfSectionToLoad.getAddress();
 		long sectionByteLength = elfSectionToLoad.getAdjustedSize(); // size in bytes
 		long loadOffset = elfSectionToLoad.getOffset(); // file offset in bytes
+		Long nextRelocOffset = null;
 
-		// TODO: if addr!=0, create section symbol (allows non loaded section to have some presence)
-
-		long nextRelocStart = relocStart;
-
-		// In a relocatable ELF, the address of all sections is zero.
-		// Therefore, we shall manufacture an arbitrary address that
-		// will pack the sections together.
+		// In a relocatable ELF (object module), the address of all sections is zero.
+		// Therefore, we shall assign an arbitrary address that
+		// will pack the sections together with proper alignment.
+		
 		if (elfSectionToLoad.isAlloc() && elf.isRelocatable() && addr == 0) {
-			// TODO: Use of nextRelocStart only works within default space
-			// and cause problems if used within data space - we may need to devise
-			// a better approach to allocating load addresses
-			addr = NumericUtilities.getUnsignedAlignedValue(nextRelocStart,
+			// TODO: if program headers are present (very unlikely for object module) 
+			// they should be used to determine section load address since they would 
+			// be assigned first.
+			AddressSpace space = getSectionAddressSpace(elfSectionToLoad);
+			long relocOffset = relocatableImageBaseProvider.getNextRelocatableOffset(space);
+			addr = NumericUtilities.getUnsignedAlignedValue(
+				relocOffset,
 				elfSectionToLoad.getAddressAlignment());
 			elfSectionToLoad.setAddress(addr);
-			nextRelocStart =
-				addr + (sectionByteLength / getDefaultAddressSpace().getAddressableUnitSize());
+			nextRelocOffset = addr + (sectionByteLength / space.getAddressableUnitSize());
 		}
 
 		Address address = null;
@@ -2680,7 +2834,8 @@ class ElfProgramBuilder extends MemorySectionResolver implements ElfLoadHelper {
 			// Check for and consume uninitialized portion of PT_LOAD segment if possible
 			ElfProgramHeader loadHeader = elf.getProgramLoadHeaderContaining(addr);
 			if (loadHeader != null) {
-				Address segmentStart = getPreferredSegmentLoadAddress(loadHeader);
+				// NOTE: should never apply to relocatable ELF
+				Address segmentStart = getSegmentLoadAddress(loadHeader);
 				AddressSpace segmentSpace = segmentStart.getAddressSpace();
 				long loadSizeBytes = loadHeader.getAdjustedLoadSize();
 				long fullSizeBytes =
@@ -2699,19 +2854,19 @@ class ElfProgramBuilder extends MemorySectionResolver implements ElfLoadHelper {
 		}
 
 		if (sectionByteLength == 0) {
-			log("Skipping empty section[" + elfSectionToLoad.getNameAsString() + "]");
-			return relocStart;
+			log("Skipping empty section [" + elfSectionToLoad.getNameAsString() + "]");
+			return;
 		}
 
 		if (address == null) {
-			address = getPreferredSectionLoadAddress(elfSectionToLoad);
+			address = getSectionLoadAddress(elfSectionToLoad);
 		}
 		AddressSpace space = address.getAddressSpace();
 
 		if (!space.isValidRange(address.getOffset(), sectionByteLength)) {
-			log("Skipping unloadable section[" + elfSectionToLoad.getNameAsString() +
+			log("Skipping unloadable section [" + elfSectionToLoad.getNameAsString() +
 				"] at address " + address.toString(true) + " (size=" + sectionByteLength + ")");
-			return relocStart;
+			return;
 		}
 
 		final String blockName = elfSectionToLoad.getNameAsString();
@@ -2721,7 +2876,7 @@ class ElfProgramBuilder extends MemorySectionResolver implements ElfLoadHelper {
 				elfSectionToLoad.getType() == ElfSectionHeaderConstants.SHT_NOBITS) {
 				if (!elfSectionToLoad.isAlloc() &&
 					elfSectionToLoad.getType() != ElfSectionHeaderConstants.SHT_PROGBITS) {
-					return nextRelocStart; // non-allocate at runtime
+					return; // non-allocate at runtime
 				}
 				String comment =
 					getSectionComment(addr, sectionByteLength, space.getAddressableUnitSize(),
@@ -2740,72 +2895,12 @@ class ElfProgramBuilder extends MemorySectionResolver implements ElfLoadHelper {
 			}
 		}
 		catch (AddressOverflowException e) {
-			log(e.getMessage());
+			log("Failed to load section [" + elfSectionToLoad.getNameAsString() + "]: " +
+				getMessage(e));
 		}
-
-		return nextRelocStart;
-	}
-
-	private void createFileComment(Address minAddr, TaskMonitor monitor) {
-		if (minAddr == null) {
-			return;
-		}
-		if (monitor.isCancelled()) {
-			return;
-		}
-		monitor.setMessage("Creating file comment...");
-
-		Options props = program.getOptions(Program.PROGRAM_INFO);
-
-		switch (elf.e_type()) {
-			case ElfConstants.ET_CORE:
-				props.setString("ELF File Type", "core");
-				break;
-			case ElfConstants.ET_DYN:
-				props.setString("ELF File Type", "shared object");
-				break;
-			case ElfConstants.ET_EXEC:
-				props.setString("ELF File Type", "executable");
-				break;
-			case ElfConstants.ET_NONE:
-				props.setString("ELF File Type", "unspecified");
-				break;
-			case ElfConstants.ET_REL:
-				props.setString("ELF File Type", "relocatable");
-				break;
-			default:
-				props.setString("ELF File Type", "unknown");
-				break;
-		}
-
-		int fileIndex = 0;
-		ElfSymbolTable[] symbolTables = elf.getSymbolTables();
-		for (ElfSymbolTable symbolTable : symbolTables) {
-			if (monitor.isCancelled()) {
-				break;
-			}
-			String[] files = symbolTable.getSourceFiles();
-			for (String file : files) {
-				if (monitor.isCancelled()) {
-					break;
-				}
-				props.setString(ElfLoader.ELF_SOURCE_FILE_PROPERTY_PREFIX + pad(fileIndex++) + "]",
-					file);
-			}
-		}
-
-		int libraryIndex = 0;
-		ElfDynamicTable dynamicTable = elf.getDynamicTable();
-		if (dynamicTable != null) {
-			String[] neededLibs = elf.getDynamicLibraryNames();
-			for (String neededLib : neededLibs) {
-				if (monitor.isCancelled()) {
-					break;
-				}
-				props.setString(
-					ElfLoader.ELF_REQUIRED_LIBRARY_PROPERTY_PREFIX + pad(libraryIndex++) + "]",
-					neededLib);
-			}
+		
+		if (nextRelocOffset != null) {
+			relocatableImageBaseProvider.setNextRelocatableOffset(space, nextRelocOffset);
 		}
 	}
 
@@ -2882,6 +2977,15 @@ class ElfProgramBuilder extends MemorySectionResolver implements ElfLoadHelper {
 		return sym;
 	}
 
+	/**
+	 * Get a suitable input stream for loading a memory block defined by a specified loadable.
+	 * @param loadable Corresponding ElfSectionHeader or ElfProgramHeader for the memory block to be created.
+	 * @param start memory load address
+	 * @param fileOffset byte provider offset
+	 * @param dataLength the in-memory data length in bytes (actual bytes read from dataInput may be more)
+	 * @return input stream for loading memory block
+	 * @throws IOException
+	 */
 	private InputStream getInitializedBlockInputStream(MemoryLoadable loadable, Address start,
 			long fileOffset, long dataLength) throws IOException {
 		InputStream dataInput = elf.getReader().getByteProvider().getInputStream(fileOffset);
@@ -2907,11 +3011,10 @@ class ElfProgramBuilder extends MemorySectionResolver implements ElfLoadHelper {
 			throw new IOException(msg);
 		}
 
-		int maxSectionSizeGBytes = initialized ? Memory.MAX_INITIALIZED_BLOCK_SIZE_GB
-				: Memory.MAX_UNINITIALIZED_BLOCK_SIZE_GB;
-		long maxSectionSizeBytes = (long) maxSectionSizeGBytes << Memory.GBYTE_SHIFT_FACTOR;
+		int maxSectionSizeGBytes = Memory.MAX_BLOCK_SIZE_GB;
+		long maxSectionSizeBytes = Memory.MAX_BLOCK_SIZE;
 
-		if (dataLength < 0 || dataLength > maxSectionSizeBytes) {
+		if (dataLength > maxSectionSizeBytes) {
 			float sizeGB = (float) dataLength / (float) Memory.GBYTE;
 			String msg = "Truncating " + formatFloat(sizeGB, 1) + " GByte '" + sectionName +
 				"' section to " + maxSectionSizeGBytes + " GByte fixed size limit";
@@ -2927,8 +3030,10 @@ class ElfProgramBuilder extends MemorySectionResolver implements ElfLoadHelper {
 			boolean w, boolean x, TaskMonitor monitor)
 			throws IOException, AddressOverflowException, CancelledException {
 
+		// TODO: MemoryBlockUtil poorly and inconsistently handles duplicate name errors (can throw RuntimeException).
+		// Are we immune from such errors? If not, how should they be handled?
+
 		long revisedLength = checkBlockLimit(name, dataLength, true);
-		long sizeGB = revisedLength >> Memory.GBYTE_SHIFT_FACTOR;
 
 		if (start.isNonLoadedMemoryAddress()) {
 			r = false;
@@ -2939,26 +3044,30 @@ class ElfProgramBuilder extends MemorySectionResolver implements ElfLoadHelper {
 		Msg.debug(this,
 			"Loading block " + name + " at " + start + " from file offset " + fileOffset);
 
-		try (InputStream dataInput =
-			getInitializedBlockInputStream(loadable, start, fileOffset, revisedLength)) {
-
-			String blockComment = comment;
-			if (dataLength != revisedLength) {
-				blockComment += " (section truncated to " + sizeGB + " GByte)";
-			}
-
-			if (isOverlay) {
-				return mbu.createOverlayBlock(name, start, dataInput, revisedLength, blockComment,
-					BLOCK_SOURCE_NAME, r, w, x, monitor);
-			}
-			return mbu.createInitializedBlock(name, start, dataInput, revisedLength, blockComment,
-				BLOCK_SOURCE_NAME, r, w, x, monitor);
+		long endOffset = fileOffset + revisedLength - 1;
+		if (endOffset >= fileBytes.getSize()) {
+			revisedLength = fileBytes.getSize() - fileOffset;
+			log("Truncating block load for " + name + " which exceeds file length");
 		}
-		catch (DuplicateNameException e) {
-			// TODO: MemoryBlockUtil poorly and inconsistently handles duplicate name errors (can throw RuntimeException).
-			// Are we immune from such errors? If not, how should they be handled?
-			throw new IOException(e);
+
+		String blockComment = comment;
+		if (dataLength != revisedLength) {
+			blockComment += " (section truncated)";
 		}
+
+		if (elf.getLoadAdapter().hasFilteredLoadInputStream(this, loadable, start)) {
+			// block is unable to map directly to file bytes - load from input stream
+			try (InputStream dataInput =
+				getInitializedBlockInputStream(loadable, start, fileOffset, revisedLength)) {
+				return MemoryBlockUtils.createInitializedBlock(program, isOverlay, name, start,
+					dataInput, revisedLength, blockComment, BLOCK_SOURCE_NAME, r, w, x, log,
+					monitor);
+			}
+		}
+
+		// create block using direct mapping to file bytes
+		return MemoryBlockUtils.createInitializedBlock(program, isOverlay, name, start, fileBytes,
+			fileOffset, revisedLength, blockComment, BLOCK_SOURCE_NAME, r, w, x, log);
 	}
 
 	@Override
@@ -2970,7 +3079,6 @@ class ElfProgramBuilder extends MemorySectionResolver implements ElfLoadHelper {
 		// Are we immune from such errors? If not, how should they be handled?
 
 		long revisedLength = checkBlockLimit(name, dataLength, false);
-		long sizeGB = revisedLength >> Memory.GBYTE_SHIFT_FACTOR;
 
 		if (start.isNonLoadedMemoryAddress()) {
 			r = false;
@@ -2979,11 +3087,39 @@ class ElfProgramBuilder extends MemorySectionResolver implements ElfLoadHelper {
 		}
 
 		if (dataLength != revisedLength) {
-			comment += " (section truncated to " + sizeGB + " GByte)";
+			comment += " (section truncated)";
 		}
 
-		return mbu.createUninitializedBlock(isOverlay, name, start, dataLength, comment,
-			BLOCK_SOURCE_NAME, r, w, x);
+		return MemoryBlockUtils.createUninitializedBlock(program, isOverlay, name, start,
+			revisedLength, comment, BLOCK_SOURCE_NAME, r, w, x, log);
+	}
+
+	private class RelocatableImageBaseProvider {
+
+		Map<Integer, Long> nextRelocationOffsetMap = new HashMap<>();
+
+		RelocatableImageBaseProvider(TaskMonitor monitor) throws CancelledException {
+			AddressSpace defaultSpace = getDefaultAddressSpace();
+			AddressSpace defaultDataSpace = getDefaultDataSpace();
+			long baseOffset = computeRelocationStartAddress(defaultSpace, elf.getImageBase(), monitor);
+			nextRelocationOffsetMap.put(defaultSpace.getUnique(), baseOffset);
+			if (defaultDataSpace != defaultSpace) {
+				baseOffset = computeRelocationStartAddress(defaultDataSpace, getImageDataBase(), monitor);
+				nextRelocationOffsetMap.put(defaultDataSpace.getUnique(), baseOffset);
+			}
+			// In the future, an extension could introduce additional space entries 
+		}
+
+		void setNextRelocatableOffset(AddressSpace space, Long nextRelocOffset) {
+			int unique = space.getUnique();
+			nextRelocationOffsetMap.put(unique, nextRelocOffset);
+		}
+
+		long getNextRelocatableOffset(AddressSpace space) {
+			int unique = space.getUnique();
+			Long nextRelocOffset = nextRelocationOffsetMap.get(unique);
+			return nextRelocOffset == null ? 0 : nextRelocOffset;
+		}
 	}
 
 }

@@ -71,9 +71,6 @@ public class ClearFlowAndRepairCmd extends BackgroundCommand {
 		this.repairFunctions = repair;
 	}
 
-	/**
-	 * @see ghidra.framework.cmd.BackgroundCommand#applyTo(ghidra.framework.plugintool.PluginTool, ghidra.framework.model.DomainObject, ghidra.util.task.TaskMonitor)
-	 */
 	@Override
 	public boolean applyTo(DomainObject obj, TaskMonitor monitor) {
 
@@ -213,6 +210,7 @@ public class ClearFlowAndRepairCmd extends BackgroundCommand {
 			}
 			if (repairFunctions) {
 				repairFunctions(program, clearSet, monitor);
+				monitor.setIndeterminate(false);
 			}
 
 			return true;

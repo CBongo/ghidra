@@ -16,7 +16,7 @@
 package ghidra.app.util.bin.format.pdb;
 
 import ghidra.app.cmd.function.CallDepthChangeInfo;
-import ghidra.app.util.bin.format.pdb.PdbParserNEW.WrappedDataType;
+import ghidra.app.util.bin.format.pdb.PdbParser.PdbXmlMember;
 import ghidra.app.util.importer.MessageLog;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.address.AddressSet;
@@ -31,18 +31,30 @@ import ghidra.xml.XmlElement;
 import ghidra.xml.XmlPullParser;
 
 class ApplyStackVariables {
-	private PdbParserNEW pdbParser;
+	private PdbParser pdbParser;
 	private XmlPullParser xmlParser;
 	private Function function;
 
-	ApplyStackVariables(PdbParserNEW pdbParser, XmlPullParser xmlParser, Function function) {
+	ApplyStackVariables(PdbParser pdbParser, XmlPullParser xmlParser, Function function) {
 		this.pdbParser = pdbParser;
 		this.xmlParser = xmlParser;
 		this.function = function;
 	}
 
+	private boolean isParameterRecoverySupported() {
+		// NOTE: this is a temporary solution to the lack of proper register
+		// variable support
+		Program p = function.getProgram();
+		if (p.getDefaultPointerSize() != 32) {
+			return false;
+		}
+		return "x86".equals(p.getLanguage().getProcessor().toString());
+	}
+
 	void applyTo(TaskMonitor monitor, MessageLog log) throws CancelledException {
 		int frameBase = getFrameBaseOffset(monitor);
+
+		boolean skipParameters = !isParameterRecoverySupported();
 
 		while (xmlParser.hasNext()) {
 			monitor.checkCanceled();
@@ -56,26 +68,40 @@ class ApplyStackVariables {
 			}
 			elem = xmlParser.next();//stack variable number start tag
 
-			PdbMember member = new PdbMember(elem, monitor);
+			PdbXmlMember member = pdbParser.getPdbXmlMember(elem);
 
-			if ("StaticLocal".equals(member.memberKind)) {
+			if (PdbKind.STATIC_LOCAL == member.kind) {
 				xmlParser.next();//stack variable number end tag
 				continue;
 			}
 
-			DataType dt = getDataType(member, log, monitor);
+			DataType dt = getDataType(member, log);
 			if (dt == null) {
+				xmlParser.next();//stack variable number end tag
 				continue;
 			}
 
-			if ("ObjectPointer".equals(member.memberKind)) {
+			if (PdbKind.OBJECT_POINTER == member.kind) {
+				if (skipParameters) {
+					xmlParser.next();
+					continue;
+				}
 				createRegisterParameter(member.memberName, dt, log);
 			}
-			else if ("Parameter".equals(member.memberKind)) {
+			else if (PdbKind.PARAMETER == member.kind) {
+				if (skipParameters) {
+					xmlParser.next();
+					continue;
+				}
 				createStackVariable(member.memberName, frameBase + member.memberOffset, dt, log);
 			}
-			else if ("Local".equals(member.memberKind)) {
-				createStackVariable(member.memberName, frameBase + member.memberOffset, dt, log);
+			else if (PdbKind.LOCAL == member.kind) {
+				int stackOffset = frameBase + member.memberOffset;
+				if (skipParameters && function.getStackFrame().isParameterOffset(stackOffset)) {
+					xmlParser.next();
+					continue;
+				}
+				createStackVariable(member.memberName, stackOffset, dt, log);
 			}
 
 			xmlParser.next();//stack variable number end tag
@@ -148,7 +174,7 @@ class ApplyStackVariables {
 			}
 		}
 		catch (Exception e) {
-			log.appendMsg(
+			log.appendMsg("PDB",
 				"Unable to create register variable " + name + " in " + function.getName());
 		}
 		return null;
@@ -182,26 +208,25 @@ class ApplyStackVariables {
 			}
 		}
 		catch (Exception e) {
-			log.appendMsg("Unable to create stack variable " + name + " at offset " + offset +
-				" in " + function.getName());
+			log.appendMsg("PDB", "Unable to create stack variable " + name + " at offset " +
+				offset + " in " + function.getName());
 		}
 		return variable;
 	}
 
-	private DataType getDataType(PdbMember member, MessageLog log, TaskMonitor monitor)
-			throws CancelledException {
-		WrappedDataType wrappedDataType =
-			pdbParser.findDataType(member.memberDataTypeName, monitor);
+	private DataType getDataType(PdbXmlMember member, MessageLog log) throws CancelledException {
+		WrappedDataType wrappedDataType = pdbParser.findDataType(member.memberDataTypeName);
 		if (wrappedDataType == null) {
-			log.appendMsg("Error: failed to resolve data type for " + member.memberKind + ": " +
+			log.appendMsg("PDB", "Failed to resolve data type for " + member.kind + ": " +
 				member.memberDataTypeName);
 			return null;
 		}
-		if (wrappedDataType.isZeroLengthArray) {
-			log.appendMsg("Error: zero length array not supported for for " + member.memberKind +
-				": " + member.memberDataTypeName);
+		if (wrappedDataType.isZeroLengthArray()) {
+			log.appendMsg("PDB", "Zero length array not supported for for " + member.kind + ": " +
+				member.memberDataTypeName);
 			return null;
 		}
-		return wrappedDataType.dataType;
+		return wrappedDataType.getDataType();
 	}
+
 }

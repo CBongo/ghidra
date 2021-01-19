@@ -27,15 +27,12 @@ public class ElfStringTable implements ElfFileSection {
 
 	/**
 	 * Create and parse an Elf string table
-	 * @param reader
+	 * @param reader the binary reader containing the elf string table
 	 * @param header elf header
 	 * @param stringTableSection string table section header or null if associated with a dynamic table entry
 	 * @param fileOffset symbol table file offset
 	 * @param addrOffset memory address of symbol table (should already be adjusted for prelink)
 	 * @param length length of symbol table in bytes of -1 if unknown
-	 * @param entrySize size of each symbol entry in bytes
-	 * @param sectionType symbol table section type (SHT_DYNSYM, SHT_SYMTAB, or -1 if not section-based)
-	 * @param stringTable string table to be associated with symbol table
 	 * @return Elf string table object
 	 * @throws IOException
 	 */
@@ -45,8 +42,7 @@ public class ElfStringTable implements ElfFileSection {
 		ElfStringTable elfStringTable =
 			(ElfStringTable) reader.getFactory().create(ElfStringTable.class);
 		elfStringTable.initElfStringTable(reader, header, stringTableSection, fileOffset,
-			addrOffset,
-			length);
+			addrOffset, length);
 		return elfStringTable;
 	}
 
@@ -81,6 +77,9 @@ public class ElfStringTable implements ElfFileSection {
 	 * @return string or null on error
 	 */
 	public String readString(BinaryReader reader, long stringOffset) {
+		if (fileOffset < 0) {
+			return null;
+		}
 		try {
 			if (stringOffset >= length) {
 				throw new IOException("String read beyond table bounds");

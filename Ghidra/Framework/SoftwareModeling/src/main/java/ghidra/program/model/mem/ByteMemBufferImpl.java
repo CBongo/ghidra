@@ -18,8 +18,7 @@ package ghidra.program.model.mem;
 import java.math.BigInteger;
 
 import ghidra.program.model.address.Address;
-import ghidra.util.GhidraBigEndianDataConverter;
-import ghidra.util.GhidraLittleEndianDataConverter;
+import ghidra.util.GhidraDataConverter;
 
 /**
  * Simple byte buffer implementation of the memBuffer.  Since there is no
@@ -29,21 +28,26 @@ import ghidra.util.GhidraLittleEndianDataConverter;
  */
 public class ByteMemBufferImpl implements MemBuffer {
 
+	private final GhidraDataConverter converter;
 	private byte[] bytes;
 	private Address addr;
-	private final boolean isBigEndian;
 
 	/**
 	 * Construct a ByteMemBufferImpl object
-	 * @param addr that address to associate with the bytes
-	 * @param bytes the data that normally would be comming from memory.
+	 * @param addr the address to associate with the bytes
+	 * @param bytes the data that normally would be coming from memory.
+	 * @param isBigEndian true for BigEndian, false for LittleEndian.
 	 */
 	public ByteMemBufferImpl(Address addr, byte[] bytes, boolean isBigEndian) {
 		this.addr = addr;
 		this.bytes = bytes;
-		this.isBigEndian = isBigEndian;
+		this.converter = GhidraDataConverter.getInstance(isBigEndian);
 	}
 
+	/**
+	 * Get number of bytes contained within buffer
+	 * @return byte count
+	 */
 	public int getLength() {
 		return bytes.length;
 	}
@@ -75,42 +79,30 @@ public class ByteMemBufferImpl implements MemBuffer {
 		System.arraycopy(bytes, offset, b, 0, len);
 		return len;
 	}
-
+	
 	@Override
 	public boolean isBigEndian() {
-		return isBigEndian;
+		return converter.isBigEndian();
 	}
 
 	@Override
 	public short getShort(int offset) throws MemoryAccessException {
-		if (isBigEndian) {
-			return GhidraBigEndianDataConverter.INSTANCE.getShort(this, offset);
-		}
-		return GhidraLittleEndianDataConverter.INSTANCE.getShort(this, offset);
+		return converter.getShort(this, offset);
 	}
 
 	@Override
 	public int getInt(int offset) throws MemoryAccessException {
-		if (isBigEndian) {
-			return GhidraBigEndianDataConverter.INSTANCE.getInt(this, offset);
-		}
-		return GhidraLittleEndianDataConverter.INSTANCE.getInt(this, offset);
+		return converter.getInt(this, offset);
 	}
 
 	@Override
 	public long getLong(int offset) throws MemoryAccessException {
-		if (isBigEndian) {
-			return GhidraBigEndianDataConverter.INSTANCE.getLong(this, offset);
-		}
-		return GhidraLittleEndianDataConverter.INSTANCE.getLong(this, offset);
+		return converter.getLong(this, offset);
 	}
 
 	@Override
 	public BigInteger getBigInteger(int offset, int size, boolean signed)
 			throws MemoryAccessException {
-		if (isBigEndian) {
-			return GhidraBigEndianDataConverter.INSTANCE.getBigInteger(this, offset, size, signed);
-		}
-		return GhidraLittleEndianDataConverter.INSTANCE.getBigInteger(this, offset, size, signed);
+		return converter.getBigInteger(this, offset, size, signed);
 	}
 }

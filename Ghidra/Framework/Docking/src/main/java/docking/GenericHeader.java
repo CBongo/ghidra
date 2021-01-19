@@ -26,7 +26,9 @@ import org.jdesktop.animation.timing.TimingTargetAdapter;
 import org.jdesktop.animation.timing.interpolation.PropertySetter;
 
 import docking.action.DockingActionIf;
+import docking.util.AnimationUtils;
 import docking.widgets.VariableHeightPanel;
+import docking.widgets.label.GDLabel;
 
 // TODO: should this be put into generic?
 public class GenericHeader extends JPanel {
@@ -99,6 +101,7 @@ public class GenericHeader extends JPanel {
 	/**
 	 * Signals whether or not to break the toolbar actions into multiple rows.  The default is
 	 * to wrap as necessary.  
+	 * @param noWrap true signals not to break the actions into multiple rows
 	 */
 	public void setNoWrapToolbar(boolean noWrap) {
 		useSingleLineLayoutOverride = noWrap;
@@ -253,6 +256,10 @@ public class GenericHeader extends JPanel {
 	}
 
 	protected Animator createEmphasizingAnimator() {
+		if (!AnimationUtils.isAnimationEnabled()) {
+			return null;
+		}
+
 		TitleFlasher titleFlasher = new TitleFlasher();
 		return titleFlasher.animator;
 	}
@@ -261,10 +268,6 @@ public class GenericHeader extends JPanel {
 		return titlePanel.isSelected();
 	}
 
-	/**
-	 * Sets the title displayed within the header
-	 * @param title
-	 */
 	public void setTitle(String title) {
 		titlePanel.setTitle(title);
 	}
@@ -342,7 +345,7 @@ public class GenericHeader extends JPanel {
 		TitlePanel() {
 			super(new BorderLayout());
 			setFocusable(false);
-			titleLabel = new JLabel();
+			titleLabel = new GDLabel();
 			titleLabel.setBorder(BorderFactory.createEmptyBorder(0, 6, 0, 0));
 			titleLabel.setForeground(Color.BLACK);
 			titleLabel.setFocusable(false);
@@ -385,13 +388,9 @@ public class GenericHeader extends JPanel {
 		 */
 		void setTitle(String s) {
 			titleLabel.setText(s);
-			ToolTipManager.setToolTipText(titleLabel, s);
+			titleLabel.setToolTipText(s);
 		}
 
-		/**
-		 * Sets the Icon for this header
-		 * @param icon
-		 */
 		void setIcon(Icon icon) {
 
 			icon = DockingUtils.scaleIconAsNeeded(icon);

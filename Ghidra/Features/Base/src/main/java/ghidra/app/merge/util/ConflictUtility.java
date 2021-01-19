@@ -1,6 +1,5 @@
 /* ###
  * IP: GHIDRA
- * REVIEWED: YES
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,6 +18,7 @@ package ghidra.app.merge.util;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.address.AddressRange;
 import ghidra.program.util.DiffUtility;
+import ghidra.util.HTMLUtilities;
 
 /**
  * <code>ConflictUtility</code> provides some constants and static methods 
@@ -164,12 +164,13 @@ public class ConflictUtility {
 	 * Creates a standard address set conflict count message. This indicates 
 	 * which address or address range with conflicts you are resolving of some 
 	 * total number of addresses or address ranges with conflicts.
-	 * @param caddressNum the current conflicting address number.
+	 * @param addressNum the current conflicting address number.
 	 * @param totalAddresses the total number of conflicting addresses.
 	 * @param isRange true if the current conflict is for an address range.
 	 * @return the message string containing HTML tags.
 	 */
-	public static String getAddressConflictCount(int addressNum, int totalAddresses, boolean isRange) {
+	public static String getAddressConflictCount(int addressNum, int totalAddresses,
+			boolean isRange) {
 		StringBuffer buf = new StringBuffer();
 		if (isRange) {
 			buf.append("Address range #");
@@ -238,7 +239,8 @@ public class ConflictUtility {
 	 * @return the message string containing HTML tags.
 	 */
 	public static String getAddressString(Address address) {
-		return colorString(ADDRESS_COLOR, ((address != null) ? address.toString() : ""));
+		return colorString(ADDRESS_COLOR,
+			((address != null) ? HTMLUtilities.escapeHTML(address.toString()) : ""));
 	}
 
 	/**
@@ -248,8 +250,9 @@ public class ConflictUtility {
 	 * @return the message string containing HTML tags.
 	 */
 	public static String getAddressString(Address address, boolean showAddressSpace) {
-		return colorString(ADDRESS_COLOR, ((address != null) ? address.toString(showAddressSpace)
-				: ""));
+		return colorString(ADDRESS_COLOR,
+			((address != null) ? HTMLUtilities.escapeHTML(address.toString(showAddressSpace))
+					: ""));
 	}
 
 	/**

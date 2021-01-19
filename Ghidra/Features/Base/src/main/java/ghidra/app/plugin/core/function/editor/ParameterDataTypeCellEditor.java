@@ -20,7 +20,6 @@ import java.awt.event.*;
 import java.util.EventObject;
 
 import javax.swing.*;
-import javax.swing.border.BevelBorder;
 import javax.swing.event.CellEditorListener;
 import javax.swing.event.ChangeEvent;
 import javax.swing.table.TableCellEditor;
@@ -35,7 +34,6 @@ import ghidra.util.data.DataTypeParser;
 
 class ParameterDataTypeCellEditor extends AbstractCellEditor implements TableCellEditor {
 	private DataTypeSelectionEditor editor;
-	private JLabel label = new JLabel();
 	private DropDownSelectionTextField<DataType> textField;
 	private JButton dataTypeChooserButton;
 	private DataType dt;
@@ -44,8 +42,7 @@ class ParameterDataTypeCellEditor extends AbstractCellEditor implements TableCel
 	private DataTypeManagerService service;
 	private DialogComponentProvider dialog;
 
-	ParameterDataTypeCellEditor(DialogComponentProvider dialog,
-			DataTypeManagerService service) {
+	ParameterDataTypeCellEditor(DialogComponentProvider dialog, DataTypeManagerService service) {
 		this.dialog = dialog;
 		this.service = service;
 
@@ -54,11 +51,6 @@ class ParameterDataTypeCellEditor extends AbstractCellEditor implements TableCel
 	@Override
 	public Component getTableCellEditorComponent(JTable table1, Object value, boolean isSelected,
 			int row, int column) {
-		if (label == null) {
-			label = new JLabel();
-			label.setBorder(BorderFactory.createBevelBorder(BevelBorder.LOWERED));
-		}
-
 		init();
 
 		dt = (DataType) value;
@@ -69,7 +61,7 @@ class ParameterDataTypeCellEditor extends AbstractCellEditor implements TableCel
 	}
 
 	private void init() {
-		editor = new DataTypeSelectionEditor(service, -1, DataTypeParser.AllowedDataTypes.ALL);
+		editor = new DataTypeSelectionEditor(service, DataTypeParser.AllowedDataTypes.ALL);
 		editor.setTabCommitsEdit(true);
 		editor.setConsumeEnterKeyPress(false); // we want the table to handle Enter key presses
 
@@ -96,25 +88,16 @@ class ParameterDataTypeCellEditor extends AbstractCellEditor implements TableCel
 			}
 		};
 
-		dataTypeChooserButton.addActionListener(new ActionListener() {
-			@Override
-			public void actionPerformed(ActionEvent e) {
-
-				SwingUtilities.invokeLater(new Runnable() {
-					@Override
-					public void run() {
-						DataType dataType = service.getDataType((String) null);
-						if (dataType != null) {
-							editor.setCellEditorValue(dataType);
-							editor.stopCellEditing();
-						}
-						else {
-							editor.cancelCellEditing();
-						}
-					}
-				});
+		dataTypeChooserButton.addActionListener(e -> SwingUtilities.invokeLater(() -> {
+			DataType dataType = service.getDataType((String) null);
+			if (dataType != null) {
+				editor.setCellEditorValue(dataType);
+				editor.stopCellEditing();
 			}
-		});
+			else {
+				editor.cancelCellEditing();
+			}
+		}));
 
 		FocusAdapter focusListener = new FocusAdapter() {
 			@Override

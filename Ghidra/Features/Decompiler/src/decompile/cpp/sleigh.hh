@@ -53,7 +53,7 @@ public:
     return expandPool(size);
   }
   PcodeData *allocateInstruction(void) {
-    issued.push_back(PcodeData());
+    issued.emplace_back();
     PcodeData *res = &issued.back();
     res->outvar = (VarnodeData *)0;
     res->invar = (VarnodeData *)0;
@@ -325,7 +325,7 @@ public:
   \code
   AssemblyEmit *assememit = new AssemblyRaw();
 
-  Address addr(trans->getDefaultSpace(),0x80484c0);
+  Address addr(trans->getDefaultCodeSpace(),0x80484c0);
   int4 length;                  // Length of instruction in bytes
 
   length = trans->printAssembly(*assememit,addr);
@@ -398,7 +398,7 @@ public:
   \code
   PcodeEmit *pcodeemit = new PcodeRawOut();
 
-  Address addr(trans->getDefaultSpace(),0x80484c0);
+  Address addr(trans->getDefaultCodeSpace(),0x80484c0);
   int4 length;                   // Length of instruction in bytes
 
   length = trans->oneInstruction(*pcodeemit,addr);

@@ -1,6 +1,5 @@
 /* ###
  * IP: GHIDRA
- * REVIEWED: YES
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,15 +15,14 @@
  */
 package ghidra.program.database.data;
 
-import ghidra.app.plugin.core.datamgr.archive.SourceArchive;
-import ghidra.program.model.data.DataTypeManager;
-import ghidra.util.UniversalID;
-import ghidra.util.exception.VersionException;
-
 import java.io.IOException;
 import java.util.*;
 
 import db.*;
+import ghidra.program.model.data.DataTypeManager;
+import ghidra.program.model.data.SourceArchive;
+import ghidra.util.UniversalID;
+import ghidra.util.exception.VersionException;
 
 /**
  * Version 0 implementation for accessing the Data Type Archive ID database table. 
@@ -38,9 +36,9 @@ class SourceArchiveAdapterV0 extends SourceArchiveAdapter {
 	static final int V0_ARCHIVE_ID_DIRTY_FLAG_COL = 4;
 
 	static final Schema V0_SCHEMA = new Schema(VERSION, "Archive ID",
-		new Class[] { StringField.class, StringField.class, ByteField.class, LongField.class,
-			BooleanField.class }, new String[] { "Domain File ID", "Name", "Type",
-			"Last Sync Time", "Dirty Flag" });
+		new Field[] { StringField.INSTANCE, StringField.INSTANCE, ByteField.INSTANCE,
+			LongField.INSTANCE, BooleanField.INSTANCE },
+		new String[] { "Domain File ID", "Name", "Type", "Last Sync Time", "Dirty Flag" });
 
 	private Table table;
 
@@ -51,8 +49,8 @@ class SourceArchiveAdapterV0 extends SourceArchiveAdapter {
 	 * @throws VersionException if the the table's version does not match the expected version
 	 * for this adapter.
 	 */
-	public SourceArchiveAdapterV0(DBHandle handle, boolean create) throws VersionException,
-			IOException {
+	public SourceArchiveAdapterV0(DBHandle handle, boolean create)
+			throws VersionException, IOException {
 
 		if (create) {
 			table = handle.createTable(TABLE_NAME, V0_SCHEMA);
@@ -66,9 +64,8 @@ class SourceArchiveAdapterV0 extends SourceArchiveAdapter {
 			}
 			int version = table.getSchema().getVersion();
 			if (version != VERSION) {
-				String msg =
-					"Expected version " + VERSION + " for table " + TABLE_NAME + " but got " +
-						table.getSchema().getVersion();
+				String msg = "Expected version " + VERSION + " for table " + TABLE_NAME +
+					" but got " + table.getSchema().getVersion();
 				if (version < VERSION) {
 					throw new VersionException(msg, VersionException.OLDER_VERSION, true);
 				}
@@ -82,14 +79,14 @@ class SourceArchiveAdapterV0 extends SourceArchiveAdapter {
 	 * @throws IOException
 	 */
 	private void createRecordForLocalManager() throws IOException {
-		Record record = V0_SCHEMA.createRecord(DataTypeManager.LOCAL_ARCHIVE_KEY);
+		DBRecord record = V0_SCHEMA.createRecord(DataTypeManager.LOCAL_ARCHIVE_KEY);
 		record.setLongValue(V0_ARCHIVE_ID_LAST_SYNC_TIME_COL, (new Date()).getTime());
 		table.putRecord(record);
 	}
 
 	@Override
-	public Record createRecord(SourceArchive archive) throws IOException {
-		Record record = V0_SCHEMA.createRecord(archive.getSourceArchiveID().getValue());
+	public DBRecord createRecord(SourceArchive archive) throws IOException {
+		DBRecord record = V0_SCHEMA.createRecord(archive.getSourceArchiveID().getValue());
 		record.setString(V0_ARCHIVE_ID_DOMAIN_FILE_ID_COL, archive.getDomainFileID());
 		record.setString(V0_ARCHIVE_ID_NAME_COL, archive.getName());
 		record.setByteValue(V0_ARCHIVE_ID_TYPE_COL, (byte) archive.getArchiveType().ordinal());
@@ -106,13 +103,13 @@ class SourceArchiveAdapterV0 extends SourceArchiveAdapter {
 	}
 
 	@Override
-	public Record getRecord(long key) throws IOException {
+	public DBRecord getRecord(long key) throws IOException {
 		return table.getRecord(key);
 	}
 
 	@Override
-	public List<Record> getRecords() throws IOException {
-		List<Record> records = new ArrayList<Record>();
+	public List<DBRecord> getRecords() throws IOException {
+		List<DBRecord> records = new ArrayList<>();
 		RecordIterator iterator = table.iterator();
 		while (iterator.hasNext()) {
 			records.add(iterator.next());
@@ -121,7 +118,7 @@ class SourceArchiveAdapterV0 extends SourceArchiveAdapter {
 	}
 
 	@Override
-	public void updateRecord(Record record) throws IOException {
+	public void updateRecord(DBRecord record) throws IOException {
 		table.putRecord(record);
 	}
 

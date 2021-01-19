@@ -15,17 +15,17 @@
  */
 package ghidra.app.plugin.core.decompile;
 
+import java.awt.Color;
+import java.awt.event.KeyEvent;
 import java.awt.event.MouseEvent;
 import java.math.BigInteger;
-import java.util.Arrays;
-import java.util.List;
+import java.util.*;
+import java.util.concurrent.ConcurrentLinkedQueue;
 
 import javax.swing.*;
 
-import docking.ActionContext;
-import docking.WindowPosition;
+import docking.*;
 import docking.action.*;
-import docking.widgets.fieldpanel.LayoutModel;
 import docking.widgets.fieldpanel.support.FieldLocation;
 import docking.widgets.fieldpanel.support.ViewerPosition;
 import ghidra.GhidraOptions;
@@ -34,6 +34,7 @@ import ghidra.app.decompiler.component.*;
 import ghidra.app.nav.*;
 import ghidra.app.plugin.core.decompile.actions.*;
 import ghidra.app.services.*;
+import ghidra.app.util.HelpTopics;
 import ghidra.app.util.HighlightProvider;
 import ghidra.framework.model.DomainObjectChangedEvent;
 import ghidra.framework.model.DomainObjectListener;
@@ -43,14 +44,15 @@ import ghidra.framework.plugintool.util.ServiceListener;
 import ghidra.program.model.address.*;
 import ghidra.program.model.listing.Function;
 import ghidra.program.model.listing.Program;
-import ghidra.program.model.symbol.SymbolIterator;
-import ghidra.program.util.ProgramLocation;
-import ghidra.program.util.ProgramSelection;
+import ghidra.program.model.symbol.*;
+import ghidra.program.util.*;
 import ghidra.util.HelpLocation;
+import ghidra.util.Swing;
 import ghidra.util.bean.field.AnnotatedTextFieldElement;
 import ghidra.util.task.SwingUpdateManager;
 import resources.Icons;
 import resources.ResourceManager;
+import utility.function.Callback;
 
 public class DecompilerProvider extends NavigatableComponentProviderAdapter
 		implements DomainObjectListener, OptionsChangeListener, DecompilerCallbackHandler,
@@ -68,8 +70,14 @@ public class DecompilerProvider extends NavigatableComponentProviderAdapter
 	private DockingAction backwardSliceToOpsAction;
 	private DockingAction lockProtoAction;
 	private DockingAction lockLocalAction;
-	private DockingAction renameVarAction;
-	private DockingAction retypeVarAction;
+	private DockingAction renameLocalAction;
+	private DockingAction renameGlobalAction;
+	private DockingAction renameFieldAction;
+	private DockingAction retypeLocalAction;
+	private DockingAction retypeGlobalAction;
+	private DockingAction retypeReturnAction;
+	private DockingAction retypeFieldAction;
+	private DockingAction isolateVarAction;
 	private DockingAction specifyCProtoAction;
 	private DockingAction overrideSigAction;
 	private DockingAction deleteSigAction;
@@ -84,9 +92,18 @@ public class DecompilerProvider extends NavigatableComponentProviderAdapter
 	private DockingAction renameFunctionAction;
 	private DockingAction findReferencesAction;
 
+	private CloneDecompilerAction cloneDecompilerAction;
+
+	private SelectAllAction selectAllAction;
+
+	private SetSecondaryHighlightAction setSecondaryHighlightAction;
+	private SetSecondaryHighlightColorChooserAction setSecondaryHighlightColorChooserAction;
+	private RemoveAllSecondaryHighlightsAction removeAllSecondadryHighlightsAction;
+	private RemoveSecondaryHighlightAction removeSecondaryHighlightAction;
+
 	private final DecompilePlugin plugin;
 	private ClipboardService clipboardService;
-	private DecompileClipboardProvider clipboardProvider;
+	private DecompilerClipboardProvider clipboardProvider;
 	private DecompileOptions decompilerOptions;
 
 	private Program program;
@@ -97,25 +114,27 @@ public class DecompilerProvider extends NavigatableComponentProviderAdapter
 	private DecoratorPanel decorationPanel;
 	private ClangHighlightController highlightController;
 
-	private CloneDecompilerAction cloneDecompilerAction;
-
-	private SelectAllAction selectAllAction;
-
 	private ViewerPosition pendingViewerPosition;
 
-	private SwingUpdateManager swingUpdateManager;
+	private SwingUpdateManager redecompileUpdater;
+
+	// Follow-up work can be items that need to happen after a pending decompile is finished, such
+	// as updating highlights after a variable rename
+	private SwingUpdateManager followUpWorkUpdater;
+	private Queue<Callback> followUpWork = new ConcurrentLinkedQueue<>();
+
 	private ServiceListener serviceListener = new ServiceListener() {
 
 		@Override
 		public void serviceRemoved(Class<?> interfaceClass, Object service) {
-			if (interfaceClass.equals(GraphService.class)) {
+			if (interfaceClass.equals(GraphDisplayBroker.class)) {
 				graphServiceRemoved();
 			}
 		}
 
 		@Override
 		public void serviceAdded(Class<?> interfaceClass, Object service) {
-			if (interfaceClass.equals(GraphService.class)) {
+			if (interfaceClass.equals(GraphDisplayBroker.class)) {
 				graphServiceAdded();
 			}
 		}
@@ -123,26 +142,42 @@ public class DecompilerProvider extends NavigatableComponentProviderAdapter
 
 	public DecompilerProvider(DecompilePlugin plugin, boolean isConnected) {
 		super(plugin.getTool(), "Decompiler", plugin.getName(), DecompilerActionContext.class);
+
 		this.plugin = plugin;
-		clipboardProvider = new DecompileClipboardProvider(plugin, this);
+		this.clipboardProvider = new DecompilerClipboardProvider(plugin, this);
+
 		setConnected(isConnected);
 
 		decompilerOptions = new DecompileOptions();
 		initializeDecompilerOptions();
-		highlightController = new LocationClangHighlightController();
 		controller = new DecompilerController(this, decompilerOptions, clipboardProvider);
 		DecompilerPanel decompilerPanel = controller.getDecompilerPanel();
+
+		// TODO move the hl controller into the panel
+		highlightController = new LocationClangHighlightController();
 		decompilerPanel.setHighlightController(highlightController);
 		decorationPanel = new DecoratorPanel(decompilerPanel, isConnected);
-		setTitle("Decompile");
+
+		if (!isConnected) {
+			setTransient();
+		}
+		else {
+			addToToolbar();
+			setKeyBinding(
+				new KeyBindingData(KeyEvent.VK_E, DockingUtils.CONTROL_KEY_MODIFIER_MASK));
+		}
+
 		setIcon(C_SOURCE_ICON);
+		setTitle("Decompile");
+
 		setWindowMenuGroup("Decompile");
 		setDefaultWindowPosition(WindowPosition.RIGHT);
 		createActions(isConnected);
-		setHelpLocation(new HelpLocation(plugin.getName(), "Decompiler"));
+		setHelpLocation(new HelpLocation(HelpTopics.DECOMPILER, "DecompilerIntro"));
 		addToTool();
 
-		swingUpdateManager = new SwingUpdateManager(500, 5000, () -> doRefresh());
+		redecompileUpdater = new SwingUpdateManager(500, 5000, () -> doRefresh());
+		followUpWorkUpdater = new SwingUpdateManager(() -> doFollowUpWork());
 
 		plugin.getTool().addServiceListener(serviceListener);
 	}
@@ -150,6 +185,13 @@ public class DecompilerProvider extends NavigatableComponentProviderAdapter
 //==================================================================================================
 // Component Provider methods
 //==================================================================================================
+
+	@Override
+	public boolean isSnapshot() {
+		// we are a snapshot when we are 'disconnected' 
+		return !isConnected();
+	}
+
 	@Override
 	public void closeComponent() {
 		controller.clear();
@@ -180,7 +222,14 @@ public class DecompilerProvider extends NavigatableComponentProviderAdapter
 			return null;
 		}
 		Function function = controller.getFunction();
-		Address entryPoint = function != null ? function.getEntryPoint() : null;
+		if (function == null) {
+			return null;
+		}
+		if (!controller.hasDecompileResults()) {
+			return null;
+		}
+
+		Address entryPoint = function.getEntryPoint();
 		boolean isDecompiling = controller.isDecompiling();
 		return new DecompilerActionContext(this, entryPoint, isDecompiling);
 	}
@@ -201,24 +250,33 @@ public class DecompilerProvider extends NavigatableComponentProviderAdapter
 
 	@Override
 	public ProgramLocation getLocation() {
-		if (currentLocation == null) {
-			return plugin.getCurrentLocation(); // avoid returning null
+		if (currentLocation instanceof DecompilerLocation) {
+			return currentLocation;
 		}
-		return currentLocation;
+		return controller.getDecompilerPanel().getCurrentLocation();
 	}
 
 	@Override
 	public boolean goTo(Program gotoProgram, ProgramLocation location) {
-		if (gotoProgram != program) {
-			if (!isConnected()) {
+
+		if (!isConnected()) {
+			if (program == null) {
+				// Special Case: this 'disconnected' provider is waiting to be initialized 
+				// with the first goTo() callback
+				doSetProgram(gotoProgram);
+			}
+			else if (gotoProgram != program) {
+				// this disconnected provider only works with its given program
 				tool.setStatusInfo("Program location not applicable for this provider!");
 				return false;
 			}
-			ProgramManager programManagerService = tool.getService(ProgramManager.class);
-			if (programManagerService != null) {
-				programManagerService.setCurrentProgram(gotoProgram);
-			}
 		}
+
+		ProgramManager programManagerService = tool.getService(ProgramManager.class);
+		if (programManagerService != null) {
+			programManagerService.setCurrentProgram(gotoProgram);
+		}
+
 		setLocation(location, null);
 		pendingViewerPosition = null;
 		plugin.locationChanged(this, location);
@@ -252,7 +310,14 @@ public class DecompilerProvider extends NavigatableComponentProviderAdapter
 		if (!isVisible()) {
 			return;
 		}
-		swingUpdateManager.update();
+
+		if (ev.containsEvent(ChangeManager.DOCR_MEMORY_BLOCK_ADDED) ||
+			ev.containsEvent(ChangeManager.DOCR_MEMORY_BLOCK_REMOVED)) {
+			controller.resetDecompiler();
+		}
+
+		redecompileUpdater.update();
+
 	}
 
 	private void doRefresh() {
@@ -261,6 +326,20 @@ public class DecompilerProvider extends NavigatableComponentProviderAdapter
 		controller.setOptions(decompilerOptions);
 		if (currentLocation != null) {
 			controller.refreshDisplay(program, currentLocation, null);
+		}
+	}
+
+	private void doFollowUpWork() {
+		if (isBusy()) {
+			// try again later
+			followUpWorkUpdater.updateLater();
+			return;
+		}
+
+		Callback work = followUpWork.poll();
+		while (work != null) {
+			work.call();
+			work = followUpWork.poll();
 		}
 	}
 
@@ -296,7 +375,8 @@ public class DecompilerProvider extends NavigatableComponentProviderAdapter
 	public void dispose() {
 		super.dispose();
 
-		swingUpdateManager.dispose();
+		redecompileUpdater.dispose();
+		followUpWorkUpdater.dispose();
 
 		if (clipboardService != null) {
 			clipboardService.deRegisterClipboardContentProvider(clipboardProvider);
@@ -384,8 +464,8 @@ public class DecompilerProvider extends NavigatableComponentProviderAdapter
 		return null;
 	}
 
-	boolean isDecompiling() {
-		return controller.isDecompiling();
+	boolean isBusy() {
+		return redecompileUpdater.isBusy() || controller.isDecompiling();
 	}
 
 	/**
@@ -421,6 +501,10 @@ public class DecompilerProvider extends NavigatableComponentProviderAdapter
 		decompilerPanel.setCursorPosition(location);
 	}
 
+	DecompilerController getController() {
+		return controller;
+	}
+
 //==================================================================================================
 // methods called from the controller
 //==================================================================================================
@@ -430,10 +514,6 @@ public class DecompilerProvider extends NavigatableComponentProviderAdapter
 		tool.setStatusInfo(message);
 	}
 
-	/**
-	 * Called from the DecompilerController to indicate that the decompilerData has changed.
-	 * @param decompileData the new DecompilerData
-	 */
 	@Override
 	public void decompileDataChanged(DecompileData decompileData) {
 		updateTitle();
@@ -443,9 +523,19 @@ public class DecompilerProvider extends NavigatableComponentProviderAdapter
 
 	@Override
 	public void locationChanged(ProgramLocation programLocation) {
+		if (programLocation.equals(currentLocation)) {
+			return;
+		}
 		currentLocation = programLocation;
 		contextChanged();
 		plugin.locationChanged(this, programLocation);
+	}
+
+	@Override
+	public void selectionChanged(ProgramSelection programSelection) {
+		currentSelection = programSelection;
+		contextChanged();
+		plugin.selectionChanged(this, programSelection);
 	}
 
 	@Override
@@ -454,7 +544,6 @@ public class DecompilerProvider extends NavigatableComponentProviderAdapter
 		Navigatable navigatable = this;
 		if (newWindow) {
 			DecompilerProvider newProvider = plugin.createNewDisconnectedProvider();
-			newProvider.doSetProgram(program);
 			navigatable = newProvider;
 		}
 
@@ -463,6 +552,12 @@ public class DecompilerProvider extends NavigatableComponentProviderAdapter
 
 	@Override
 	public void goToLabel(String symbolName, boolean newWindow) {
+
+		GoToService service = tool.getService(GoToService.class);
+		if (service == null) {
+			return;
+		}
+
 		SymbolIterator symbolIterator = program.getSymbolTable().getSymbols(symbolName);
 		if (!symbolIterator.hasNext()) {
 			tool.setStatusInfo(symbolName + " not found.");
@@ -472,19 +567,21 @@ public class DecompilerProvider extends NavigatableComponentProviderAdapter
 		Navigatable navigatable = this;
 		if (newWindow) {
 			DecompilerProvider newProvider = plugin.createNewDisconnectedProvider();
-			newProvider.doSetProgram(program);
 			navigatable = newProvider;
 		}
 
-		GoToService service = tool.getService(GoToService.class);
-		if (service != null) {
-			QueryData queryData = new QueryData(symbolName, true);
-			service.goToQuery(navigatable, null, queryData, null, null);
-		}
+		QueryData queryData = new QueryData(symbolName, true);
+		service.goToQuery(navigatable, null, queryData, null, null);
 	}
 
 	@Override
 	public void goToScalar(long value, boolean newWindow) {
+
+		GoToService service = tool.getService(GoToService.class);
+		if (service == null) {
+			return;
+		}
+
 		try {
 			// try space/overlay which contains function
 			AddressSpace space = controller.getFunction().getEntryPoint().getAddressSpace();
@@ -507,46 +604,84 @@ public class DecompilerProvider extends NavigatableComponentProviderAdapter
 
 	@Override
 	public void goToAddress(Address address, boolean newWindow) {
+
+		GoToService service = tool.getService(GoToService.class);
+		if (service == null) {
+			return;
+		}
+
 		Navigatable navigatable = this;
 		if (newWindow) {
 			DecompilerProvider newProvider = plugin.createNewDisconnectedProvider();
-			newProvider.doSetProgram(program);
 			navigatable = newProvider;
 		}
 
+		service.goTo(navigatable, new ProgramLocation(program, address), program);
+	}
+
+	@Override
+	public void goToFunction(Function function, boolean newWindow) {
+
 		GoToService service = tool.getService(GoToService.class);
-		if (service != null) {
+		if (service == null) {
+			return;
+		}
+
+		Navigatable navigatable = this;
+		if (newWindow) {
+			DecompilerProvider newProvider = plugin.createNewDisconnectedProvider();
+			navigatable = newProvider;
+		}
+
+		if (function.isExternal()) {
+			Symbol symbol = function.getSymbol();
+			ExternalManager externalManager = program.getExternalManager();
+			ExternalLocation externalLocation = externalManager.getExternalLocation(symbol);
+			service.goToExternalLocation(navigatable, externalLocation, true);
+		}
+		else {
+			Address address = function.getEntryPoint();
 			service.goTo(navigatable, new ProgramLocation(program, address), program);
 		}
 	}
 
 	@Override
-	public void selectionChanged(ProgramSelection programSelection) {
-		currentSelection = programSelection;
-		contextChanged();
-		plugin.selectionChanged(this, programSelection);
+	public void doWheNotBusy(Callback c) {
+		followUpWork.offer(c);
+		followUpWorkUpdater.update();
 	}
 
 //==================================================================================================
 // methods called from other members
 //==================================================================================================
 
-	/**
-	 * Called by the DecompilerClipboardProvider to get the Decompiler Panel
-	 */
 	DecompilerPanel getDecompilerPanel() {
 		return controller.getDecompilerPanel();
 	}
 
 	public void cloneWindow() {
-		final DecompilerProvider newProvider = plugin.createNewDisconnectedProvider();
+		DecompilerProvider newProvider = plugin.createNewDisconnectedProvider();
+
 		// invoke later to give the window manage a chance to create the new window
 		// (its done in an invoke later)
-		SwingUtilities.invokeLater(() -> {
+		Swing.runLater(() -> {
+
+			ViewerPosition myViewPosition = controller.getDecompilerPanel().getViewerPosition();
 			newProvider.doSetProgram(program);
-			newProvider.controller.setDecompileData(controller.getDecompileData());
-			newProvider.setLocation(currentLocation,
-				controller.getDecompilerPanel().getViewerPosition());
+
+			// Any change in the HighlightTokens should be delivered to the new panel
+			DecompilerPanel myPanel = getDecompilerPanel();
+			TokenHighlights myHighlights = myPanel.getSecondaryHighlightedTokens();
+			newProvider.setLocation(currentLocation, myPanel.getViewerPosition());
+
+			// transfer any state after the new decompiler is initialized 
+			DecompilerPanel newPanel = newProvider.getDecompilerPanel();
+			Map<String, Color> highlightsByName = myHighlights.copyHighlightsByName();
+			newProvider.doWheNotBusy(() -> {
+
+				newPanel.setViewerPosition(myViewPosition);
+				newPanel.applySecondaryHighlights(highlightsByName);
+			});
 		});
 	}
 
@@ -579,10 +714,14 @@ public class DecompilerProvider extends NavigatableComponentProviderAdapter
 
 	private void initializeDecompilerOptions() {
 		ToolOptions opt = tool.getOptions(OPTIONS_TITLE);
-		HelpLocation helpLocation = new HelpLocation(plugin.getName(), "DecompileOptions");
-		decompilerOptions.registerOptions(plugin, opt, program, helpLocation);
-
+		HelpLocation helpLocation = new HelpLocation(HelpTopics.DECOMPILER, "GeneralOptions");
 		opt.setOptionsHelpLocation(helpLocation);
+		opt.getOptions("Analysis")
+				.setOptionsHelpLocation(new HelpLocation(HelpTopics.DECOMPILER, "AnalysisOptions"));
+		opt.getOptions("Display")
+				.setOptionsHelpLocation(new HelpLocation(HelpTopics.DECOMPILER, "DisplayOptions"));
+		decompilerOptions.registerOptions(plugin, opt, program);
+
 		opt.addOptionsChangeListener(this);
 
 		ToolOptions codeBrowserOptions = tool.getOptions(GhidraOptions.CATEGORY_BROWSER_FIELDS);
@@ -611,7 +750,8 @@ public class DecompilerProvider extends NavigatableComponentProviderAdapter
 		};
 		refreshAction.setToolBarData(new ToolBarData(REFRESH_ICON, "A" /* first on toolbar */));
 		refreshAction.setDescription("Push at any time to trigger a re-decompile");
-		refreshAction.setHelpLocation(new HelpLocation(plugin.getName(), "Decompiler")); // just use the default
+		refreshAction
+				.setHelpLocation(new HelpLocation(HelpTopics.DECOMPILER, "ToolBarRedecompile")); // just use the default
 
 		//
 		// Below are actions along with their groups and subgroup information.  The comments
@@ -634,16 +774,16 @@ public class DecompilerProvider extends NavigatableComponentProviderAdapter
 		String functionGroup = "1 - Function Group";
 		int subGroupPosition = 0;
 
-		specifyCProtoAction = new SpecifyCPrototypeAction(owner, tool, controller);
+		specifyCProtoAction = new SpecifyCPrototypeAction();
 		setGroupInfo(specifyCProtoAction, functionGroup, subGroupPosition++);
 
-		overrideSigAction = new OverridePrototypeAction(owner, tool, controller);
+		overrideSigAction = new OverridePrototypeAction();
 		setGroupInfo(overrideSigAction, functionGroup, subGroupPosition++);
 
-		deleteSigAction = new DeletePrototypeOverrideAction(owner, tool, controller);
+		deleteSigAction = new DeletePrototypeOverrideAction();
 		setGroupInfo(deleteSigAction, functionGroup, subGroupPosition++);
 
-		renameFunctionAction = new RenameFunctionAction(owner, tool, controller);
+		renameFunctionAction = new RenameFunctionAction();
 		setGroupInfo(renameFunctionAction, functionGroup, subGroupPosition++);
 
 		//
@@ -652,33 +792,36 @@ public class DecompilerProvider extends NavigatableComponentProviderAdapter
 		String variableGroup = "2 - Variable Group";
 		subGroupPosition = 0; // reset for the next group
 
-		renameVarAction = new RenameVariableAction(owner, tool, controller);
-		setGroupInfo(renameVarAction, variableGroup, subGroupPosition++);
+		renameLocalAction = new RenameLocalAction();
+		setGroupInfo(renameLocalAction, variableGroup, subGroupPosition++);
 
-		retypeVarAction = new RetypeVariableAction(owner, tool, controller);
-		setGroupInfo(retypeVarAction, variableGroup, subGroupPosition++);
+		renameGlobalAction = new RenameGlobalAction();
+		setGroupInfo(renameGlobalAction, variableGroup, subGroupPosition++);
+
+		renameFieldAction = new RenameFieldAction();
+		setGroupInfo(renameFieldAction, variableGroup, subGroupPosition++);
+
+		retypeLocalAction = new RetypeLocalAction();
+		setGroupInfo(retypeLocalAction, variableGroup, subGroupPosition++);
+
+		retypeGlobalAction = new RetypeGlobalAction();
+		setGroupInfo(retypeGlobalAction, variableGroup, subGroupPosition++);
+
+		retypeReturnAction = new RetypeReturnAction();
+		setGroupInfo(retypeReturnAction, variableGroup, subGroupPosition++);
+
+		retypeFieldAction = new RetypeFieldAction();
+		setGroupInfo(retypeFieldAction, variableGroup, subGroupPosition++);
+
+		isolateVarAction = new IsolateVariableAction();
+		setGroupInfo(isolateVarAction, variableGroup, subGroupPosition++);
 
 		decompilerCreateStructureAction =
 			new DecompilerStructureVariableAction(owner, tool, controller);
 		setGroupInfo(decompilerCreateStructureAction, variableGroup, subGroupPosition++);
 
-		editDataTypeAction = new EditDataTypeAction(owner, tool, controller);
+		editDataTypeAction = new EditDataTypeAction();
 		setGroupInfo(editDataTypeAction, variableGroup, subGroupPosition++);
-
-		defUseHighlightAction = new HighlightDefinedUseAction(owner, controller);
-		setGroupInfo(defUseHighlightAction, variableGroup, subGroupPosition++);
-
-		forwardSliceAction = new ForwardSliceAction(owner, controller);
-		setGroupInfo(forwardSliceAction, variableGroup, subGroupPosition++);
-
-		backwardSliceAction = new BackwardsSliceAction(owner, controller);
-		setGroupInfo(backwardSliceAction, variableGroup, subGroupPosition++);
-
-		forwardSliceToOpsAction = new ForwardSliceToPCodeOpsAction(owner, controller);
-		setGroupInfo(forwardSliceToOpsAction, variableGroup, subGroupPosition++);
-
-		backwardSliceToOpsAction = new BackwardsSliceToPCodeOpsAction(owner, controller);
-		setGroupInfo(backwardSliceToOpsAction, variableGroup, subGroupPosition++);
 
 		//
 		// Listing action for Creating Structure on a Variable
@@ -691,18 +834,52 @@ public class DecompilerProvider extends NavigatableComponentProviderAdapter
 		String commitGroup = "3 - Commit Group";
 		subGroupPosition = 0; // reset for the next group
 
-		lockProtoAction = new CommitParamsAction(owner, tool, controller);
+		lockProtoAction = new CommitParamsAction();
 		setGroupInfo(lockProtoAction, commitGroup, subGroupPosition++);
 
-		lockLocalAction = new CommitLocalsAction(owner, tool, controller);
+		lockLocalAction = new CommitLocalsAction();
 		setGroupInfo(lockLocalAction, commitGroup, subGroupPosition++);
+
+		subGroupPosition = 0; // reset for the next group
+
+		//
+		// Highlight
+		//
+		String highlightGroup = "4a - Highlight Group";
+		tool.setMenuGroup(new String[] { "Highlight" }, highlightGroup);
+		defUseHighlightAction = new HighlightDefinedUseAction();
+		setGroupInfo(defUseHighlightAction, highlightGroup, subGroupPosition++);
+
+		forwardSliceAction = new ForwardSliceAction();
+		setGroupInfo(forwardSliceAction, highlightGroup, subGroupPosition++);
+
+		backwardSliceAction = new BackwardsSliceAction();
+		setGroupInfo(backwardSliceAction, highlightGroup, subGroupPosition++);
+
+		forwardSliceToOpsAction = new ForwardSliceToPCodeOpsAction();
+		setGroupInfo(forwardSliceToOpsAction, highlightGroup, subGroupPosition++);
+
+		backwardSliceToOpsAction = new BackwardsSliceToPCodeOpsAction();
+		setGroupInfo(backwardSliceToOpsAction, highlightGroup, subGroupPosition++);
+
+		tool.setMenuGroup(new String[] { "Secondary Highlight" }, highlightGroup);
+		setSecondaryHighlightAction = new SetSecondaryHighlightAction();
+		setGroupInfo(setSecondaryHighlightAction, highlightGroup, subGroupPosition++);
+
+		setSecondaryHighlightColorChooserAction = new SetSecondaryHighlightColorChooserAction();
+		setGroupInfo(setSecondaryHighlightColorChooserAction, highlightGroup, subGroupPosition++);
+
+		removeSecondaryHighlightAction = new RemoveSecondaryHighlightAction();
+		setGroupInfo(removeSecondaryHighlightAction, highlightGroup, subGroupPosition++);
+
+		removeAllSecondadryHighlightsAction = new RemoveAllSecondaryHighlightsAction();
+		setGroupInfo(removeAllSecondadryHighlightsAction, highlightGroup, subGroupPosition++);
 
 		//
 		// Comments
 		//
 		// NOTE: this is just a placeholder to represent where the comment actions should appear
-		//       in relation to our local actions.  We cannot control the comment action
-		//       arrangement by setting the values, we can
+		//       in relation to our local actions.  
 		//
 
 		//
@@ -711,11 +888,31 @@ public class DecompilerProvider extends NavigatableComponentProviderAdapter
 		String searchGroup = "comment2 - Search Group";
 		subGroupPosition = 0; // reset for the next group
 
-		findAction = new FindAction(tool, controller, owner);
+		findAction = new FindAction();
 		setGroupInfo(findAction, searchGroup, subGroupPosition++);
+
+		//
+		// References 
+		// 
+
+		// note: set the menu group so that the 'References' group is with the 'Find' action
+		String referencesParentGroup = searchGroup;
 
 		findReferencesAction = new FindReferencesToDataTypeAction(owner, tool, controller);
 		setGroupInfo(findReferencesAction, searchGroup, subGroupPosition++);
+		findReferencesAction.getPopupMenuData().setParentMenuGroup(referencesParentGroup);
+
+		FindReferencesToSymbolAction findReferencesToSymbolAction =
+			new FindReferencesToSymbolAction();
+		setGroupInfo(findReferencesToSymbolAction, searchGroup, subGroupPosition++);
+		findReferencesToSymbolAction.getPopupMenuData().setParentMenuGroup(referencesParentGroup);
+		addLocalAction(findReferencesToSymbolAction);
+
+		FindReferencesToAddressAction findReferencesToAdressAction =
+			new FindReferencesToAddressAction(tool, owner);
+		setGroupInfo(findReferencesToAdressAction, searchGroup, subGroupPosition++);
+		findReferencesToAdressAction.getPopupMenuData().setParentMenuGroup(referencesParentGroup);
+		addLocalAction(findReferencesToAdressAction);
 
 		//
 		// Options
@@ -729,9 +926,9 @@ public class DecompilerProvider extends NavigatableComponentProviderAdapter
 		//
 		// These actions are not in the popup menu
 		//
-		debugFunctionAction = new DebugDecompilerAction(owner, controller);
-		convertAction = new ExportToCAction(owner, controller);
-		cloneDecompilerAction = new CloneDecompilerAction(owner, this, controller);
+		debugFunctionAction = new DebugDecompilerAction(controller);
+		convertAction = new ExportToCAction();
+		cloneDecompilerAction = new CloneDecompilerAction();
 
 		addLocalAction(refreshAction);
 		addLocalAction(selectAllAction);
@@ -742,8 +939,18 @@ public class DecompilerProvider extends NavigatableComponentProviderAdapter
 		addLocalAction(backwardSliceToOpsAction);
 		addLocalAction(lockProtoAction);
 		addLocalAction(lockLocalAction);
-		addLocalAction(renameVarAction);
-		addLocalAction(retypeVarAction);
+		addLocalAction(renameLocalAction);
+		addLocalAction(renameGlobalAction);
+		addLocalAction(renameFieldAction);
+		addLocalAction(setSecondaryHighlightAction);
+		addLocalAction(setSecondaryHighlightColorChooserAction);
+		addLocalAction(removeSecondaryHighlightAction);
+		addLocalAction(removeAllSecondadryHighlightsAction);
+		addLocalAction(retypeLocalAction);
+		addLocalAction(retypeGlobalAction);
+		addLocalAction(retypeReturnAction);
+		addLocalAction(retypeFieldAction);
+		addLocalAction(isolateVarAction);
 		addLocalAction(decompilerCreateStructureAction);
 		tool.addAction(listingCreateStructureAction);
 		addLocalAction(editDataTypeAction);
@@ -767,11 +974,14 @@ public class DecompilerProvider extends NavigatableComponentProviderAdapter
 	private void setGroupInfo(DockingAction action, String group, int subGroupPosition) {
 		MenuData popupMenuData = action.getPopupMenuData();
 		popupMenuData.setMenuGroup(group);
-		popupMenuData.setMenuSubGroup(Integer.toString(subGroupPosition++));
+		popupMenuData.setMenuSubGroup(Integer.toString(subGroupPosition));
 	}
 
 	private void graphServiceRemoved() {
-		if (graphASTControlFlowAction != null && tool.getService(GraphService.class) == null) {
+		if (graphASTControlFlowAction == null) {
+			return;
+		}
+		if (tool.getService(GraphDisplayBroker.class) == null) {
 			tool.removeAction(graphASTControlFlowAction);
 			graphASTControlFlowAction.dispose();
 			graphASTControlFlowAction = null;
@@ -779,9 +989,9 @@ public class DecompilerProvider extends NavigatableComponentProviderAdapter
 	}
 
 	private void graphServiceAdded() {
-		if (graphASTControlFlowAction == null && tool.getService(GraphService.class) != null) {
-			graphASTControlFlowAction =
-				new GraphASTControlFlowAction(plugin.getName(), plugin, controller);
+		GraphDisplayBroker service = tool.getService(GraphDisplayBroker.class);
+		if (service != null && service.getDefaultGraphDisplayProvider() != null) {
+			graphASTControlFlowAction = new GraphASTControlFlowAction();
 			addLocalAction(graphASTControlFlowAction);
 		}
 	}
@@ -820,28 +1030,29 @@ public class DecompilerProvider extends NavigatableComponentProviderAdapter
 	}
 
 	@Override
-	public void removeHighlightProvider(HighlightProvider highlightProvider, Program program2) {
+	public void removeHighlightProvider(HighlightProvider highlightProvider, Program p) {
 		// currently unsupported
 	}
 
 	@Override
-	public void setHighlightProvider(HighlightProvider highlightProvider, Program program2) {
+	public void setHighlightProvider(HighlightProvider highlightProvider, Program p) {
 		// currently unsupported
-
-	}
-
-	@Override
-	public LayoutModel getLayoutModel() {
-		return controller.getDecompilerPanel().getLayoutModel();
-	}
-
-	@Override
-	public void clearHighlights() {
-		controller.getDecompilerPanel().clearHighlights();
 	}
 
 	public void programClosed(Program closedProgram) {
 		controller.programClosed(closedProgram);
+	}
+
+	@Deprecated // to be removed post 9.2; replace with an API to manipulate primary highlights
+	@Override
+	public ClangLayoutController getLayoutModel() {
+		return (ClangLayoutController) getDecompilerPanel().getLayoutModel();
+	}
+
+	@Deprecated // to be removed post 9.2; replace with an API to manipulate primary highlights
+	@Override
+	public void clearHighlights() {
+		getDecompilerPanel().clearPrimaryHighlights();
 	}
 
 }

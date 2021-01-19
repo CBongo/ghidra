@@ -29,7 +29,7 @@ import ghidra.util.datastruct.RedBlackTree;
 
 public class AddressSet implements AddressSetView {
 	private final static double LOGBASE2 = Math.log(2);
-	private RedBlackTree<Address, Address> rbTree = new RedBlackTree<Address, Address>();
+	private RedBlackTree<Address, Address> rbTree = new RedBlackTree<>();
 	private RedBlackEntry<Address, Address> lastNode;
 	private long addressCount = 0;
 
@@ -83,7 +83,7 @@ public class AddressSet implements AddressSetView {
 	 * Creates a new Address set containing a single range
 	 * @param start the start address of the range
 	 * @param end the end address of the range
-	 * @param addressFactory NOT USED.
+	 * @param factory NOT USED.
 	 * @deprecated use {@link #AddressSet(Address, Address)}  (will be kept until at least Ghidra 6.2)
 	 */
 	@Deprecated
@@ -106,8 +106,8 @@ public class AddressSet implements AddressSetView {
 
 	/**
 	 * Create a new Address Set from an existing Address Set.
-	 * @param addrSet Existing Address Set to clone.
-	 * @param addressFactory NOT USED.
+	 * @param set Existing Address Set to clone.
+	 * @param factory NOT USED.
 	 * @deprecated use {@link #AddressSet(AddressSetView)}  (will be kept until at least Ghidra 6.2)
 	 */
 	@Deprecated
@@ -117,7 +117,7 @@ public class AddressSet implements AddressSetView {
 
 	/**
 	 * Create a new Address Set from an existing Address Set.
-	 * @param addrSet Existing Address Set to clone.
+	 * @param set Existing Address Set to clone.
 	 */
 	public AddressSet(AddressSetView set) {
 		add(set);
@@ -126,7 +126,7 @@ public class AddressSet implements AddressSetView {
 	/**
 	 * Create a new Address containing a single address.
 	 * @param addr the address to be included in this address set.
-	 * @param addressFactory NOT USED.
+	 * @param factory NOT USED.
 	 * @deprecated use {@link #AddressSet(Address)}  (will be kept until at least Ghidra 6.2)
 	 */
 	@Deprecated
@@ -282,7 +282,7 @@ public class AddressSet implements AddressSetView {
 	/**
 	 * Deletes a range of addresses from this set
 	 * @param start the starting address of the range to be removed
-	 * @param end the ending address of the range to be removed
+	 * @param end the ending address of the range to be removed (inclusive)
 	 */
 	public final void delete(Address start, Address end) {
 		if (start.compareTo(end) > 0) {
@@ -403,7 +403,7 @@ public class AddressSet implements AddressSetView {
 	 * @return  a list of the AddressRanges in this set.
 	 */
 	public List<AddressRange> toList() {
-		ArrayList<AddressRange> list = new ArrayList<AddressRange>();
+		ArrayList<AddressRange> list = new ArrayList<>();
 		for (AddressRange range : this) {
 			list.add(range);
 		}

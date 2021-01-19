@@ -62,10 +62,19 @@ public class EnumDataTypeHTMLRepresentation extends HTMLDataTypeRepresentation {
 		long[] values = enumDataType.getValues();
 		Arrays.sort(values);
 
-		List<ValidatableLine> list = new ArrayList<ValidatableLine>(values.length);
+		int n = enumDataType.getLength();
+		List<ValidatableLine> list = new ArrayList<>(values.length);
 		for (long value : values) {
 			String name = enumDataType.getName(value);
-			list.add(new TextLine(name + " = 0x" + Long.toHexString(value)));
+
+			String hexString = Long.toHexString(value);
+			if (value < 0) {
+				// Long will print leading FF for 8 bytes, regardless of enum size.  Keep only
+				// n bytes worth of text.  For example, when n is 2, turn FFFFFFFFFFFFFF12 into FF12
+				int length = hexString.length();
+				hexString = hexString.substring(length - (n * 2));
+			}
+			list.add(new TextLine(name + " = 0x" + hexString));
 		}
 
 		return list;
@@ -74,7 +83,7 @@ public class EnumDataTypeHTMLRepresentation extends HTMLDataTypeRepresentation {
 	private static String buildHTMLText(List<ValidatableLine> headerLines, TextLine displayName,
 			List<ValidatableLine> bodyLines, TextLine footerLine) {
 
-		StringBuffer buffy = new StringBuffer();
+		StringBuilder buffy = new StringBuilder();
 
 		// header
 		Iterator<ValidatableLine> iterator = headerLines.iterator();
@@ -88,8 +97,14 @@ public class EnumDataTypeHTMLRepresentation extends HTMLDataTypeRepresentation {
 		// "<TT> displayName { "
 		String encodedDisplayName = HTMLUtilities.friendlyEncodeHTML(displayName.getText());
 		String displayNameText = wrapStringInColor(encodedDisplayName, displayName.getTextColor());
-		buffy.append(TT_OPEN).append(displayNameText).append(TT_CLOSE).append(HTML_SPACE).append(
-			"{").append(HTML_SPACE).append(BR);
+		buffy.append(TT_OPEN)
+				.append(displayNameText)
+				.append(TT_CLOSE)
+				.append(HTML_SPACE)
+				.append(
+					"{")
+				.append(HTML_SPACE)
+				.append(BR);
 
 		int length = bodyLines.size();
 		for (int i = 0; i < length; i++) {

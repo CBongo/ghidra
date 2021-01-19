@@ -53,7 +53,7 @@ public interface GoToService {
 	 * overloaded version of {@link #goTo(Address)} uses the given program as the program 
 	 * within which to perform the GoTo.  If the given program does not contain the given 
 	 * address, then the GoTo will not be performed and false will be returned.  Passing 
-	 * <tt>null</tt> as the <tt>program</tt> parameter will cause this method to attempt to find
+	 * <code>null</code> as the <code>program</code> parameter will cause this method to attempt to find
 	 * a program that contains the given ProgramLocation.
 	 * 
 	 * @param loc location to go to
@@ -91,8 +91,8 @@ public interface GoToService {
 	 * Generates a GoTo event to the gotoAddress.   This overloaded version of
 	 * {@link #goTo(Address)} uses the given program as the program within which to
 	 * perform the GoTo.  If the given program does not contain the given address, then the 
-	 * GoTo will not be performed and false will be returned.  Passing <tt>null</tt> as the 
-	 * <tt>program</tt> parameter will cause this method to attempt to find
+	 * GoTo will not be performed and false will be returned.  Passing <code>null</code> as the 
+	 * <code>program</code> parameter will cause this method to attempt to find
 	 * a program that contains the given ProgramLocation.
 	 * 
 	 * @param goToAddress the address to goto
@@ -105,7 +105,7 @@ public interface GoToService {
 	/**
 	 * Navigate to either the external program location or address linkage location.  
 	 * Specific behavior may vary based upon implementation.
-	 * @param nav Navigatable
+	
 	 * @param externalLoc external location
 	 * @param checkNavigationOption if true the service navigation 
 	 * option will be used to determine if navigation to the external program will be 
@@ -116,6 +116,23 @@ public interface GoToService {
 	 * linkage location was completed successfully.
 	 */
 	public boolean goToExternalLocation(ExternalLocation externalLoc,
+			boolean checkNavigationOption);
+
+	/**
+	 * Navigate to either the external program location or address linkage location.  
+	 * Specific behavior may vary based upon implementation.
+	 * 
+	 * @param navigatable Navigatable
+	 * @param externalLoc external location
+	 * @param checkNavigationOption if true the service navigation 
+	 * option will be used to determine if navigation to the external program will be 
+	 * attempted, or if navigation to the external linkage location within the current
+	 * program will be attempted.  If false, the implementations default behavior
+	 * will be performed.
+	 * @return true if either navigation to the external program or to a
+	 * linkage location was completed successfully.
+	 */
+	public boolean goToExternalLocation(Navigatable navigatable, ExternalLocation externalLoc,
 			boolean checkNavigationOption);
 
 	/**
@@ -131,10 +148,10 @@ public interface GoToService {
 	 * 
 	 * The listener will be notified after query and will indicate the query status.
 	 * 
-	 * @param queryInput this input string to parse.
 	 * @param fromAddr The address used to determine the scope of the query
-	 * @param caseSensitive if true, the search must match case.
+	 * @param queryData the query input data
 	 * @param listener the listener that will be notified when the query completes.
+	 * @param monitor the task monitor
 	 * @return true if the queryInput is found or appears to be a wildcard search.
 	 */
 	public boolean goToQuery(Address fromAddr, QueryData queryData, GoToServiceListener listener,

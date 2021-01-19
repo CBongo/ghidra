@@ -72,6 +72,11 @@ public interface HelpTopics {
 	public final static String DATA_TYPE_EDITORS = "DataTypeEditors";
 
 	/**
+	 * Help Topic for the decompiler
+	 */
+	public final static String DECOMPILER = "DecompilePlugin";
+
+	/**
 	 * Help Topic for doing diffs between programs.
 	 */
 	public final static String DIFF = "Diff";
@@ -85,6 +90,11 @@ public interface HelpTopics {
 	 * Help Topic for the exporters.
 	 */
 	public final static String EXPORTER = "ExporterPlugin";
+
+	/**
+	 * Help Topic for references searching
+	 */
+	public final static String FIND_REFERENCES = "LocationReferencesPlugin";
 
 	/**
 	 * Name of options for the help topic for the front end (Ghidra

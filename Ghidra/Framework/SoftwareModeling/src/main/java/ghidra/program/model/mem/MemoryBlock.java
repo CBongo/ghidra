@@ -17,11 +17,12 @@ package ghidra.program.model.mem;
 
 import java.io.InputStream;
 import java.io.Serializable;
+import java.util.List;
 
 import ghidra.framework.store.LockException;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.listing.Program;
-import ghidra.util.exception.DuplicateNameException;
+import ghidra.util.NamingUtilities;
 
 /**
  * Interface that defines a block in memory.
@@ -85,12 +86,14 @@ public interface MemoryBlock extends Serializable, Comparable<MemoryBlock> {
 	public String getName();
 
 	/**
-	 * Set the name for this block.
+	 * Set the name for this block (See {@link NamingUtilities#isValidName(String)} for
+	 * naming rules).  Specified name must not conflict with an address space name.
 	 * @param name the new name for this block.
-	 * @throws DuplicateNameException 
+	 * @throws IllegalArgumentException if invalid name specified
 	 * @throws LockException renaming an Overlay block without exclusive access
 	 */
-	public void setName(String name) throws DuplicateNameException, LockException;
+	public void setName(String name)
+			throws IllegalArgumentException, LockException;
 
 	/**
 	 * Get the comment associated with this block.
@@ -135,6 +138,14 @@ public interface MemoryBlock extends Serializable, Comparable<MemoryBlock> {
 	 * @param e the value to set the execute property to.
 	 */
 	public void setExecute(boolean e);
+
+	/**
+	 * Sets the read, write, execute permissions on this block
+	 * @param read the read permission
+	 * @param write the write permission
+	 * @param execute the execute permission
+	 */
+	public void setPermissions(boolean read, boolean write, boolean execute);
 
 	/**
 	 * Returns the value of the volatile property associated with this block.
@@ -232,7 +243,7 @@ public interface MemoryBlock extends Serializable, Comparable<MemoryBlock> {
 	public int putBytes(Address addr, byte[] b, int off, int len) throws MemoryAccessException;
 
 	/**
-	 * Get the type for this block: TYPE_DEFAULT, TYPE_OVERLAY, TYPE_BIT_MAPPED, or TYPE_BYTE_MAPPED
+	 * Get the type for this block: DEFAULT, BIT_MAPPED, or BYTE_MAPPED
 	 */
 	public MemoryBlockType getType();
 
@@ -247,11 +258,27 @@ public interface MemoryBlock extends Serializable, Comparable<MemoryBlock> {
 	public boolean isMapped();
 
 	/**
+	 * Returns true if this is an overlay block (i.e., contained within overlay space).
+	 * @return true if this is an overlay block
+	 */
+	public boolean isOverlay();
+
+	/**
 	 * Returns true if this memory block is a real loaded block (i.e. RAM) and not a special block
 	 * containing file header data such as debug sections.
+	 * @return true if this is a loaded block and not a "special" block such as a file header.
 	 */
 	public boolean isLoaded();
-	
+
+	/**
+	 * Returns a list of {@link MemoryBlockSourceInfo} objects for this block.  A block may consist of 
+	 * multiple sequences of bytes from different sources.  Each such source of bytes is described
+	 * by its respective SourceInfo object.  Blocks may have multiple sources after two or more
+	 * memory blocks have been joined together and the underlying byte sources can't be joined.
+	 * @return a list of SourceInfo objects, one for each different source of bytes in this block.
+	 */
+	public List<MemoryBlockSourceInfo> getSourceInfos();
+
 	/**
 	 * Determine if the specified address is contained within the reserved EXTERNAL block.
 	 * @param address address of interest

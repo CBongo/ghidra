@@ -6,6 +6,12 @@
         <constraint primary="334"   processor="x86"     endian="little" size="32" />
         <constraint primary="34404" processor="x86"     endian="little" size="64" />
       </constraint>
+      <constraint compilerSpecID="clangwindows">
+        <constraint primary="332"   secondary="clang" processor="x86" endian="little" size="32" />
+        <constraint primary="333"   secondary="clang" processor="x86" endian="little" size="32" />
+        <constraint primary="334"   secondary="clang" processor="x86" endian="little" size="32" />
+        <constraint primary="34404" secondary="clang" processor="x86" endian="little" size="64" />
+      </constraint>
       <constraint compilerSpecID="borlandcpp">
         <constraint primary="332"  secondary="borlandcpp" processor="x86" endian="little" size="32" />
         <constraint primary="333"  secondary="borlandcpp" processor="x86" endian="little" size="32" />
@@ -37,11 +43,14 @@
         <constraint primary="23117" processor="x86" endian="little" size="16" variant="Real Mode"/>
     </constraint>
     <constraint loader="New Executable (NE)" compilerSpecID="default">
-        <constraint primary="17742" processor="x86" endian="little" size="16" variant="Real Mode"/>
+        <constraint primary="17742" processor="x86" endian="little" size="16" variant="Protected Mode"/>
     </constraint>
     <constraint loader="Mac OS X Mach-O" compilerSpecID="gcc">
         <constraint primary="7"        processor="x86"     endian="little" size="32" />
         <constraint primary="16777223" processor="x86"     endian="little" size="64" />
+    </constraint>
+    <constraint loader="DYLD Cache" compilerSpecID="gcc">
+        <constraint primary="x86_64"   processor="x86"     endian="little" size="64" />
     </constraint>
     <constraint loader="Common Object File Format (COFF)" compilerSpecID="gcc">
         <constraint primary="332"     processor="x86"          endian="little" size="32" />

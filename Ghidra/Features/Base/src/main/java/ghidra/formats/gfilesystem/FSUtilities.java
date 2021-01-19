@@ -78,7 +78,7 @@ public class FSUtilities {
 	};
 
 	/**
-	 * Converts a string -> string mapping into a "key: value" multi-line string.
+	 * Converts a string -&gt; string mapping into a "key: value" multi-line string.
 	 *
 	 * @param info map of string key to string value.
 	 * @return Multi-line string "key: value" string.
@@ -202,7 +202,7 @@ public class FSUtilities {
 			sb.append('%').append(hexdigit[c >> 4]).append(hexdigit[c & 0x0f]);
 			return;
 		}
-		sb.append(URLEncoder.encode("" + c));
+		sb.append(URLEncoder.encode("" + c, StandardCharsets.UTF_8));
 	}
 
 	/**

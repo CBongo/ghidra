@@ -18,8 +18,7 @@ package docking.widgets.table;
 import java.awt.*;
 import java.awt.event.*;
 
-import javax.swing.Icon;
-import javax.swing.JComponent;
+import javax.swing.*;
 import javax.swing.table.*;
 
 import docking.DockingWindowManager;
@@ -54,7 +53,7 @@ public class GTableHeader extends JTableHeader {
 	GTableHeader(GTable table) {
 		super(table.getColumnModel());
 		gTable = table;
-		docking.ToolTipManager.sharedInstance().registerComponent(this);
+		ToolTipManager.sharedInstance().registerComponent(this);
 
 		addMouseListener(new MouseAdapter() {
 			@Override
@@ -197,7 +196,7 @@ public class GTableHeader extends JTableHeader {
 
 		int realIndex = gTable.convertColumnIndexToModel(columnIndex);
 
-		String columnFilterToolTip = getColumnFilterToolTip(model, columnIndex);
+		String columnFilterToolTip = getColumnFilterToolTip(model, realIndex);
 		VariableColumnTableModel variableModel = VariableColumnTableModel.from(model);
 		if (variableModel != null) {
 			String description = variableModel.getColumnDescription(realIndex);

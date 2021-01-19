@@ -41,8 +41,9 @@ public class ClosedPatternTableDialog extends DialogComponentProvider {
 	private DockingAction sendToClipboardAction;
 	private static final String TITLE = "Closed Patterns";
 	private ClosedPatternTableModel closedPatternTableModel;
-	private FunctionBitPatternsExplorerPlugin plugin;
+	private GThreadedTablePanel<ClosedPatternRowObject> tablePanel;
 	private JPanel mainPanel;
+	private FunctionBitPatternsExplorerPlugin plugin;
 	private PatternType type;
 	private ContextRegisterFilter cRegFilter;
 
@@ -77,9 +78,8 @@ public class ClosedPatternTableDialog extends DialogComponentProvider {
 
 	private JPanel createMainPanel() {
 		JPanel panel = new JPanel(new BorderLayout());
-		GThreadedTablePanel<ClosedPatternRowObject> table =
-			new GThreadedTablePanel<ClosedPatternRowObject>(closedPatternTableModel);
-		panel.add(table, BorderLayout.CENTER);
+		tablePanel = new GThreadedTablePanel<>(closedPatternTableModel);
+		panel.add(tablePanel, BorderLayout.CENTER);
 		return panel;
 	}
 
@@ -89,33 +89,31 @@ public class ClosedPatternTableDialog extends DialogComponentProvider {
 	}
 
 	private void addClipboardAction() {
-		sendToClipboardAction =
-			new DockingAction("Send Selected Sequences to Clipboard", TITLE, false) {
+		sendToClipboardAction = new DockingAction("Send Selected Sequences to Clipboard", TITLE) {
 
-				@Override
-				public void actionPerformed(ActionContext context) {
-					List<ClosedPatternRowObject> rows =
-						closedPatternTableModel.getLastSelectedObjects();
-					for (ClosedPatternRowObject row : rows) {
-						DittedBitSequence seq = new DittedBitSequence(row.getDittedString(), true);
-						PatternInfoRowObject pattern =
-							new PatternInfoRowObject(type, seq, cRegFilter);
-						plugin.addPattern(pattern);
-					}
-					plugin.updateClipboard();
+			@Override
+			public void actionPerformed(ActionContext context) {
+				List<ClosedPatternRowObject> rows =
+					closedPatternTableModel.getLastSelectedObjects();
+				for (ClosedPatternRowObject row : rows) {
+					DittedBitSequence seq = new DittedBitSequence(row.getDittedString(), true);
+					PatternInfoRowObject pattern = new PatternInfoRowObject(type, seq, cRegFilter);
+					plugin.addPattern(pattern);
 				}
+				plugin.updateClipboard();
+			}
 
-				@Override
-				public boolean isAddToPopup(ActionContext context) {
-					return true;
-				}
+			@Override
+			public boolean isAddToPopup(ActionContext context) {
+				return true;
+			}
 
-				@Override
-				public boolean isEnabledForContext(ActionContext context) {
-					return (!closedPatternTableModel.getLastSelectedObjects().isEmpty());
-				}
+			@Override
+			public boolean isEnabledForContext(ActionContext context) {
+				return (!closedPatternTableModel.getLastSelectedObjects().isEmpty());
+			}
 
-			};
+		};
 		ImageIcon icon = ResourceManager.loadImage("images/2rightarrow.png");
 		sendToClipboardAction.setPopupMenuData(
 			new MenuData(new String[] { "Send Selected Sequences to Clipboard" }, icon));
@@ -124,4 +122,8 @@ public class ClosedPatternTableDialog extends DialogComponentProvider {
 		this.addAction(sendToClipboardAction);
 	}
 
+	@Override
+	public void close() {
+		tablePanel.dispose();
+	}
 }

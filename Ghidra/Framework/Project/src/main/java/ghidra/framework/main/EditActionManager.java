@@ -21,9 +21,9 @@ import java.io.IOException;
 import docking.ActionContext;
 import docking.action.DockingAction;
 import docking.action.MenuData;
+import docking.tool.ToolConstants;
 import docking.widgets.OptionDialog;
 import docking.widgets.filechooser.GhidraFileChooser;
-import ghidra.framework.plugintool.util.ToolConstants;
 import ghidra.net.ApplicationKeyManagerFactory;
 import ghidra.util.HelpLocation;
 import ghidra.util.Msg;
@@ -127,7 +127,7 @@ class EditActionManager {
 		}
 		catch (IOException e) {
 			Msg.error(this,
-				"Error occured while clearing PKI certificate setting: " + e.getMessage());
+				"Error occurred while clearing PKI certificate setting: " + e.getMessage());
 		}
 	}
 

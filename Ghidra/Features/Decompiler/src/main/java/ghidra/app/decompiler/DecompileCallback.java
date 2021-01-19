@@ -18,6 +18,7 @@ package ghidra.app.decompiler;
 import java.io.IOException;
 import java.io.StringReader;
 import java.math.BigInteger;
+import java.nio.charset.Charset;
 import java.util.ArrayList;
 
 import javax.xml.parsers.SAXParser;
@@ -27,20 +28,21 @@ import org.xml.sax.*;
 import org.xml.sax.helpers.DefaultHandler;
 
 import ghidra.app.cmd.function.CallDepthChangeInfo;
+import ghidra.docking.settings.Settings;
+import ghidra.docking.settings.SettingsImpl;
 import ghidra.program.disassemble.Disassembler;
 import ghidra.program.model.address.*;
-import ghidra.program.model.data.DataType;
+import ghidra.program.model.data.*;
 import ghidra.program.model.lang.*;
 import ghidra.program.model.lang.ConstantPool.Record;
 import ghidra.program.model.listing.*;
-import ghidra.program.model.mem.MemoryAccessException;
-import ghidra.program.model.mem.MemoryBlock;
+import ghidra.program.model.mem.*;
 import ghidra.program.model.pcode.*;
 import ghidra.program.model.symbol.*;
 import ghidra.util.Msg;
 import ghidra.util.UndefinedFunction;
 import ghidra.util.exception.UsrException;
-import ghidra.util.task.TaskMonitorAdapter;
+import ghidra.util.task.TaskMonitor;
 import ghidra.util.xml.SpecXmlUtils;
 import ghidra.util.xml.XmlUtilities;
 
@@ -51,6 +53,15 @@ import ghidra.util.xml.XmlUtilities;
  * function.
  */
 public class DecompileCallback {
+
+	public final static int MAX_SYMBOL_COUNT = 16;
+	/**
+	 * Data returned for a query about strings
+	 */
+	public static class StringData {
+		boolean isTruncated;		// Did we truncate the string
+		public byte[] byteData;		// The UTF8 encoding of the string
+	}
 
 	private DecompileDebug debug;
 	private Program program;
@@ -65,8 +76,8 @@ public class DecompileCallback {
 	private AddressFactory addrfactory;
 	private ConstantPool cpool;
 	private PcodeDataTypeManager dtmanage;
+	private Charset utf8Charset;
 	private String nativeMessage;
-	private boolean showNamespace;
 
 	private InstructionBlock lastPseudoInstructionBlock;
 	private Disassembler pseudoDisassembler;
@@ -80,10 +91,11 @@ public class DecompileCallback {
 		listing = program.getListing();
 		addrfactory = program.getAddressFactory();
 		dtmanage = dt;
-		default_extrapop = pcodecompilerspec.getCallStackMod();
+		default_extrapop = pcodecompilerspec.getDefaultCallingConvention().getExtrapop();
 		cpool = null;
 		nativeMessage = null;
 		debug = null;
+		utf8Charset = Charset.availableCharsets().get(CharsetInfo.UTF8);
 	}
 
 	private static SAXParser getSAXParser() throws PcodeXMLException {
@@ -103,6 +115,7 @@ public class DecompileCallback {
 	 * Establish function and debug context for next decompilation
 	 * 
 	 * @param func is the function to be decompiled
+	 * @param entry is the function's entry address
 	 * @param dbg is the debugging context (or null)
 	 */
 	public void setFunction(Function func, Address entry, DecompileDebug dbg) {
@@ -132,16 +145,12 @@ public class DecompileCallback {
 	}
 
 	/**
-	 * Used by the decompiler to return a message
+	 * Cache a message returned by the decompiler process
 	 * 
-	 * @param msg
+	 * @param msg is the message
 	 */
-	public void setNativeMessage(String msg) {
+	void setNativeMessage(String msg) {
 		nativeMessage = msg;
-	}
-
-	public void setShowNamespace(boolean showNamespace) {
-		this.showNamespace = showNamespace;
 	}
 
 	public synchronized int readXMLSize(String addrxml) {
@@ -183,9 +192,16 @@ public class DecompileCallback {
 				return null;
 			}
 			byte[] resbytes = new byte[size];
-			program.getMemory().getBytes(addr, resbytes, 0, size);
+			int bytesRead = program.getMemory().getBytes(addr, resbytes, 0, size);
 			if (debug != null) {
-				debug.getBytes(addr, resbytes);
+				if (bytesRead != size) {
+					byte[] debugBytes = new byte[bytesRead];
+					System.arraycopy(resbytes, 0, debugBytes, 0, bytesRead);
+					debug.getBytes(addr, debugBytes);
+				}
+				else {
+					debug.getBytes(addr, resbytes);
+				}
 			}
 			return resbytes;
 		}
@@ -206,7 +222,8 @@ public class DecompileCallback {
 	 * Collect any/all comments for the function starting at the indicated
 	 * address
 	 * 
-	 * @param addrstring = string rep of function address
+	 * @param addrstring is the XML rep of function address
+	 * @param types is the string encoding of the comment type flags
 	 * @return XML document describing comments
 	 */
 	public String getComments(String addrstring, String types) {
@@ -294,13 +311,6 @@ public class DecompileCallback {
 	}
 
 	/**
-	 * @param ops pcode ops
-	 * @param fallthruoffset number of bytes after instruction start that pcode
-	 *            flow falls into
-	 * 
-	 * @return XML document string representing all the pcode
-	 */
-	/**
 	 * Build an XML representation of all the pcode op's a given Instruction is
 	 * defined to perform.
 	 * 
@@ -308,8 +318,8 @@ public class DecompileCallback {
 	 * @param fallthruoffset number of bytes after instruction start that pcode
 	 *            flow falls into
 	 * @param paramshift special instructions for injection use
-	 * @param addrFactory
-	 * @return XML document as string
+	 * @param addrFactory is the address factory for recovering address space names
+	 * @return XML document as string representing all the p-code
 	 */
 	public static String buildInstruction(PcodeOp[] ops, int fallthruoffset, int paramshift,
 			AddressFactory addrFactory) {
@@ -439,7 +449,7 @@ public class DecompileCallback {
 
 		if (pseudoDisassembler == null) {
 			pseudoDisassembler = Disassembler.getDisassembler(program, false, false, false,
-				TaskMonitorAdapter.DUMMY_MONITOR, msg -> {
+				TaskMonitor.DUMMY, msg -> {
 					// TODO: Should we log errors?
 				});
 		}
@@ -490,7 +500,7 @@ public class DecompileCallback {
 			}
 			String res = getSymbolName(sym);
 			if (debug != null) {
-				debug.getSymbol(addr, res);
+				debug.getCodeSymbol(addr, sym.getID(), res, sym.getParentNamespace());
 			}
 
 			return res;
@@ -514,6 +524,18 @@ public class DecompileCallback {
 		return sym.getName();
 	}
 
+	private Namespace getNameSpaceByID(long id) {
+		Symbol namespaceSym = program.getSymbolTable().getSymbol(id);
+		if (namespaceSym == null) {
+			return null;
+		}
+		Object namespace = namespaceSym.getObject();
+		if (namespace instanceof Namespace) {
+			return (Namespace) namespace;
+		}
+		return null;
+	}
+
 	private String getNamespacePrefix(Namespace ns) {
 		if (ns.getID() == Namespace.GLOBAL_NAMESPACE_ID) {
 			return null;
@@ -527,6 +549,75 @@ public class DecompileCallback {
 			return parentName + "_" + name;
 		}
 		return name;
+	}
+
+	/**
+	 * Decide if a given name is used by any namespace between a starting namespace
+	 * and a stopping namespace.  I.e. check for a name collision along a specific namespace path.
+	 * Currently, Ghidra is inefficient at calculating this perfectly, so this routine calculates
+	 * an approximation that can occasionally indicate a collision when there isn't.
+	 * @param name is the given name to check for collisions
+	 * @param startId is the id specifying the starting namespace
+	 * @param stopId is the id specifying the stopping namespace
+	 * @return true if the name (likely) occurs in one of the namespaces on the path
+	 */
+	public boolean isNameUsed(String name, long startId, long stopId) {
+		Namespace namespace = getNameSpaceByID(startId);
+		int pathSize = 0;
+		Namespace curspace = namespace;
+		long curId = namespace.getID();
+		while (curId != stopId && curId != 0 && !HighFunction.collapseToGlobal(curspace)) {
+			pathSize += 1;
+			curspace = curspace.getParentNamespace();
+			curId = curspace.getID();
+		}
+		long path[] = new long[pathSize];
+		curspace = namespace;
+		path[0] = startId;
+		for (int i = 1; i < pathSize; ++i) {
+			curspace = curspace.getParentNamespace();
+			path[i] = curspace.getID();
+		}
+		int count = 0;
+		SymbolIterator iter = program.getSymbolTable().getSymbols(name);
+		for (;;) {
+			if (!iter.hasNext()) {
+				break;
+			}
+			count += 1;
+			if (count > MAX_SYMBOL_COUNT) {
+				break;
+			}
+			Namespace symSpace = iter.next().getParentNamespace();
+			long id = symSpace.getID();
+			if (id == Namespace.GLOBAL_NAMESPACE_ID) {
+				continue;	// Common case we know can't match anything in path
+			}
+			for (int i = 0; i < pathSize; ++i) {
+				if (path[i] == id) {
+					if (debug != null) {
+						debug.nameIsUsed(symSpace, name);
+					}
+					return true;
+				}
+			}
+		}
+		return (count > MAX_SYMBOL_COUNT);
+	}
+
+	/**
+	 * Return an XML description of the formal namespace path to the given namespace
+	 * @param id is the ID of the given namespace
+	 * @return a parent XML tag
+	 */
+	public String getNamespacePath(long id) {
+		Namespace namespace = getNameSpaceByID(id);
+		StringBuilder buf = new StringBuilder();
+		HighFunction.createNamespaceTag(buf, namespace);
+		if (debug != null) {
+			debug.getNamespacePath(namespace);
+		}
+		return buf.toString();
 	}
 
 	private void generateHeaderCommentXML(Function func, StringBuilder buf) {
@@ -669,8 +760,18 @@ public class DecompileCallback {
 				if (extRef != null) {
 					func = listing.getFunctionAt(extRef.getToAddress());
 					if (func == null) {
-						String res = HighFunction.buildFunctionShellXML(extRef.getLabel(), addr);
-						return buildResult(addr, null, res, null);
+						Symbol symbol = extRef.getExternalLocation().getSymbol();
+						long extId;
+						if (symbol != null) {
+							extId = symbol.getID();
+						}
+						else {
+							extId = program.getSymbolTable().getDynamicSymbolID(addr);
+
+						}
+						HighSymbol shellSymbol =
+							new HighFunctionShellSymbol(extId, extRef.getLabel(), addr, dtmanage);
+						return buildResult(shellSymbol, null);
 					}
 				}
 				else {
@@ -682,19 +783,17 @@ public class DecompileCallback {
 				return null;
 			}
 
-			HighFunction hfunc =
-				new HighFunction(func, pcodelanguage, pcodecompilerspec, dtmanage, showNamespace);
+			HighFunction hfunc = new HighFunction(func, pcodelanguage, pcodecompilerspec, dtmanage);
 
 			int extrapop = getExtraPopOverride(func, addr);
 			hfunc.grabFromFunction(extrapop, false, (extrapop != default_extrapop));
 
-			String res = hfunc.buildFunctionXML(addr, 2);
-			Namespace namespc = func.getParentNamespace();
+			HighSymbol funcSymbol = new HighFunctionSymbol(addr, 2, hfunc);
+			Namespace namespc = funcSymbol.getNamespace();
 			if (debug != null) {
 				debug.getFNTypes(hfunc);
 			}
-			res = buildResult(addr, null, res, namespc);
-			return res;
+			return buildResult(funcSymbol, namespc);
 		}
 		catch (Exception e) {
 			Msg.error(this,
@@ -712,7 +811,6 @@ public class DecompileCallback {
 		resBuf.append("\n"); // Make into official XML document
 		String res = resBuf.toString();
 		if (debug != null) {
-			debug.getType(name, res);
 			debug.getType(type);
 		}
 		return res;
@@ -756,16 +854,13 @@ public class DecompileCallback {
 			return null;
 		}
 		ProgramContext context = program.getProgramContext();
-		Register[] regs = context.getRegisters();
-		if (regs == null || regs.length == 0) {
-			return null;
-		}
+
 		StringBuilder stringBuf = new StringBuilder();
 
 		stringBuf.append("<tracked_pointset");
 		Varnode.appendSpaceOffset(stringBuf, addr);
 		stringBuf.append(">\n");
-		for (Register reg : regs) {
+		for (Register reg : context.getRegisters()) {
 			if (reg.isProcessorContext()) {
 				continue;
 			}
@@ -788,27 +883,27 @@ public class DecompileCallback {
 		return name;
 	}
 
-	private String buildResult(Address addr, Address pc, String sym, Namespace namespc) {
-		StringBuilder res = new StringBuilder();
-		res.append("<result>\n");
-		res.append("<parent>\n");
-		if (namespc == null) {
-			res.append("<val/>"); // Assume global scope
+	private String buildResult(HighSymbol highSymbol, Namespace namespc) {
+		long namespaceId;
+		if (namespc == null || namespc instanceof Library) {
+			namespaceId = Namespace.GLOBAL_NAMESPACE_ID;
 		}
 		else {
-			HighFunction.createNamespaceTag(res, namespc);
+			namespaceId = namespc.getID();
 		}
-		res.append("</parent>\n");
-		String addrRes = Varnode.buildXMLAddress(addr);
+		StringBuilder res = new StringBuilder();
+		res.append("<result");
+		SpecXmlUtils.encodeUnsignedIntegerAttribute(res, "id", namespaceId);
+		res.append(">\n");
 		if (debug != null) {
 			StringBuilder res2 = new StringBuilder();
-			HighSymbol.buildMapSymXML(res2, addrRes, pc, sym);
+			HighSymbol.buildMapSymXML(res2, highSymbol);
 			String res2string = res2.toString();
 			debug.getMapped(namespc, res2string);
 			res.append(res2string);
 		}
 		else {
-			HighSymbol.buildMapSymXML(res, addrRes, pc, sym);
+			HighSymbol.buildMapSymXML(res, highSymbol);
 		}
 		res.append("</result>\n");
 
@@ -816,30 +911,25 @@ public class DecompileCallback {
 	}
 
 	private String buildData(Data data) { // Convert global variable to XML
-		Address addr = data.getMinAddress();
 		Symbol sym = data.getPrimarySymbol();
-		boolean readonly = data.isConstant();
-		boolean isVolatile = data.isVolatile();
-		if (!readonly) {
-			readonly = isReadOnlyNoData(addr);
+		HighCodeSymbol highSymbol;
+		if (sym != null) {
+			highSymbol = new HighCodeSymbol(sym.getID(), sym.getName(), data, dtmanage);
 		}
-		if (!isVolatile) {
-			isVolatile = isVolatileNoData(addr);
+		else {
+			highSymbol = new HighCodeSymbol(0,
+				SymbolUtilities.getDynamicName(program, data.getAddress()), data, dtmanage);
+			SymbolEntry entry = highSymbol.getFirstWholeMap();
+			if (data.getDataType() == DataType.DEFAULT && !entry.isReadOnly() &&
+				!entry.isVolatile()) {
+				return null;
+			}
 		}
-		if ((data.getDataType() == DataType.DEFAULT) && (sym == null) && !isVolatile && !readonly) {
-			return null;
-		}
-
-		String name = sym != null ? sym.getName() : SymbolUtilities.getDynamicName(program, addr);
-
-		int sz = data.getLength();
-		String symstring = MappedSymbol.buildSymbolXML(dtmanage, name, data.getDataType(), sz, true,
-			true, readonly, isVolatile, -1, -1);
 		if (debug != null) {
-			debug.getType(data.getDataType());
+			debug.getType(highSymbol.getDataType());
 		}
 		Namespace namespc = (sym != null) ? sym.getParentNamespace() : null;
-		return buildResult(addr, null, symstring, namespc);
+		return buildResult(highSymbol, namespc);
 	}
 
 	private StringBuilder buildRegister(Register reg) {
@@ -852,59 +942,16 @@ public class DecompileCallback {
 		return resBuf;
 	}
 
-//	/**
-//	 * For registers, return their name.
-//	 * 
-//	 * TODO: should look in the scope and return the global register.
-//	 * 
-//	 * @param addr
-//	 * @return xml string
-//	 */
-//	private String buildRegisterRef(Register reg) {
-//		Symbol sym = program.getSymbolTable().getPrimarySymbol(reg.getAddress());
-//		if (sym==null)
-//			return null;
-//
-//		boolean readonly = false;
-//		DataType dt = dtmanage.findInteger(reg.getMinimumByteSize());
-//		String symstring =
-//			HighVariable.buildMappedSymbolXML(dtmanage, reg.getName(), dt,
-//				reg.getMinimumByteSize(), true, true, readonly, false, -1, -1);
-//		if (debug != null)
-//			debug.getType(dt);
-////		Namespace namespc = sym.getParentNamespace();
-//		return buildResult(reg.getAddress(), null, symstring, null);
-//	}
-
 	/**
-	 * Generate non-data symbol, probably a code label
+	 * Generate description of a non-data symbol, probably a code label
 	 * 
-	 * @param sym
-	 * @return
+	 * @param sym is the symbol
+	 * @return the XML description
 	 */
 	private String buildLabel(Symbol sym, Address addr) {
-		// TODO: Assume this is not data
-		boolean isVolatile = isVolatileNoData(addr);
-		if (!isVolatile) {
-			isVolatile = program.getLanguage().isVolatile(addr);
-		}
-		boolean readonly = isReadOnlyNoData(addr);
-
-		StringBuilder buf = new StringBuilder();
-		buf.append("<labelsym");
-		SpecXmlUtils.xmlEscapeAttribute(buf, "name", sym.getName());
-		SpecXmlUtils.encodeBooleanAttribute(buf, "namelock", true);
-		SpecXmlUtils.encodeBooleanAttribute(buf, "typelock", true);
-		if (readonly) {
-			SpecXmlUtils.encodeBooleanAttribute(buf, "readonly", true);
-		}
-		if (isVolatile) {
-			SpecXmlUtils.encodeBooleanAttribute(buf, "volatile", true);
-		}
-		SpecXmlUtils.encodeSignedIntegerAttribute(buf, "cat", -1);
-		buf.append("/>\n");
+		HighSymbol labelSymbol = new HighLabelSymbol(sym.getName(), addr, dtmanage);
 		Namespace namespc = sym.getParentNamespace();
-		return buildResult(sym.getAddress(), null, buf.toString(), namespc);
+		return buildResult(labelSymbol, namespc);
 	}
 
 	/**
@@ -966,7 +1013,7 @@ public class DecompileCallback {
 	 * @param addr The queried address
 	 * @param includeDefaultNames true if default parameter names should be
 	 *            included
-	 * @return
+	 * @return XML string describing the function or the hole
 	 */
 	private String buildFunctionXML(Function func, Address addr, boolean includeDefaultNames) {
 		Address entry = func.getEntryPoint();
@@ -974,18 +1021,18 @@ public class DecompileCallback {
 			long diff = addr.getOffset() - entry.getOffset();
 			if ((diff >= 0) && (diff < 8)) {
 				HighFunction hfunc = new HighFunction(func, pcodelanguage, pcodecompilerspec,
-					dtmanage, showNamespace);
+					dtmanage);
 
 				int extrapop = getExtraPopOverride(func, addr);
 				hfunc.grabFromFunction(extrapop, includeDefaultNames,
 					(extrapop != default_extrapop));
 
-				String funcsym = hfunc.buildFunctionXML(entry, (int) (diff + 1));
-				Namespace namespc = func.getParentNamespace();
+				HighSymbol functionSymbol = new HighFunctionSymbol(entry, (int) (diff + 1), hfunc);
+				Namespace namespc = functionSymbol.getNamespace();
 				if (debug != null) {
 					debug.getFNTypes(hfunc);
 				}
-				return buildResult(entry, null, funcsym, namespc);
+				return buildResult(functionSymbol, namespc);
 			}
 		}
 
@@ -1119,15 +1166,6 @@ public class DecompileCallback {
 	}
 
 	private String buildExternalRef(Address addr, ExternalReference ref) {
-		StringBuilder resBuf = new StringBuilder();
-		resBuf.append("<externrefsymbol");
-		String nm = ref.getLabel();
-		if ((nm != null) && (nm.length() > 0)) { // Give the symbol a name if we can
-			SpecXmlUtils.xmlEscapeAttribute(resBuf, "name", nm + "_exref");
-		}
-		resBuf.append(">\n");
-		resBuf.append(Varnode.buildXMLAddress(addr));
-//		res += Varnode.buildXMLAddress(ref.getToAddress());
 		// The decompiler model was to assume that the ExternalReference
 		// object could resolve the physical address where the dll
 		// function was getting loaded, just as a linker would do.
@@ -1141,8 +1179,8 @@ public class DecompileCallback {
 		// the address of the reference to hang the function on, and make
 		// no attempt to get a realistic linked address.  This works because
 		// we never read bytes or look up code units at the address.
-		resBuf.append("</externrefsymbol>\n");
-		return buildResult(addr, null, resBuf.toString(), null);
+		HighSymbol externSymbol = new HighExternalSymbol(ref.getLabel(), addr, addr, dtmanage);
+		return buildResult(externSymbol, null);
 	}
 
 	private void buildTrackSet(StringBuilder buf, Register reg, long val) {
@@ -1172,7 +1210,7 @@ public class DecompileCallback {
 	 * Return the global object being referred to by addr
 	 * 
 	 * @param addr = Address being queried
-	 * @return
+	 * @return the global object
 	 */
 	private Object lookupSymbol(Address addr) {
 		ExternalReference ref = getExternalReference(addr);
@@ -1231,6 +1269,129 @@ public class DecompileCallback {
 			return listing.getFunctionAt(extRef.getToAddress());
 		}
 		return listing.getFunctionAt(addr);
+	}
+
+	/**
+	 * Return true if there are no "replacement" characters in the string
+	 * @param string is the string to test
+	 * @return true if no replacements
+	 */
+	private boolean isValidChars(String string) {
+		char replaceChar = '\ufffd';
+		for (int i = 0; i < string.length(); ++i) {
+			char c = string.charAt(i);
+			if (c == replaceChar) {
+				return false;
+			}
+		}
+		return true;
+	}
+
+	/**
+	 * Check for a string at an address and return a UTF8 encoded byte array.
+	 * If there is already data present at the address, use this to determine the
+	 * string encoding. Otherwise use the data-type info passed in to determine the encoding.
+	 * Check that the bytes at the address represent a valid string encoding that doesn't
+	 * exceed the maximum character limit passed in.  Return null if the string is invalid.
+	 * Return the string translated into a UTF8 byte array otherwise.  A (valid) empty
+	 * string is returned as a zero length array.
+	 * @param addrString is the XML encoded address and maximum byte limit
+	 * @param dtName is the name of a character data-type
+	 * @param dtId is the id associated with the character data-type
+	 * @return the UTF8 encoded byte array or null
+	 */
+	public StringData getStringData(String addrString, String dtName, String dtId) {
+		Address addr;
+		int maxChars;
+		try {
+			maxChars = readXMLSize(addrString);
+			addr = Varnode.readXMLAddress(addrString, addrfactory, funcEntry.getAddressSpace());
+			if (addr == Address.NO_ADDRESS) {
+				throw new PcodeXMLException("Address does not physically map");
+			}
+		}
+		catch (PcodeXMLException e) {
+			Msg.error(this, "Decompiling " + funcEntry + ": " + e.getMessage());
+			return null;
+		}
+		Data data = program.getListing().getDataContaining(addr);
+		Settings settings = SettingsImpl.NO_SETTINGS;
+		AbstractStringDataType dataType = null;
+		StringDataInstance stringInstance = null;
+		int length = 0;
+		if (data != null) {
+			if (data.getDataType() instanceof AbstractStringDataType) {
+				// There is already a string here.  Use its configuration to
+				// set up the StringDataInstance
+				settings = data;
+				dataType = (AbstractStringDataType) data.getDataType();
+				length = data.getLength();
+				if (length <= 0) {
+					return null;
+				}
+				long diff = addr.subtract(data.getAddress()) *
+					addr.getAddressSpace().getAddressableUnitSize();
+				if (diff < 0 || diff >= length) {
+					return null;
+				}
+				length -= diff;
+				MemoryBufferImpl buf = new MemoryBufferImpl(program.getMemory(), addr, 64);
+				stringInstance = dataType.getStringDataInstance(buf, settings, length);
+			}
+		}
+		if (stringInstance == null) {
+			// There is no string and/or something else at the address.
+			// Setup StringDataInstance based on raw memory
+			DataType dt = dtmanage.findBaseType(dtName, dtId);
+			if (dt instanceof AbstractStringDataType) {
+				dataType = (AbstractStringDataType) dt;
+			}
+			else {
+				if (dt != null) {
+					int size = dt.getLength();
+					if (size == 2) {
+						dataType = TerminatedUnicodeDataType.dataType;
+					}
+					else if (size == 4) {
+						dataType = TerminatedUnicode32DataType.dataType;
+					}
+					else {
+						dataType = TerminatedStringDataType.dataType;
+					}
+				}
+				else {
+					dataType = TerminatedStringDataType.dataType;
+				}
+			}
+			MemoryBufferImpl buf = new MemoryBufferImpl(program.getMemory(), addr, 64);
+			stringInstance = dataType.getStringDataInstance(buf, settings, maxChars);
+			length = stringInstance.getStringLength();
+			if (length < 0 || length > maxChars) {
+				return null;
+			}
+		}
+		String stringVal;
+		if (stringInstance.isShowTranslation() && stringInstance.getTranslatedValue() != null) {
+			stringVal = stringInstance.getTranslatedValue();
+		}
+		else {
+			stringVal = stringInstance.getStringValue();
+		}
+
+		if (!isValidChars(stringVal)) {
+			return null;
+		}
+		StringData stringData = new StringData();
+		stringData.isTruncated = false;
+		if (stringVal.length() > maxChars) {
+			stringData.isTruncated = true;
+			stringVal = stringVal.substring(0, maxChars);
+		}
+		stringData.byteData = stringVal.getBytes(utf8Charset);
+		if (debug != null) {
+			debug.getStringData(addr, stringData);
+		}
+		return stringData;
 	}
 
 //==================================================================================================

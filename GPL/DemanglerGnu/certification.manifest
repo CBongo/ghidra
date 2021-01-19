@@ -4,8 +4,8 @@
 ##MODULE IP: LGPL 2.1
 ##MODULE IP: LGPL 3.0
 ##MODULE IP: Public Domain
-.classpath||GHIDRA||||END|
-.project||Public Domain||||END|
 Module.manifest||Public Domain||||END|
 build.gradle||Public Domain||||END|
-src/demangler_gnu/README.txt||Public Domain||||END|
+settings.gradle||Public Domain||||END|
+src/demangler_gnu_v2_24/README.txt||Public Domain||||END|
+src/demangler_gnu_v2_33_1/README.txt||Public Domain||||END|

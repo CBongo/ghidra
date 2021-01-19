@@ -24,14 +24,11 @@ import docking.ActionContext;
 import docking.action.DockingAction;
 import docking.action.MenuData;
 import docking.widgets.OptionDialog;
-import docking.widgets.tree.GTreeNode;
 import ghidra.app.CorePluginPackage;
 import ghidra.app.plugin.PluginCategoryNames;
 import ghidra.framework.main.FrontEndTool;
 import ghidra.framework.main.FrontEndable;
-import ghidra.framework.main.datatable.DomainFileInfo;
-import ghidra.framework.main.datatable.ProjectDataActionContext;
-import ghidra.framework.main.datatree.DomainFileNode;
+import ghidra.framework.main.datatable.ProjectDataContext;
 import ghidra.framework.model.*;
 import ghidra.framework.plugintool.*;
 import ghidra.framework.plugintool.util.PluginStatus;
@@ -71,53 +68,48 @@ public final class LanguageProviderPlugin extends Plugin implements FrontEndable
 
 		setLanguageAction = new DockingAction("Set Language", getName()) {
 
-			DomainFile domainFile;
-
 			@Override
 			public void actionPerformed(ActionContext context) {
-				if (domainFile != null) {
-					setLanguage(domainFile);
+				DomainFile file = getDomainFile((ProjectDataContext) context);
+				if (file != null) {
+					setLanguage(file);
 				}
 			}
 
 			@Override
-			public boolean isEnabledForContext(ActionContext context) {
-				Object contextObject = context.getContextObject();
-				if (contextObject instanceof GTreeNode) {
-					GTreeNode node = (GTreeNode) contextObject;
-					if (node instanceof DomainFileNode) {
-						domainFile = ((DomainFileNode) node).getDomainFile();
-						return domainFile.isInWritableProject() &&
-							Program.class.isAssignableFrom(domainFile.getDomainObjectClass());
-					}
+			public boolean isEnabledForContext(ActionContext actionContext) {
+				if (!(actionContext instanceof ProjectDataContext)) {
+					return false;
 				}
-
-				if (!(context instanceof ProjectDataActionContext)) {
+				ProjectDataContext context = (ProjectDataContext) actionContext;
+				DomainFile file = getDomainFile(context);
+				if (file == null) {
 					return false;
 				}
 
-				if (!(contextObject instanceof DomainFileInfo)) {
-					return false;
-				}
+				return file.isInWritableProject() &&
+					Program.class.isAssignableFrom(file.getDomainObjectClass());
+			}
 
-				DomainFileInfo info = (DomainFileInfo) context.getContextObject();
-				domainFile = info.getDomainFile();
-				return domainFile.isInWritableProject() &&
-					Program.class.isAssignableFrom(domainFile.getDomainObjectClass());
+			private DomainFile getDomainFile(ProjectDataContext context) {
+				if (context.getFileCount() == 1 && context.getFolderCount() == 0) {
+					return context.getSelectedFiles().get(0);
+				}
+				return null;
 			}
 
 			@Override
 			public void dispose() {
 				super.dispose();
-				domainFile = null;
 			}
 
 		};
-		setLanguageAction.setPopupMenuData(new MenuData(new String[] { "Set Language..." },
-			"Language"));
+		setLanguageAction.setPopupMenuData(
+			new MenuData(new String[] { "Set Language..." }, "Language"));
 
 		setLanguageAction.setEnabled(true);
-		setLanguageAction.setHelpLocation(new HelpLocation("LanguageProviderPlugin", "set language"));
+		setLanguageAction.setHelpLocation(
+			new HelpLocation("LanguageProviderPlugin", "set language"));
 		tool.addAction(setLanguageAction);
 	}
 
@@ -142,22 +134,23 @@ public final class LanguageProviderPlugin extends Plugin implements FrontEndable
 		String dfName = domainFile.getName();
 
 		if (domainFile.isReadOnly()) {
-			Msg.showInfo(getClass(), tool.getToolFrame(), "Permission Denied", dfName +
+			Msg.showInfo(getClass(), tool.getToolFrame(), "Permission Denied", "Program " + dfName +
 				" is read-only!\n" + "Set language may not be done on a read-only Program.");
 			return;
 		}
 
 		if (!domainFile.getConsumers().isEmpty() || domainFile.isBusy()) {
-			Msg.showInfo(getClass(), tool.getToolFrame(), "File In-Use", dfName + " is in-use!\n" +
-				"Set language may not be done while the associated file is\n" +
-				"open or in-use.  Be sure the file is not open in a tool.");
+			Msg.showInfo(getClass(), tool.getToolFrame(), "File In-Use",
+				"Program " + dfName + " is in-use!\n" +
+					"Set language may not be done while the associated file is\n" +
+					"open or in-use.  Be sure the file is not open in a tool.");
 			return;
 		}
 
 		if (domainFile.isCheckedOut() && !domainFile.isCheckedOutExclusive()) {
-			String msg =
-				(domainFile.modifiedSinceCheckout() || domainFile.isChanged()) ? "check-in this file"
-						: "undo your checkout";
+			String msg = (domainFile.modifiedSinceCheckout() || domainFile.isChanged())
+					? "check-in this file"
+					: "undo your checkout";
 
 			Msg.showInfo(getClass(), tool.getToolFrame(), "Exclusive Checkout Required",
 				"You do not have an exclusive checkout of: " + dfName + "\n \n" +
@@ -171,28 +164,25 @@ public final class LanguageProviderPlugin extends Plugin implements FrontEndable
 		String msg = "Setting the language can not be undone!\n";
 
 		if (domainFile.modifiedSinceCheckout()) {
-			msg +=
-				"\nIt is highly recommended that you check-in your recent\n"
-					+ "changes before performing this operation.";
+			msg += "\nIt is highly recommended that you check-in your recent\n" +
+				"changes before performing this operation.";
 		}
 		else if (!domainFile.isCheckedOut()) {
-			msg +=
-				"\nIt is highly recommended that you make a copy of the\n"
-					+ "selected file before performing this operation.";
+			msg += "\nIt is highly recommended that you make a copy of the\n" +
+				"selected file before performing this operation.";
 		}
 
 		ToolTemplate defaultToolTemplate =
 			tool.getToolServices().getDefaultToolTemplate(domainFile);
-		String toolMsg =
-			defaultToolTemplate == null ? "WARNING! Without a default tool the file "
-				+ "will be overwritten\nwhen the Set Language is complete."
-					: "When complete you can Save the results or Open the results\nin the " +
-						defaultToolTemplate.getName() + " tool";
+		String toolMsg = defaultToolTemplate == null
+				? "WARNING! Without a default tool the file " +
+					"will be overwritten\nwhen the Set Language is complete."
+				: "When complete you can Save the results or Open the results\nin the " +
+					defaultToolTemplate.getName() + " tool";
 
-		int result =
-			OptionDialog.showOptionDialog(tool.getToolFrame(), "Set Language: " + dfName, msg +
-				"\n \n" + toolMsg + "\n \nDo you want to continue?", "Ok",
-				OptionDialog.WARNING_MESSAGE);
+		int result = OptionDialog.showOptionDialog(tool.getToolFrame(), "Set Language: " + dfName,
+			msg + "\n \n" + toolMsg + "\n \nDo you want to continue?", "Ok",
+			OptionDialog.WARNING_MESSAGE);
 		if (result > 0) {
 			final SetLanguageTask task = new SetLanguageTask(domainFile);
 			new TaskLauncher(task, tool.getToolFrame(), 0);
@@ -326,11 +316,10 @@ public final class LanguageProviderPlugin extends Plugin implements FrontEndable
 			try {
 				SwingUtilities.invokeAndWait(() -> {
 					ToolServices toolServices = tool.getToolServices();
-					String defaultToolName =
-						toolServices.getDefaultToolTemplate(file).getName();
-					for (Tool t : toolServices.getRunningTools()) {
+					String defaultToolName = toolServices.getDefaultToolTemplate(file).getName();
+					for (PluginTool t : toolServices.getRunningTools()) {
 						if (t.getName().equals(defaultToolName)) {
-							openTool = (PluginTool) t;
+							openTool = t;
 							break;
 						}
 					}
@@ -338,7 +327,7 @@ public final class LanguageProviderPlugin extends Plugin implements FrontEndable
 						openTool.acceptDomainFiles(new DomainFile[] { file });
 					}
 					else {
-						openTool = (PluginTool) tool.getToolServices().launchDefaultTool(file);
+						openTool = tool.getToolServices().launchDefaultTool(file);
 					}
 				});
 			}
@@ -348,7 +337,7 @@ public final class LanguageProviderPlugin extends Plugin implements FrontEndable
 			catch (InvocationTargetException e) {
 				Throwable t = e.getCause();
 				Msg.showError(this, tool.getToolFrame(), "Tool Launch Failed",
-					"An error occured while attempting to launch your default tool!", t);
+					"An error occurred while attempting to launch your default tool!", t);
 			}
 		}
 	}

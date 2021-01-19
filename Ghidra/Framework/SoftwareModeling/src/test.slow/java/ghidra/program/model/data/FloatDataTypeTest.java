@@ -15,34 +15,24 @@
  */
 package ghidra.program.model.data;
 
-import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.*;
 
 import org.junit.Test;
 
-import generic.test.AbstractGenericTest;
+import generic.test.AbstractGTest;
 import ghidra.program.model.mem.ByteMemBufferImpl;
+import ghidra.util.LittleEndianDataConverter;
 
-public class FloatDataTypeTest extends AbstractGenericTest {
-
-	/**
-	 * Constructor for LongDoubleDataTypeTest.
-	 * @param arg0
-	 */
-	public FloatDataTypeTest() {
-		super();
-	}
+public class FloatDataTypeTest extends AbstractGTest {
 
 	private byte[] getBytes(long value, int size) {
 		byte[] bytes = new byte[size];
-		for (int i = 0; i < size; i++) {
-			bytes[i] = (byte) value;
-			value >>= 8;
-		}
+		LittleEndianDataConverter.INSTANCE.getBytes(value, size, bytes, 0);
 		return bytes;
 	}
 
-@Test
-    public void testFloat4Extremes() {
+	@Test
+	public void testFloat4Extremes() {
 
 		int bits = Float.floatToRawIntBits(Float.NaN);
 		byte[] bytes = getBytes(bits, 4);
@@ -94,8 +84,8 @@ public class FloatDataTypeTest extends AbstractGenericTest {
 
 	}
 
-@Test
-    public void testFloat8Extremes() {
+	@Test
+	public void testFloat8Extremes() {
 
 		long bits = Double.doubleToRawLongBits(Double.NaN);
 		byte[] bytes = getBytes(bits, 8);

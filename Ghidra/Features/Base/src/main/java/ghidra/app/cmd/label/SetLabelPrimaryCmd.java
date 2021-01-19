@@ -26,57 +26,65 @@ import ghidra.util.exception.InvalidInputException;
 
 /**
  * Command to make a label the primary label at an address.  Only really
- * makes sense if there is more that one label at the address - otherwise
+ * makes sense if there is more than one label at the address - otherwise
  * the label will already be primary.
  */
 public class SetLabelPrimaryCmd implements Command {
 	private SymbolTable st;
 	private Address addr;
 	private String name;
-	private Namespace scope;
+	private Namespace namespace;
 	private String errorMsg;
+
+	private Symbol symbol;
 
 	/**
 	 * Constructs a new command for setting the primary state of a label.
 	 * @param addr the address of the label to make primary.
 	 * @param name the name of the label to make primary.
-	 * @param scope the scope of the label to make primary. (the namespace that the label is associated with)
+	 * @param namespace the parent namespace of the label to make primary.
 	 */
-	public SetLabelPrimaryCmd(Address addr, String name, Namespace scope) {
+	public SetLabelPrimaryCmd(Address addr, String name, Namespace namespace) {
 		this.addr = addr;
 		this.name = name;
-		this.scope = scope;
+		this.namespace = namespace;
 	}
 
 	/**
 	 * 
 	 * @see ghidra.framework.cmd.Command#applyTo(ghidra.framework.model.DomainObject)
 	 */
+	@Override
 	public boolean applyTo(DomainObject obj) {
 		Program program = (Program) obj;
 		st = program.getSymbolTable();
 		Symbol oldSymbol = st.getPrimarySymbol(addr);
-		Symbol newSymbol = st.getSymbol(name, addr, scope);
 
 		if (oldSymbol == null) {
 			errorMsg = "No Symbols at address: " + addr;
 			return false;
 		}
-		if (newSymbol == null) {
+
+		if (namespace == null) {
+			namespace = program.getGlobalNamespace();
+		}
+		symbol = st.getSymbol(name, addr, namespace);
+		if (symbol == null) {
 			// no new symbol - not an error condition if the previous symbol was dynamic.  The
 			// assumption here is that the user has performed an operation that did not actually
 			// change the state of the symbol, like changing the namespace of a default symbol, 
 			// which has no effect
 			if (!oldSymbol.isDynamic()) {
 				errorMsg =
-					"Symbol " + name + " does not exist in namespace " + scope + " at address " +
+					"Symbol " + name + " does not exist in namespace " + namespace +
+						" at address " +
 						addr;
 				return false;
 			}
 			return true;
 		}
 		if (oldSymbol.getSymbolType() == SymbolType.FUNCTION) {
-			if (oldSymbol == newSymbol) {
+			if (oldSymbol == symbol) {
 				return true; // function symbol is already primary
 			}
 			// keep the function symbol and rename it to the new symbol name;
@@ -84,14 +92,16 @@ public class SetLabelPrimaryCmd implements Command {
 			String oldName = oldSymbol.getName();
 			SourceType oldSource = oldSymbol.getSource();
 			Namespace oldParent = oldSymbol.getParentNamespace();
-			Namespace parentNamespace = newSymbol.getParentNamespace();
-			if (parentNamespace == oldSymbol.getObject()) {
-				// parent is the same as the function, so drop the namespace and use global
-				parentNamespace = program.getGlobalNamespace();
+			if (namespace == oldSymbol.getObject()) {
+				// local label promotion - switch names but not namespaces
+				oldParent = namespace;
+				namespace = oldSymbol.getParentNamespace();
 			}
-			st.removeSymbolSpecial(newSymbol);
+			SourceType symbolSource = symbol.getSource();
+			symbol.delete();
 			try {
-				oldSymbol.setNameAndNamespace(name, parentNamespace, newSymbol.getSource());
+				oldSymbol.setNameAndNamespace(name, namespace, symbolSource);
+				symbol = oldSymbol;
 				// If renamed oldSymbol is now Default source don't keep old name (handles special Thunk rename case)
 				if (oldSource != SourceType.DEFAULT && oldSymbol.getSource() != SourceType.DEFAULT) {
 					// put the other symbol back using the old namespace and old source
@@ -106,17 +116,21 @@ public class SetLabelPrimaryCmd implements Command {
 				errorMsg = "InvalidInputException: " + e.getMessage();
 			}
 			catch (CircularDependencyException e) {
-				errorMsg = "CuicularDependencyException: " + e.getMessage();
+				errorMsg = "CircularDependencyException: " + e.getMessage();
 			}
 			return false;
 		}
-		newSymbol.setPrimary();
+		if (!symbol.setPrimary()) {
+			errorMsg = "Set primary not permitted for " + symbol.getName(true);
+			return false;
+		}
 		return true;
 	}
 
 	/**
 	 * @see ghidra.framework.cmd.Command#getStatusMsg()
 	 */
+	@Override
 	public String getStatusMsg() {
 		return errorMsg;
 	}
@@ -124,8 +138,17 @@ public class SetLabelPrimaryCmd implements Command {
 	/**
 	 * @see ghidra.framework.cmd.Command#getName()
 	 */
+	@Override
 	public String getName() {
 		return "Set Primary Label";
+	}
+
+	/**
+	 * Get transformed symbol
+	 * @return symbol (may be null if command did not execute successfully)
+	 */
+	public Symbol getSymbol() {
+		return symbol;
 	}
 
 }

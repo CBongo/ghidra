@@ -1,11 +1,16 @@
+apply from: "$rootProject.projectDir/gradle/distributableGhidraModule.gradle"
+apply from: "$rootProject.projectDir/gradle/javaProject.gradle"
+apply from: "$rootProject.projectDir/gradle/helpProject.gradle"
+apply from: "$rootProject.projectDir/gradle/jacocoProject.gradle"
+apply from: "$rootProject.projectDir/gradle/javaTestProject.gradle"
 apply plugin: 'eclipse'
 eclipse.project.name = 'Features ByteViewer'
-
-apply from: "$rootProject.projectDir/gradleScripts/buildHelp.gradle"
 
 dependencies {
 
 	compile project(':Base')
+	
+	testCompile project(path: ':SoftwareModeling', configuration: 'testArtifacts')
 	
 	helpPath project(path: ':Base', configuration: 'helpPath')  // this module's help has links to Base help files
 }

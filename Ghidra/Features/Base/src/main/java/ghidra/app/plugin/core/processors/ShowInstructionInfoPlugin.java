@@ -28,9 +28,9 @@ import javax.swing.JLabel;
 import javax.swing.JPanel;
 
 import docking.ActionContext;
-import docking.ToolTipManager;
 import docking.action.DockingAction;
 import docking.action.MenuData;
+import docking.widgets.label.GDLabel;
 import ghidra.app.CorePluginPackage;
 import ghidra.app.context.*;
 import ghidra.app.plugin.PluginCategoryNames;
@@ -95,16 +95,16 @@ public class ShowInstructionInfoPlugin extends ProgramPlugin {
 
 	private void createStatusPanels() {
 		instructionPanel = new JPanel(new BorderLayout());
-		instructionLabel = new JLabel("                         ");
+		instructionLabel = new GDLabel("                         ");
 		instructionPanel.setPreferredSize(
 			new Dimension(200, instructionLabel.getPreferredSize().height));
-		ToolTipManager.setToolTipText(instructionLabel, CURRENT_INSTRUCTION_PREPEND_STRING);
+		instructionLabel.setToolTipText(CURRENT_INSTRUCTION_PREPEND_STRING);
 		instructionPanel.add(instructionLabel);
 		instructionPanel.setName("Current Instruction");
 		tool.addStatusComponent(instructionPanel, true, false);
 
 		functionPanel = new JPanel(new BorderLayout());
-		functionLabel = new JLabel("                   ");
+		functionLabel = new GDLabel("                   ");
 		functionLabel.addMouseListener(new MouseAdapter() {
 			@Override
 			public void mouseClicked(MouseEvent e) {
@@ -116,15 +116,15 @@ public class ShowInstructionInfoPlugin extends ProgramPlugin {
 			}
 		});
 		functionPanel.setPreferredSize(new Dimension(130, functionLabel.getPreferredSize().height));
-		ToolTipManager.setToolTipText(functionLabel, "Current Function");
+		functionLabel.setToolTipText("Current Function");
 		functionPanel.add(functionLabel);
 		functionPanel.setName("Current Function");
 		tool.addStatusComponent(functionPanel, true, false);
 
 		addressPanel = new JPanel(new BorderLayout());
-		addressLabel = new JLabel("          ");
+		addressLabel = new GDLabel("          ");
 		addressPanel.setPreferredSize(new Dimension(95, addressLabel.getPreferredSize().height));
-		ToolTipManager.setToolTipText(addressLabel, "Current Address");
+		addressLabel.setToolTipText("Current Address");
 		addressPanel.add(addressLabel);
 		addressPanel.setName("Current Address");
 		tool.addStatusComponent(addressPanel, true, false);
@@ -193,10 +193,14 @@ public class ShowInstructionInfoPlugin extends ProgramPlugin {
 		}
 		manualWrapperFiles.add(f);
 		try (PrintWriter pw = new PrintWriter(f)) {
-			pw.println("<HTML><BODY>");
-			String path = fileURL.getPath() + "#" + fileURL.getRef();
-			pw.println("<EMBED SRC=\"" + path + "\" width=\"100%\" height=\"100%\">");
-			pw.println("</BODY></HTML>");
+			pw.println("<!DOCTYPE html>");
+			pw.println("<html lang=\"en\">");
+			pw.println("<head><meta charset=\"utf-8\"></head>");
+			pw.println("<body style=\"height:100vh;\">");
+			pw.println(
+				"<embed src=\"" + fileURL.toExternalForm() + "\" width=\"100%\" height=\"100%\">");
+			pw.println("</body>");
+			pw.println("</html>");
 		}
 		return f;
 	}
@@ -216,10 +220,16 @@ public class ShowInstructionInfoPlugin extends ProgramPlugin {
 			return null;
 		}
 
+		URL url = new File(filename).toURI().toURL();
+
 		String pageNumber = entry.getPageNumber();
-		String fixedFilename = filename.replace(File.separatorChar, '/');
-		return new URL("file", "",
-			fixedFilename + (pageNumber == null ? "" : "#page=" + pageNumber));
+		if (pageNumber != null) {
+			// include manual page as query string (respected by PDF readers)
+			String fileNameAndPage = url.getFile() + "#page=" + pageNumber;
+			url = new URL(url.getProtocol(), null, fileNameAndPage);
+		}
+
+		return url;
 	}
 
 	ManualEntry locateManualEntry(ProgramActionContext context, Language language) {
@@ -337,26 +347,25 @@ public class ShowInstructionInfoPlugin extends ProgramPlugin {
 		boolean insideFunction = currentFunction != null;
 		if (insideFunction) {
 			functionLabel.setText(" " + currentFunction.getName() + " ");
-			ToolTipManager.setToolTipText(functionLabel,
+			functionLabel.setToolTipText(
 				currentFunction.getName() + CURRENT_FUNCTION_APPEND_STRING);
 		}
 		else {
 			functionLabel.setText("");
-			ToolTipManager.setToolTipText(functionLabel, "");
+			functionLabel.setToolTipText("");
 		}
 
 		/// code added //
 		Instruction instr = getInstructionForCurrentProgram();
 		if (instr == null) {
 			instructionLabel.setText("");
-			ToolTipManager.setToolTipText(instructionLabel, "");
+			instructionLabel.setToolTipText("");
 			return;
 		}
 
 		String representation = instr.toString();
 		instructionLabel.setText(" " + representation + " ");
-		ToolTipManager.setToolTipText(instructionLabel,
-			CURRENT_INSTRUCTION_PREPEND_STRING + representation);
+		instructionLabel.setToolTipText(CURRENT_INSTRUCTION_PREPEND_STRING + representation);
 
 		// end code added ///
 	}
@@ -380,7 +389,7 @@ public class ShowInstructionInfoPlugin extends ProgramPlugin {
 	@Override
 	protected void programDeactivated(Program program) {
 		instructionLabel.setText("");
-		ToolTipManager.setToolTipText(instructionLabel, "");
+		instructionLabel.setToolTipText("");
 		if (connectedProvider != null) {
 			connectedProvider.setProgram(null);
 		}

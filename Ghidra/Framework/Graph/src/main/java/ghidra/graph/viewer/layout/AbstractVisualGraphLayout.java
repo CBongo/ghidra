@@ -58,7 +58,7 @@ import ghidra.util.task.TaskMonitor;
  *      {@link #usesEdgeArticulations()} to return true.</LI> 
  * </UL>
  * 
- * <p><A NAME="column_centering"></A>By default, this class will create x-position values that
+ * <p><a id="column_centering"></A>By default, this class will create x-position values that
  * are aligned with the column's x-position.   You can override 
  * {@link #getVertexLocation(VisualVertex, Column, Row, Rectangle)} in order to center the
  * vertex within its column
@@ -86,12 +86,22 @@ public abstract class AbstractVisualGraphLayout<V extends VisualVertex,
 		new ArticulatedEdgeTransformer<>();
 	private ArticulatedEdgeRenderer<V, E> edgeRenderer = new ArticulatedEdgeRenderer<>();
 
-	protected TaskMonitor monitor = TaskMonitor.DUMMY;
-
+	protected String layoutName;
 	protected boolean layoutInitialized;
 
-	protected AbstractVisualGraphLayout(Graph<V, E> graph) {
+	protected TaskMonitor monitor = TaskMonitor.DUMMY;
+
+	protected AbstractVisualGraphLayout(Graph<V, E> graph, String layoutName) {
 		super(graph);
+		this.layoutName = layoutName;
+	}
+
+	/**
+	 * Returns the name of this layout
+	 * @return the name of this layout
+	 */
+	public String getLayoutName() {
+		return layoutName;
 	}
 
 	/**
@@ -308,8 +318,8 @@ public abstract class AbstractVisualGraphLayout<V extends VisualVertex,
 				layoutLocations);
 
 		// DEGUG triggers grid lines to be printed; useful for debugging
-		// VisualGraphRenderer.DEBUG_ROW_COL_MAP.put((Graph<?, ?>) visualGraph,
-		// 	layoutLocations.copy());
+//		VisualGraphRenderer.DEBUG_ROW_COL_MAP.put((Graph<?, ?>) visualGraph,
+//			layoutLocations.copy());
 
 		Rectangle graphBounds =
 			getTotalGraphSize(vertexLayoutLocations, edgeLayoutArticulationLocations, transformer);

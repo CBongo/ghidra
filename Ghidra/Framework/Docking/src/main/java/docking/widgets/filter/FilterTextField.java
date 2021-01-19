@@ -22,10 +22,10 @@ import javax.swing.*;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 
-import ghidra.generic.function.Callback;
 import ghidra.util.SystemUtilities;
 import ghidra.util.datastruct.WeakDataStructureFactory;
 import ghidra.util.datastruct.WeakSet;
+import utility.function.Callback;
 
 /**
  * A text field that is meant to be used in conjunction with tables that allow filter text.  This
@@ -35,8 +35,8 @@ import ghidra.util.datastruct.WeakSet;
  */
 public class FilterTextField extends JPanel {
 
-	private static final Integer BASE_COMPONENT_LAYER = new Integer(1);
-	private static final Integer HOVER_COMPONENT_LAYER = new Integer(2);
+	private static final Integer BASE_COMPONENT_LAYER = 1;
+	private static final Integer HOVER_COMPONENT_LAYER = 2;
 
 	private static final long MINIMUM_TIME_BETWEEN_FLASHES_MS = 5000;
 	private static final int FLASH_FREQUENCY_MS = 250;
@@ -63,7 +63,7 @@ public class FilterTextField extends JPanel {
 	private WeakSet<Callback> enterListeners = WeakDataStructureFactory.createCopyOnWriteWeakSet();
 
 	/**
-	 * Constructs this text field with the given component.  <tt>component</tt> may be null, but 
+	 * Constructs this text field with the given component.  <code>component</code> may be null, but 
 	 * then this field will be unable to flash in response to focus events (see the header 
 	 * documentation).
 	 * 
@@ -75,7 +75,7 @@ public class FilterTextField extends JPanel {
 
 	/**
 	 * Constructs this text field with the given component and the preferred visible column 
-	 * width.  <tt>component</tt> may be null, but then this field will be able to flash in
+	 * width.  <code>component</code> may be null, but then this field will be able to flash in
 	 * response to focus events (see the header documentation).
 	 * @param component The component needed to listen for focus changes, may be null.
 	 * @param columns The number of preferred visible columns (see JTextField)
@@ -164,15 +164,15 @@ public class FilterTextField extends JPanel {
 	 * <p>
 	 * Note: this method will not perform the alert if the minimum time between alerts 
 	 * has not passed.  To force the alter to take place, call {@link #alert(boolean)} with a
-	 * value of <tt>true</tt>.
+	 * value of <code>true</code>.
 	 */
 	public void alert() {
 		alert(false);
 	}
 
 	/**
-	 * This is the same as {@link #alert()} with the exception that a <tt>true</tt> value for
-	 * <tt>forceAlter</tt> will guarantee that the alert will happen.  A <tt>false</tt> value
+	 * This is the same as {@link #alert()} with the exception that a <code>true</code> value for
+	 * <code>forceAlter</code> will guarantee that the alert will happen.  A <code>false</code> value
 	 * will not perform the alert if the minimum time between alerts has not passed.
 	 * @param forceAlert true signals to force the alter to take place.
 	 * @see #alert()
@@ -277,6 +277,7 @@ public class FilterTextField extends JPanel {
 	@Override
 	public void setEnabled(boolean enabled) {
 		textField.setEnabled(enabled);
+		updateField();
 	}
 
 	@Override
@@ -323,6 +324,44 @@ public class FilterTextField extends JPanel {
 		return textField;
 	}
 
+	private void updateField() {
+		String text = getText();
+		hasText = text.length() > 0;
+
+		updateFocusFlashing();
+
+		updateBackgroundColor();
+
+		fireFilterChanged(text);
+
+		boolean showFilterButton = hasText && textField.isEnabled();
+		updateFilterButton(showFilterButton);
+	}
+
+	private void updateFocusFlashing() {
+		if (hasText) {
+			// no need to flash focus when the user is typing in the filter field
+			stallFocusFlashing();
+		}
+		else {
+			stopFocusFlashing();
+		}
+	}
+
+	private void updateFilterButton(boolean showFilter) {
+
+		// Note: this must be run on the Swing thread.  When the filter button shows itself, 
+		//       it requires an AWT lock.  If called from a non-Swing thread, deadlocks!
+		SystemUtilities.runIfSwingOrPostSwingLater(() -> {
+			if (showFilter) {
+				clearLabel.showFilterButton();
+			}
+			else {
+				clearLabel.hideFilterButton();
+			}
+		});
+
+	}
 //==================================================================================================
 // Inner Classes
 //==================================================================================================
@@ -363,57 +402,18 @@ public class FilterTextField extends JPanel {
 	private class FilterDocumentListener implements DocumentListener {
 		@Override
 		public void changedUpdate(DocumentEvent e) {
-			textChanged();
+			updateField();
 		}
 
 		@Override
 		public void insertUpdate(DocumentEvent e) {
-			textChanged();
+			updateField();
 		}
 
 		@Override
 		public void removeUpdate(DocumentEvent e) {
-			textChanged();
+			updateField();
 		}
-
-		private void textChanged() {
-			String text = getText();
-			hasText = text.length() > 0;
-
-			updateFocusFlashing();
-
-			updateBackgroundColor();
-
-			fireFilterChanged(text);
-
-			updateFilterButton(hasText);
-		}
-
-		private void updateFocusFlashing() {
-			if (hasText) {
-				// no need to flash focus when the user is typing in the filter field
-				stallFocusFlashing();
-			}
-			else {
-				stopFocusFlashing();
-			}
-		}
-
-		private void updateFilterButton(boolean showFilter) {
-
-			// Note: this must be run on the Swing thread.  When the filter button shows itself, 
-			//       it requires an AWT lock.  If called from a non-Swing thread, deadlocks!
-			SystemUtilities.runIfSwingOrPostSwingLater(() -> {
-				if (showFilter) {
-					clearLabel.showFilterButton();
-				}
-				else {
-					clearLabel.hideFilterButton();
-				}
-			});
-
-		}
-
 	}
 
 	private class BackgroundFlashTimer extends Timer implements ActionListener {

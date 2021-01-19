@@ -24,6 +24,7 @@ import javax.swing.*;
 
 import docking.action.DockingAction;
 import docking.action.DockingActionIf;
+import ghidra.util.Swing;
 import ghidra.util.exception.AssertException;
 
 /**
@@ -54,16 +55,19 @@ public class ComponentPlaceholder {
 		this.componentProvider = provider;
 		updateInfo(provider);
 		this.actions = new ArrayList<>();
-
-		instanceID = provider.getInstanceID();
+		this.instanceID = provider.getInstanceID();
 	}
 
 	/**
 	 * XML Constructor!!!!!
-	 * @param name the name of the component.
-	 * @param owner the owner of the component.
-	 * @param show whether or not the component is showing.
-	 * @param node componentNode that has this placeholder.
+	 * 
+	 * @param name the name of the component
+	 * @param owner the owner of the component
+	 * @param group the window group
+	 * @param title the title 
+	 * @param show whether or not the component is showing
+	 * @param node componentNode that has this placeholder
+	 * @param instanceID the instance ID
 	 */
 	ComponentPlaceholder(String name, String owner, String group, String title, boolean show,
 			ComponentNode node, long instanceID) {
@@ -83,7 +87,8 @@ public class ComponentPlaceholder {
 	}
 
 	/**
-	 * Returns the componentNode containing this placeholder.
+	 * Returns the componentNode containing this placeholder
+	 * @return the node
 	 */
 	ComponentNode getNode() {
 		return compNode;
@@ -111,7 +116,8 @@ public class ComponentPlaceholder {
 	}
 
 	/**
-	 * Returns true if the component is not hidden.
+	 * Returns true if the component is not hidden
+	 * @return true if showing
 	 */
 	boolean isShowing() {
 		return isShowing && componentProvider != null;
@@ -195,6 +201,7 @@ public class ComponentPlaceholder {
 	}
 
 	void dispose() {
+
 		disposed = true;
 
 		if (comp != null) {
@@ -212,6 +219,7 @@ public class ComponentPlaceholder {
 		}
 
 		compNode.remove(this);
+		compNode = null;
 	}
 
 	private void disposeComponent() {
@@ -234,19 +242,21 @@ public class ComponentPlaceholder {
 	 * Requests focus for the component associated with this placeholder.
 	 */
 	void requestFocus() {
-		if (comp != null) {
-			compNode.makeSelectedTab(this);
-			activateWindow();
-
-			// make sure the tab has time to become active before trying to request focus
-			comp.requestFocus();
-			final Component tmp = comp;// put in temp variable in case another thread deletes it
-			SwingUtilities.invokeLater(() -> {
-				if (tmp != null) {
-					tmp.requestFocus();
-				}
-			});
+		Component tmp = comp;// put in temp variable in case another thread deletes it
+		if (tmp == null) {
+			return;
 		}
+
+		compNode.makeSelectedTab(this);
+		activateWindow();
+
+		// make sure the tab has time to become active before trying to request focus
+		tmp.requestFocus();
+
+		Swing.runLater(() -> {
+			tmp.requestFocus();
+			contextChanged();
+		});
 	}
 
 	// makes sure that the given window is not in an iconified state
@@ -273,7 +283,8 @@ public class ComponentPlaceholder {
 	}
 
 	/**
-	 * Returns a Dockable component that wraps the component for this placeholder.
+	 * Returns a Dockable component that wraps the component for this placeholder
+	 * @return the component
 	 */
 	public DockableComponent getComponent() {
 		if (disposed) {
@@ -307,8 +318,8 @@ public class ComponentPlaceholder {
 	}
 
 	/**
-	 * Returns the title for this component.
-	 * @return the title for this component.
+	 * Returns the title for this component
+	 * @return the title for this component
 	 */
 	public String getTitle() {
 		return title;
@@ -339,14 +350,16 @@ public class ComponentPlaceholder {
 	}
 
 	/**
-	 * Returns the owner for the component.
+	 * Returns the owner for the component
+	 * @return the owner
 	 */
 	String getOwner() {
 		return owner;
 	}
 
 	/**
-	 * Returns the component associated with this placeholder.
+	 * Returns the component associated with this placeholder
+	 * @return the component
 	 */
 	JComponent getProviderComponent() {
 		if (componentProvider != null) {
@@ -356,7 +369,8 @@ public class ComponentPlaceholder {
 	}
 
 	/**
-	 * Returns true if this placeholder's component is currently in a tabbed pane with other components.
+	 * Returns true if this placeholder's component is in a tabbed pane with other components
+	 * @return true if in a tabbed pane
 	 */
 	boolean isStacked() {
 		if (compNode != null) {
@@ -368,13 +382,15 @@ public class ComponentPlaceholder {
 	/**
 	 * Returns true if this placeholder is currently associated with a component. If it is not,
 	 * then it exists as a place holder.
+	 * @return true if this placeholder is currently associated with a component
 	 */
 	boolean hasProvider() {
 		return componentProvider != null;
 	}
 
 	/**
-	 * Sets the component provider for this placeholder.
+	 * Sets the component provider for this placeholder
+	 * @param newProvider the new provider
 	 */
 	void setProvider(ComponentProvider newProvider) {
 		this.componentProvider = newProvider;
@@ -449,6 +465,16 @@ public class ComponentPlaceholder {
 		}
 	}
 
+	void removeAllActions() {
+		if (comp != null) {
+			for (DockingActionIf action : actions) {
+				comp.actionRemoved(action);
+			}
+		}
+
+		actions.clear();
+	}
+
 	/**
 	 * Removes an action from this component
 	 * @param action the action to be removed.
@@ -463,6 +489,10 @@ public class ComponentPlaceholder {
 
 	/** Updates local actions for providers */
 	void contextChanged() {
+		if (componentProvider == null) {
+			return; // disposed
+		}
+
 		ActionContext actionContext = componentProvider.getActionContext(null);
 		if (actionContext == null) {
 			actionContext = new ActionContext(componentProvider, null);
@@ -478,15 +508,16 @@ public class ComponentPlaceholder {
 	}
 
 	/**
-	 * Return iterator over all the local actions defined for this component.
+	 * Return iterator over all the local actions defined for this component
+	 * @return the actions
 	 */
 	Iterator<DockingActionIf> getActions() {
 		return actions.iterator();
 	}
 
 	/**
-	 * notifies the node that this component has focus.
-	 *
+	 * Notifies the node that this component has focus
+	 * @param state the state
 	 */
 	void setSelected(boolean state) {
 		if (comp != null) {
@@ -532,5 +563,9 @@ public class ComponentPlaceholder {
 	@Override
 	public String toString() {
 		return "name=\"" + name + "\", fullTitle=\"" + getFullTitle() + "\"";
+	}
+
+	public boolean isDisposed() {
+		return disposed;
 	}
 }

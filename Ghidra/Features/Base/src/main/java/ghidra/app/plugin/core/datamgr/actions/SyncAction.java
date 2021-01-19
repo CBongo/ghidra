@@ -25,10 +25,10 @@ import docking.widgets.OptionDialog;
 import docking.widgets.tree.GTreeState;
 import ghidra.app.plugin.core.datamgr.*;
 import ghidra.app.plugin.core.datamgr.archive.DataTypeManagerHandler;
-import ghidra.app.plugin.core.datamgr.archive.SourceArchive;
 import ghidra.app.plugin.core.datamgr.tree.ArchiveNode;
 import ghidra.app.plugin.core.datamgr.tree.DataTypeArchiveGTree;
 import ghidra.program.model.data.DataTypeManager;
+import ghidra.program.model.data.SourceArchive;
 import ghidra.util.HelpLocation;
 import ghidra.util.Msg;
 import ghidra.util.exception.CancelledException;
@@ -103,8 +103,12 @@ public abstract class SyncAction extends DockingAction implements Comparable<Syn
 			return;
 		}
 
-		new TaskLauncher(new SyncTask(synchronizer), null, TaskLauncher.INITIAL_MODAL_DELAY,
-			SwingConstants.LEFT);
+		//@formatter:off
+		TaskBuilder.withTask(new SyncTask(synchronizer))
+			.setStatusTextAlignment(SwingConstants.LEADING)
+			.launchModal()
+			;
+		//@formatter:on
 	}
 
 	private void doSync(DataTypeSynchronizer synchronizer, TaskMonitor monitor) {

@@ -1,6 +1,5 @@
 /* ###
  * IP: GHIDRA
- * REVIEWED: YES
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,7 +17,6 @@ package ghidra.app.plugin.core.compositeeditor;
 
 import java.awt.event.KeyEvent;
 
-import javax.swing.JTable;
 import javax.swing.KeyStroke;
 
 import docking.ActionContext;
@@ -34,14 +32,14 @@ public class EditFieldAction extends CompositeEditorTableAction {
 	private final static String GROUP_NAME = BASIC_ACTION_GROUP;
 	private final static String DESCRIPTION =
 		"Edit the first editable field of the selected component.";
-	private KeyStroke keyStroke = KeyStroke.getKeyStroke(KeyEvent.VK_F2, 0);
-	private static String[] popupPath = new String[] { ACTION_NAME };
-	private static String[] menuPath = new String[] { ACTION_NAME };
+	private final static KeyStroke KEY_STROKE = KeyStroke.getKeyStroke(KeyEvent.VK_F2, 0);
+	private static String[] POPUP_PATH = new String[] { ACTION_NAME };
+	private static String[] MENU_PATH = new String[] { ACTION_NAME };
 
 	public EditFieldAction(CompositeEditorProvider provider) {
-		super(provider, EDIT_ACTION_PREFIX + ACTION_NAME, GROUP_NAME, popupPath, menuPath, null);
+		super(provider, EDIT_ACTION_PREFIX + ACTION_NAME, GROUP_NAME, POPUP_PATH, MENU_PATH, null);
 		setDescription(DESCRIPTION);
-		setKeyBindingData(new KeyBindingData(keyStroke));
+		setKeyBindingData(new KeyBindingData(KEY_STROKE));
 		adjustEnablement();
 	}
 
@@ -49,9 +47,7 @@ public class EditFieldAction extends CompositeEditorTableAction {
 	public void actionPerformed(ActionContext context) {
 		if (model != null) {
 			int row = model.getRow();
-			JTable table = provider.getTable();
-			int column = table.getSelectedColumn();
-
+			int column = model.getColumn();
 			if (model.isCellEditable(row, column)) {
 				model.beginEditingField(row, column);
 				return;

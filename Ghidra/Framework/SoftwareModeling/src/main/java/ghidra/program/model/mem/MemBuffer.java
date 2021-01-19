@@ -52,6 +52,24 @@ import ghidra.program.model.address.Address;
 public interface MemBuffer {
 
 	/**
+	 * Returns true if this buffer's starting address has valid data.
+	 * 
+	 * @return boolean true if first byte of memory buffer can be read
+	 */
+	public default boolean isInitializedMemory() {
+		// TODO: possible alternate method of testing
+		//return getMemory().getAllInitializedAddressSet().contains(getAddress());
+		try {
+			getByte(0); // test for uninitialized memory
+			return true;
+		}
+		catch (MemoryAccessException e) {
+			// ignore
+		}
+		return false;
+	}
+
+	/**
 	 * Get one byte from memory at the current position plus offset.
 	 *
 	 * @param offset the displacement from the current position.
@@ -72,7 +90,7 @@ public interface MemBuffer {
 	}
 
 	/**
-	 * Reads <tt>b.length</tt> bytes from this memory buffer
+	 * Reads <code>b.length</code> bytes from this memory buffer
 	 * starting at the address of this memory buffer plus the given memoryBufferOffset
 	 * from that position.  The actual number of bytes may be fewer
 	 * if bytes can't be read.

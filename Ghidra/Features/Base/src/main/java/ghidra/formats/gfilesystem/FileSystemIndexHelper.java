@@ -108,7 +108,7 @@ public class FileSystemIndexHelper<METADATATYPE> {
 	 * @return {@link GFile} instance or null if no file was added to the index at that path.
 	 */
 	public GFile lookup(String path) {
-		String[] nameparts = path.split("/");
+		String[] nameparts = (path != null ? path : "").split("/");
 		GFile parent = lookupParent(nameparts);
 		if (nameparts.length == 0) {
 			return parent;
@@ -208,7 +208,7 @@ public class FileSystemIndexHelper<METADATATYPE> {
 	}
 
 	/**
-	 * Returns a string->GFile map that holds the contents of a single directory.
+	 * Returns a string-&gt;GFile map that holds the contents of a single directory.
 	 * @param directoryFile
 	 * @return
 	 */

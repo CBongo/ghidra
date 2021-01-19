@@ -33,15 +33,14 @@ import ghidra.program.model.symbol.SourceType;
 import ghidra.program.model.util.AcyclicCallGraphBuilder;
 import ghidra.util.Msg;
 import ghidra.util.exception.CancelledException;
-import ghidra.util.graph.DependencyGraph;
+import ghidra.util.graph.AbstractDependencyGraph;
 import ghidra.util.task.TaskMonitor;
 
 public class DecompilerCallConventionAnalyzer extends AbstractAnalyzer {
-	private static final String NAME = "Call Convention Identification";
+	private static final String NAME = "Call Convention ID";
 	private static final String DESCRIPTION =
 		"Uses decompiler to figure out unknown calling conventions.";
 
-	private static final String STD_NAMESPACE = "std";
 	private static final String COULD_NOT_RECOVER_CALLING_CONVENTION =
 		"Could not recover calling convention";
 	private static final String OPTION_NAME_DECOMPILER_TIMEOUT_SECS =
@@ -52,8 +51,6 @@ public class DecompilerCallConventionAnalyzer extends AbstractAnalyzer {
 	private int decompilerTimeoutSecondsOption = OPTION_DEFAULT_DECOMPILER_TIMEOUT_SECS;
 
 	private boolean ignoreBookmarks = false;
-
-	private Program program;
 
 //==================================================================================================
 // Interface Methods
@@ -68,11 +65,11 @@ public class DecompilerCallConventionAnalyzer extends AbstractAnalyzer {
 
 	@Override
 	public boolean canAnalyze(Program program) {
-		boolean cando = program.getLanguage().supportsPcode();
+		boolean can = program.getLanguage().supportsPcode();
 
 		// for a single entry compiler convention, the convention is always used, so no need to identify it
-		cando &= program.getCompilerSpec().getCallingConventions().length > 1;
-		return cando;
+		can &= program.getCompilerSpec().getCallingConventions().length > 1;
+		return can;
 	}
 
 	@Override
@@ -91,8 +88,6 @@ public class DecompilerCallConventionAnalyzer extends AbstractAnalyzer {
 	@Override
 	public boolean added(Program program, AddressSetView set, TaskMonitor monitor, MessageLog log)
 			throws CancelledException {
-
-		this.program = program; // set program for use by ParallelDecompilerCallback
 
 		ignoreBookmarks = set.hasSameAddresses(program.getMemory());
 
@@ -128,17 +123,17 @@ public class DecompilerCallConventionAnalyzer extends AbstractAnalyzer {
 
 		CachingPool<DecompInterface> decompilerPool =
 			new CachingPool<>(new DecompilerFactory(program));
-		QRunnable<Address> callback = new ParallelDecompilerCallback(decompilerPool);
+		QRunnable<Address> callback = new ParallelDecompilerCallback(decompilerPool, program);
 
 		ConcurrentGraphQ<Address> queue = null;
 
 		monitor.initialize(functionEntries.getNumAddresses());
 
 		try {
-			monitor.setMessage("Analyzing Call Hierarchy...");
+			monitor.setMessage(NAME + " - creating dependency graph...");
 			AcyclicCallGraphBuilder builder =
 				new AcyclicCallGraphBuilder(program, functionEntries, true);
-			DependencyGraph<Address> graph = builder.getDependencyGraph(monitor);
+			AbstractDependencyGraph<Address> graph = builder.getDependencyGraph(monitor);
 			if (graph.isEmpty()) {
 				return;
 			}
@@ -146,7 +141,8 @@ public class DecompilerCallConventionAnalyzer extends AbstractAnalyzer {
 			GThreadPool pool = AutoAnalysisManager.getSharedAnalsysThreadPool();
 			queue = new ConcurrentGraphQ<>(callback, graph, pool, monitor);
 
-			monitor.setMessage("Analyzing Call Conventions...");
+			monitor.setMessage(NAME + " - analyzing call conventions...");
+			monitor.initialize(graph.size());
 
 			queue.execute();
 		}
@@ -272,9 +268,11 @@ public class DecompilerCallConventionAnalyzer extends AbstractAnalyzer {
 	private class ParallelDecompilerCallback implements QRunnable<Address> {
 
 		private CachingPool<DecompInterface> pool;
+		private Program program;
 
-		ParallelDecompilerCallback(CachingPool<DecompInterface> decompilerPool) {
+		ParallelDecompilerCallback(CachingPool<DecompInterface> decompilerPool, Program program) {
 			this.pool = decompilerPool;
+			this.program = program;
 		}
 
 		@Override
@@ -287,10 +285,12 @@ public class DecompilerCallConventionAnalyzer extends AbstractAnalyzer {
 			try {
 				Function function = program.getFunctionManager().getFunctionAt(address);
 
+				monitor.setMessage(getName() + " - decompile " + function.getName());
 				performConventionAnalysis(function, decompiler, monitor);
 			}
 			finally {
 				pool.release(decompiler);
+				monitor.incrementProgress(1);
 			}
 			return;
 		}

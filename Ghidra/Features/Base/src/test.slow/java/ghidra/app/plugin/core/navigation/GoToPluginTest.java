@@ -17,8 +17,7 @@ package ghidra.app.plugin.core.navigation;
 
 import static org.junit.Assert.*;
 
-import java.util.ArrayList;
-import java.util.List;
+import java.util.*;
 
 import javax.swing.*;
 
@@ -65,7 +64,7 @@ import ghidra.util.Msg;
 import ghidra.util.table.GhidraProgramTableModel;
 import ghidra.util.table.field.LabelTableColumn;
 import ghidra.util.task.TaskMonitor;
-import ghidra.util.task.TaskMonitorAdapter;
+import util.CollectionUtils;
 
 public class GoToPluginTest extends AbstractGhidraHeadedIntegrationTest {
 	private TestEnv env;
@@ -104,20 +103,20 @@ public class GoToPluginTest extends AbstractGhidraHeadedIntegrationTest {
 
 	@Test
 	public void testActionEnablement() throws Exception {
-		List<DockingActionIf> actions = tool.getDockingActionsByOwnerName(plugin.getName());
+		Set<DockingActionIf> actions = getActionsByOwner(tool, plugin.getName());
 		assertEquals(1, actions.size());
-		assertEquals("Go To Address/Label", actions.get(0).getName());
+		assertEquals("Go To Address/Label", CollectionUtils.any(actions).getName());
 		ActionContext actionContext = getActionContext();
-		assertTrue(!actions.get(0).isEnabledForContext(actionContext));
+		assertTrue(!CollectionUtils.any(actions).isEnabledForContext(actionContext));
 
 		loadProgram("x86");
 
 		actionContext = getActionContext();
-		assertTrue(actions.get(0).isEnabledForContext(actionContext));
+		assertTrue(CollectionUtils.any(actions).isEnabledForContext(actionContext));
 		final ProgramManager pm = tool.getService(ProgramManager.class);
-		SwingUtilities.invokeAndWait(() -> pm.closeProgram(program, true));
+		runSwing(() -> pm.closeProgram(program, true));
 		actionContext = getActionContext();
-		assertTrue(!actions.get(0).isEnabledForContext(actionContext));
+		assertTrue(!CollectionUtils.any(actions).isEnabledForContext(actionContext));
 	}
 
 	@Test
@@ -244,7 +243,7 @@ public class GoToPluginTest extends AbstractGhidraHeadedIntegrationTest {
 	public void testWildcardInBlock() throws Exception {
 
 		loadProgram("x86");
-		MemoryBlock block = createOverlay("Test Overlay", "1002000", 100);
+		MemoryBlock block = createOverlay("TestOverlay", "1002000", 100);
 		String name = block.getName();
 
 		AddLabelCmd cmd = new AddLabelCmd(addr(name + "::1002000"), "Bob", SourceType.USER_DEFINED);
@@ -253,7 +252,7 @@ public class GoToPluginTest extends AbstractGhidraHeadedIntegrationTest {
 		// try a wildcard for an address in the new block (this gets us an extra code path tested)
 		setText(name + "::*ob");
 		performOkCallback();
-		assertEquals(addr("Test Overlay::1002000"), cbPlugin.getCurrentAddress());
+		assertEquals(addr("TestOverlay::1002000"), cbPlugin.getCurrentAddress());
 	}
 
 	@Test
@@ -273,7 +272,7 @@ public class GoToPluginTest extends AbstractGhidraHeadedIntegrationTest {
 		// queries an address has multiple matches.
 		//
 		loadProgram("x86");
-		createOverlay("Test Overlay", "1002000", 100);
+		createOverlay("TestOverlay", "1002000", 100);
 		assumeCurrentAddressSpace(false);
 		showDialog();
 		setText("1002000");
@@ -290,7 +289,7 @@ public class GoToPluginTest extends AbstractGhidraHeadedIntegrationTest {
 		// addresses is off *and* the current address space has a matching address.
 		//
 		loadProgram("x86");
-		createOverlay("Test Overlay", "1002000", 100);
+		createOverlay("TestOverlay", "1002000", 100);
 
 		//
 		// Turn off the option to show all addresses when there is a match in our current
@@ -312,8 +311,8 @@ public class GoToPluginTest extends AbstractGhidraHeadedIntegrationTest {
 		// option to always show all addresses is off.
 		//
 		loadProgram("x86");
-		createOverlay("Test Overlay 1", "1002000", 100);
-		MemoryBlock overlay2Block = createOverlay("Test Overlay 2", "1003000", 100);
+		createOverlay("TestOverlay1", "1002000", 100);
+		MemoryBlock overlay2Block = createOverlay("TestOverlay2", "1003000", 100);
 
 		//
 		// Put us in an address space that does not have a match for the query address
@@ -476,7 +475,7 @@ public class GoToPluginTest extends AbstractGhidraHeadedIntegrationTest {
 		performOkCallback();
 
 		assertEquals("No results for xyzabc*", dialog.getStatusText());
-		SwingUtilities.invokeAndWait(() -> dialog.close());
+		runSwing(() -> dialog.close());
 	}
 
 	@Test
@@ -561,7 +560,7 @@ public class GoToPluginTest extends AbstractGhidraHeadedIntegrationTest {
 		program.endTransaction(transactionID, true);
 		final JCheckBox cb = findComponent(dialog, JCheckBox.class);
 
-		SwingUtilities.invokeAndWait(() -> {
+		runSwing(() -> {
 			cb.setSelected(false);
 			dialog.setText("COm*");
 
@@ -604,8 +603,8 @@ public class GoToPluginTest extends AbstractGhidraHeadedIntegrationTest {
 	public void testNextPrevious() throws Exception {
 		tool.addPlugin(NextPrevAddressPlugin.class.getName());
 		NextPrevAddressPlugin np = env.getPlugin(NextPrevAddressPlugin.class);
-		DockingActionIf next = getAction(np, "Next in History Buffer");
-		DockingActionIf prev = getAction(np, "Previous in History Buffer");
+		DockingActionIf next = getAction(np, "Next Location in History");
+		DockingActionIf prev = getAction(np, "Previous Location in History");
 		DockingActionIf clear = getAction(np, "Clear History Buffer");
 		assertTrue(!clear.isEnabledForContext(provider.getActionContext(null)));
 		assertTrue(!next.isEnabledForContext(provider.getActionContext(null)));
@@ -766,14 +765,14 @@ public class GoToPluginTest extends AbstractGhidraHeadedIntegrationTest {
 		setOptionToAllowNavigationToOtherOpenPrograms();
 		performOkCallback();
 
-		assertTrue("Expected goto to succeed and dialog to be gone", !dialog.isShowing());
+		assertFalse("Expected goto to succeed and dialog to be gone", dialog.isShowing());
 
 	}
 
 	private void setOptionToAllowNavigationToOtherOpenPrograms() throws Exception {
 		runSwing(() -> {
 			ToolOptions options = tool.getOptions("Navigation");
-			options.setBoolean("'Go To' in current program only", false);
+			options.setBoolean("'Go To' in Current Program Only", false);
 		});
 	}
 
@@ -831,7 +830,7 @@ public class GoToPluginTest extends AbstractGhidraHeadedIntegrationTest {
 		Assert.assertNotNull(program);
 
 		final ProgramManager pm = tool.getService(ProgramManager.class);
-		SwingUtilities.invokeAndWait(() -> pm.openProgram(program.getDomainFile()));
+		runSwing(() -> pm.openProgram(program.getDomainFile()));
 		program.release(this);
 		addrFactory = program.getAddressFactory();
 	}
@@ -965,7 +964,7 @@ public class GoToPluginTest extends AbstractGhidraHeadedIntegrationTest {
 		try {
 			Memory memory = program.getMemory();
 			return memory.createInitializedBlock(name, addr(address), size, (byte) 0,
-				TaskMonitorAdapter.DUMMY_MONITOR, true);
+				TaskMonitor.DUMMY, true);
 		}
 		finally {
 			program.endTransaction(transactionID, true);
@@ -1023,7 +1022,7 @@ public class GoToPluginTest extends AbstractGhidraHeadedIntegrationTest {
 	}
 
 	private void setText(final String text) throws Exception {
-		SwingUtilities.invokeAndWait(() -> dialog.setText(text));
+		runSwing(() -> dialog.setText(text));
 	}
 
 	private void performOkCallback() throws Exception {
@@ -1035,17 +1034,7 @@ public class GoToPluginTest extends AbstractGhidraHeadedIntegrationTest {
 	}
 
 	private void waitForOKCallback() {
-		int numWaits = 0;
-		while (++numWaits < 50 && !okButton.isEnabled()) {
-			try {
-				Thread.sleep(100);
-			}
-			catch (InterruptedException e) {
-				// no biggie, will try again
-			}
-		}
-
-		Assert.assertNotEquals("Timed-out waiting for Go To dialog to finish", 50, numWaits);
+		waitForCondition(() -> runSwing(() -> okButton.isEnabled()));
 	}
 
 	private void assumeCurrentAddressSpace(boolean b) {

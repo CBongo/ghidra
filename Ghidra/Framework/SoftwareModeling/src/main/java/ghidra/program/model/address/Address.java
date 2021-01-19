@@ -73,8 +73,9 @@ public interface Address extends Comparable<Address> {
 	 * is specified.
 	 * @param offset the offset for the new address.
 	 * @param isAddressableWordOffset if true the specified offset is an addressable unit/word offset,
-	 * otherwise offset is a byte offset.  See {@link #getAddressableUnitSize()}
-	 * to understand the distinction (i.e., wordOffset = byteOffset * addressableUnitSize).
+	 * otherwise offset is a byte offset.  See {@link ghidra.program.model.address.AddressSpace#getAddressableUnitSize()
+	 * AddressSpace#getAddressableUnitSize()} to understand the distinction
+	 * (i.e., wordOffset = byteOffset * addressableUnitSize).
 	 * @return address with given offset
 	 * @throws AddressOutOfBoundsException if the offset is less than 0 or greater
 	 * than the max offset allowed for this space.
@@ -90,8 +91,9 @@ public interface Address extends Comparable<Address> {
 	 * is specified.
 	 * @param offset the offset for the new address.
 	 * @param isAddressableWordOffset if true the specified offset is an addressable unit/word offset,
-	 * otherwise offset is a byte offset.  See {@link #getAddressableUnitSize()}
-	 * to understand the distinction (i.e., wordOffset = byteOffset * addressableUnitSize).
+	 * otherwise offset is a byte offset.  See {@link ghidra.program.model.address.AddressSpace#getAddressableUnitSize()
+	 * AddressSpace#getAddressableUnitSize()} to understand the distinction
+	 * (i.e., wordOffset = byteOffset * addressableUnitSize).
 	 * @return address with given byte offset truncated to the physical space size
 	 */
 	Address getNewTruncatedAddress(long offset, boolean isAddressableWordOffset);
@@ -165,12 +167,11 @@ public interface Address extends Comparable<Address> {
 	public int getSize();
 
 	/**
-	 * Calculates the displacement between two addresses (<code>this -
-	 * addr</code>).
+	 * Calculates the displacement between two addresses (<code>this - addr</code>)
 	 *
-	 * @param addr  the Address to subtract from <code>this</code> address.
-	 * @return the difference. (thisAddress.offset - thatAddress.offset
-	 *
+	 * @param addr  the Address to subtract from <code>this</code> address
+	 * @return the difference (thisAddress.offset - thatAddress.offset)
+	 * @throws IllegalArgumentException if the two addresses are not in the same address space
 	 */
 	public long subtract(Address addr);
 
@@ -388,10 +389,11 @@ public interface Address extends Comparable<Address> {
 
 	/**
 	 * Returns true if this address represents a location in register space.
-	 * @depricate use of this method is highly discouraged since since registers
+	 * @deprecated use of this method is highly discouraged since since registers
 	 * may also exist in a memory space. The address for such registers 
 	 * would return false from this method. 
 	 */
+	@Deprecated
 	public boolean isRegisterAddress();
 
 	/**
@@ -404,4 +406,23 @@ public interface Address extends Comparable<Address> {
 	 */
 	public boolean isExternalAddress();
 
+	/**
+	 * Return the minimum of two addresses using Address.compareTo
+	 * @param a first address
+	 * @param b second address
+	 * @return minimum of two addresses
+	 */
+	public static Address min(Address a, Address b) {
+		return a.compareTo(b) <= 0 ? a : b;
+	}
+
+	/**
+	 * Return the maximum of two addresses using Address.compareTo
+	 * @param a first address
+	 * @param b second address
+	 * @return maximum of two addresses
+	 */
+	public static Address max(Address a, Address b) {
+		return a.compareTo(b) > 0 ? a : b;
+	}
 }

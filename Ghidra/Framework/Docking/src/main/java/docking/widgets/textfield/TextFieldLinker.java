@@ -16,7 +16,6 @@
 package docking.widgets.textfield;
 
 import java.awt.Component;
-import java.awt.Window;
 import java.awt.event.*;
 import java.util.ArrayList;
 import java.util.List;
@@ -24,7 +23,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-import javax.swing.*;
+import javax.swing.JTextField;
+import javax.swing.SwingUtilities;
 import javax.swing.event.*;
 import javax.swing.text.BadLocationException;
 import javax.swing.text.Caret;
@@ -36,7 +36,7 @@ import org.apache.commons.lang3.StringUtils;
  * 
  * This fulfills a similar purpose to formatted text fields, except the individual parts may be
  * placed independent of the other components. Granted, they ought to appear in an intuitive order.
- * The input string is split among a collection of {@link JTextFields} each according to a given
+ * The input string is split among a collection of {@link JTextField}s each according to a given
  * pattern -- excluding the final field. Cursor navigation, insertion, deletion, etc. are all
  * applied as if the linked text fields were part of a single composite text field.
  * 
@@ -54,7 +54,7 @@ import org.apache.commons.lang3.StringUtils;
  * 
  * JTextField second = new JTextField();
  * hbox.add(second);
- * hbox.add(new JLabel("-"));
+ * hbox.add(new GLabel("-"));
  * linker.linkField(second, "-", "-");
  * 
  * JTextField third = new JTextField();
@@ -492,7 +492,7 @@ public class TextFieldLinker {
 	 * {@link #linkLastField(JTextField)}. Thus, before linking is actually activated, at least one
 	 * field must be present. To be meaningful, at least two fields should be linked.
 	 * 
-	 * @note {@code exp} must match {@code sep}.
+	 * NOTE: {@code exp} must match {@code sep}.
 	 * 
 	 * @param field the field to link
 	 * @param exp the separator following the field
@@ -859,39 +859,4 @@ public class TextFieldLinker {
 		return linker;
 	}
 
-	/**
-	 * A demonstration of the {@link TextFieldLinker}
-	 * 
-	 * It demonstrates three fields. The first two are separated by whitespace. The second two are
-	 * separated by a dash.
-	 */
-	public static class TextFieldLinkerDemo {
-		public static void main(String[] args) {
-			JDialog dialog = new JDialog((Window) null, "TextFieldLinker Demo");
-
-			Box hbox = Box.createHorizontalBox();
-			dialog.add(hbox);
-
-			TextFieldLinker linker = new TextFieldLinker();
-
-			JTextField first = new JTextField();
-			hbox.add(first);
-			hbox.add(Box.createHorizontalStrut(10));
-			linker.linkField(first, "\\s+", " ");
-
-			JTextField second = new JTextField();
-			hbox.add(second);
-			hbox.add(new JLabel("-"));
-			linker.linkField(second, "-", "-");
-
-			JTextField third = new JTextField();
-			hbox.add(third);
-			linker.linkLastField(third);
-
-			dialog.setBounds(2560, 500, 400, 200);
-			dialog.setModal(true);
-			linker.setVisible(true);
-			dialog.setVisible(true);
-		}
-	}
 }

@@ -62,7 +62,7 @@ public class PortableExecutable {
 	 * @param bp the byte provider
 	 * @param layout specifies the layout of the underlying provider and governs RVA resolution
 	 * @throws IOException if an I/O error occurs.
-	 * @see {@link #createPortableExecutable(GenericFactory, ByteProvider, Alignment, boolean, boolean)}
+	 * @see #createPortableExecutable(GenericFactory, ByteProvider, SectionLayout, boolean, boolean)
 	 **/
 	public static PortableExecutable createPortableExecutable(GenericFactory factory,
 			ByteProvider bp, SectionLayout layout) throws IOException {
@@ -184,7 +184,7 @@ public class PortableExecutable {
 	}
 
 	public static int computeAlignment(int value, int alignment) {
-		if ((value % alignment) == 0) {
+		if (alignment == 0 || (value % alignment) == 0) {
 			return value;
 		}
 		int a = ((value + alignment) / alignment) * alignment;

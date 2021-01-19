@@ -16,6 +16,7 @@
 package ghidra.app.util.bin.format.pdb;
 
 import ghidra.app.util.importer.MessageLog;
+import ghidra.program.model.data.DataTypeConflictHandler;
 import ghidra.program.model.data.EnumDataType;
 import ghidra.program.model.symbol.SymbolUtilities;
 import ghidra.util.exception.CancelledException;
@@ -38,7 +39,7 @@ class ApplyEnums {
 	 * @param log message log
 	 * @throws CancelledException if task cancelled
 	 */
-	static void applyTo(XmlPullParser xmlParser, PdbParserNEW pdbParser, TaskMonitor monitor,
+	static void applyTo(XmlPullParser xmlParser, PdbParser pdbParser, TaskMonitor monitor,
 			MessageLog log) throws CancelledException {
 		monitor.setMessage("Applying enums...");
 		while (xmlParser.hasNext()) {
@@ -65,7 +66,9 @@ class ApplyEnums {
 				xmlParser.next();//member end element
 			}
 			pdbParser.cacheDataType(name, enumdt); // cache with namespace-based name
-			pdbParser.addDataType(enumdt);
+			pdbParser.getProgramDataTypeManager()
+					.resolve(enumdt,
+						DataTypeConflictHandler.REPLACE_EMPTY_STRUCTS_OR_RENAME_AND_ADD_HANDLER);
 		}
 	}
 
@@ -77,7 +80,7 @@ class ApplyEnums {
 			enumdt.add(name, memberValue);
 		}
 		catch (Exception e) {
-			log.appendMsg(e.getMessage());
+			log.appendMsg("PDB", "Enum " + enumdt.getName() + ": " + e.getMessage());
 		}
 	}
 }

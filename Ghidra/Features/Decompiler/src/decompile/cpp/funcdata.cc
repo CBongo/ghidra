@@ -20,7 +20,7 @@
 /// \param scope is Symbol scope associated with the function
 /// \param addr is the entry address for the function
 /// \param sz is the number of bytes (of code) in the function body
-Funcdata::Funcdata(const string &nm,Scope *scope,const Address &addr,int4 sz)
+Funcdata::Funcdata(const string &nm,Scope *scope,const Address &addr,FunctionSymbol *sym,int4 sz)
   : baseaddr(addr),
     funcp(),
     vbank(scope->getArch(),
@@ -31,11 +31,13 @@ Funcdata::Funcdata(const string &nm,Scope *scope,const Address &addr,int4 sz)
 
 {				// Initialize high-level properties of
 				// function by giving address and size
+  functionSymbol = sym;
   flags = 0;
   clean_up_index = 0;
   high_level_index = 0;
   cast_phase_index = 0;
   glb = scope->getArch();
+  minLanedSize = glb->getMinimumLanedRegisterSize();
   name = nm;
 
   size = sz;
@@ -43,7 +45,15 @@ Funcdata::Funcdata(const string &nm,Scope *scope,const Address &addr,int4 sz)
   if (nm.size()==0)
     localmap = (ScopeLocal *)0; // Filled in by restoreXml
   else {
-    ScopeLocal *newMap = new ScopeLocal(stackid,this,glb);
+    uint8 id;
+    if (sym != (FunctionSymbol *)0)
+      id = sym->getId();
+    else {
+      // Missing a symbol, build unique id based on address
+      id = 0x57AB12CD;
+      id = (id << 32) | (addr.getOffset() & 0xffffffff);
+    }
+    ScopeLocal *newMap = new ScopeLocal(id,stackid,this,glb);
     glb->symboltab->attachScope(newMap,scope);		// This may throw and delete newMap
     localmap = newMap;
     funcp.setScope(localmap,baseaddr+ -1);
@@ -69,6 +79,7 @@ void Funcdata::clear(void)
   clean_up_index = 0;
   high_level_index = 0;
   cast_phase_index = 0;
+  minLanedSize = glb->getMinimumLanedRegisterSize();
 
   localmap->clearUnlocked();	// Clear non-permanent stuff
   localmap->resetLocalWindow();
@@ -134,7 +145,7 @@ void Funcdata::startProcessing(void)
     warningHeader("This is an inlined function");
   Address baddr(baseaddr.getSpace(),0);
   Address eaddr(baseaddr.getSpace(),~((uintb)0));
-  followFlow(baddr,eaddr,0);
+  followFlow(baddr,eaddr);
   structureReset();
   sortCallSpecs();		// Must come after structure reset
   heritage.buildInfoList();
@@ -145,6 +156,7 @@ void Funcdata::stopProcessing(void)
 
 {
   flags |= processing_complete;
+  obank.destroyDead();		// Free up anything in the dead list
 #ifdef CPUI_STATISTICS
   glb->stats->process(*this);
 #endif
@@ -208,6 +220,7 @@ void Funcdata::spacebase(void)
 
   for(j=0;j<glb->numSpaces();++j) {
     spc = glb->getSpace(j);
+    if (spc == (AddrSpace *)0) continue;
     numspace = spc->numSpacebase();
     for(i=0;i<numspace;++i) {
       const VarnodeData &point(spc->getSpacebase(i));
@@ -289,7 +302,6 @@ Varnode *Funcdata::findSpacebaseInput(AddrSpace *id) const
 void Funcdata::spacebaseConstant(PcodeOp *op,int4 slot,SymbolEntry *entry,const Address &rampoint,uintb origval,int4 origsize)
 
 {
-  PcodeOp *addop;
   int4 sz = rampoint.getAddrSize();
   AddrSpace *spaceid = rampoint.getSpace();
   Datatype *sb_type = glb->types->getTypeSpacebase(spaceid,Address());
@@ -299,48 +311,96 @@ void Funcdata::spacebaseConstant(PcodeOp *op,int4 slot,SymbolEntry *entry,const 
   uintb extra = rampoint.getOffset() - entry->getAddr().getOffset();		// Offset from beginning of entry
   extra = AddrSpace::byteToAddress(extra,rampoint.getSpace()->getWordSize());	// Convert to address units
 
+  PcodeOp *addOp = (PcodeOp *)0;
+  PcodeOp *extraOp = (PcodeOp *)0;
+  PcodeOp *zextOp = (PcodeOp *)0;
+  PcodeOp *subOp = (PcodeOp *)0;
+  bool isCopy = false;
+  if (op->code() == CPUI_COPY) {	// We replace COPY with final op of this calculation
+    isCopy = true;
+    if (sz < origsize)
+      zextOp = op;
+    else {
+      op->insertInput(1);	// PTRSUB, ADD, SUBPIECE all take 2 parameters
+      if (origsize < sz)
+	subOp = op;
+      else if (extra != 0)
+	extraOp = op;
+      else
+	addOp = op;
+    }
+  }
   spacebase_vn = newConstant(sz,0);
   spacebase_vn->updateType(sb_type,true,true);
   spacebase_vn->setFlags(Varnode::spacebase);
-  addop = newOp(2,op->getAddr());
-  opSetOpcode(addop,CPUI_PTRSUB);
-  outvn = newUniqueOut(sz,addop);
+  if (addOp == (PcodeOp *)0) {
+    addOp = newOp(2,op->getAddr());
+    opSetOpcode(addOp,CPUI_PTRSUB);
+    newUniqueOut(sz,addOp);
+    opInsertBefore(addOp,op);
+  }
+  else {
+    opSetOpcode(addOp,CPUI_PTRSUB);
+  }
+  outvn = addOp->getOut();
   // Make sure newconstant and extra preserve origval in address units
   uintb newconstoff = origval - extra;		// everything is already in address units
   newconst = newConstant(sz,newconstoff);
   newconst->setPtrCheck();	// No longer need to check this constant as a pointer
   if (spaceid->isTruncated())
-    addop->setPtrFlow();
-  opSetInput(addop,spacebase_vn,0);
-  opSetInput(addop,newconst,1);
-  opInsertBefore(addop,op);
+    addOp->setPtrFlow();
+  opSetInput(addOp,spacebase_vn,0);
+  opSetInput(addOp,newconst,1);
+
   Symbol *sym = entry->getSymbol();
   Datatype *entrytype = sym->getType();
-  Datatype *ptrentrytype = glb->types->getTypePointer(sz,entrytype,spaceid->getWordSize());
+  Datatype *ptrentrytype = glb->types->getTypePointerStripArray(sz,entrytype,spaceid->getWordSize());
   bool typelock = sym->isTypeLocked();
   if (typelock && (entrytype->getMetatype() == TYPE_UNKNOWN))
     typelock = false;
   outvn->updateType(ptrentrytype,typelock,true);
   if (extra != 0) {
-    PcodeOp *extraop = newOp(2,op->getAddr());
-    opSetOpcode(extraop,CPUI_INT_ADD);
-    Varnode *outvn2 = newUniqueOut(sz,extraop);
+    if (extraOp == (PcodeOp *)0) {
+      extraOp = newOp(2,op->getAddr());
+      opSetOpcode(extraOp,CPUI_INT_ADD);
+      newUniqueOut(sz,extraOp);
+      opInsertBefore(extraOp,op);
+    }
+    else
+      opSetOpcode(extraOp,CPUI_INT_ADD);
     Varnode *extconst = newConstant(sz,extra);
     extconst->setPtrCheck();
-    opSetInput(extraop,outvn,0);
-    opSetInput(extraop,extconst,1);
-    outvn = outvn2;
-    opInsertBefore(extraop,op);
+    opSetInput(extraOp,outvn,0);
+    opSetInput(extraOp,extconst,1);
+    outvn = extraOp->getOut();
   }
-  if (sz != origsize) {		// There is a change in size from address -> varnode
-    PcodeOp *zextop = newOp(1,op->getAddr());
-    Varnode *outvn2 = newUniqueOut(origsize,zextop);
-    opSetOpcode(zextop,CPUI_INT_ZEXT); // Create an extension to get back to original varnode size
-    opSetInput(zextop,outvn,0);
-    opInsertBefore(zextop,op);
-    outvn = outvn2;
+  if (sz < origsize) {		// The new constant is smaller than the original varnode, so we extend it
+    if (zextOp == (PcodeOp *)0) {
+      zextOp = newOp(1,op->getAddr());
+      opSetOpcode(zextOp,CPUI_INT_ZEXT); // Create an extension to get back to original varnode size
+      newUniqueOut(origsize,zextOp);
+      opInsertBefore(zextOp,op);
+    }
+    else
+      opSetOpcode(zextOp,CPUI_INT_ZEXT);
+    opSetInput(zextOp,outvn,0);
+    outvn = zextOp->getOut();
   }
-  opSetInput(op,outvn,slot);
+  else if (origsize < sz) {	// The new constant is bigger than the original varnode, truncate it
+    if (subOp == (PcodeOp *)0) {
+      subOp = newOp(2,op->getAddr());
+      opSetOpcode(subOp,CPUI_SUBPIECE);
+      newUniqueOut(origsize,subOp);
+      opInsertBefore(subOp,op);
+    }
+    else
+      opSetOpcode(subOp,CPUI_SUBPIECE);
+    opSetInput(subOp,outvn,0);
+    opSetInput(subOp,newConstant(4, 0), 1);	// Take least significant piece
+    outvn = subOp->getOut();
+  }
+  if (!isCopy)
+    opSetInput(op,outvn,slot);
 }
 
 void Funcdata::clearCallSpecs(void)
@@ -356,7 +416,7 @@ void Funcdata::clearCallSpecs(void)
 
 FuncCallSpecs *Funcdata::getCallSpecs(const PcodeOp *op) const
 
-{				// Get FuncCallSpecs from CALL op
+{
   int4 i;
   const Varnode *vn;
 
@@ -367,29 +427,6 @@ FuncCallSpecs *Funcdata::getCallSpecs(const PcodeOp *op) const
   for(i=0;i<qlst.size();++i)
     if (qlst[i]->getOp() == op) return qlst[i];
   return (FuncCallSpecs *)0;
-}
-
-/// \brief Update CALL PcodeOp properties based on its corresponding call specification
-///
-/// As call specifications for a particular call site are updated, this routine pushes
-/// back properties to the particular CALL op that are relevant for analysis.
-/// \param fc is the call specification
-void Funcdata::updateOpFromSpec(FuncCallSpecs *fc)
-
-{
-  PcodeOp *op = fc->getOp();
-  if (fc->isConstructor())
-    op->setAdditionalFlag(PcodeOp::is_constructor);
-  else
-    op->clearAdditionalFlag(PcodeOp::is_constructor);
-  if (fc->isDestructor())
-    op->setAdditionalFlag(PcodeOp::is_destructor);
-  else
-    op->clearAdditionalFlag(PcodeOp::is_destructor);
-  if (fc->hasThisPointer())
-    op->setAdditionalFlag(PcodeOp::has_thisptr);
-  else
-    op->clearAdditionalFlag(PcodeOp::has_thisptr);
 }
 
 /// \brief Compare call specification objects by call site address
@@ -558,7 +595,6 @@ void Funcdata::saveVarnodeXml(ostream &s,VarnodeLocSet::const_iterator iter,Varn
 void Funcdata::saveXmlHigh(ostream &s) const
 
 {
-  int4 j;
   Varnode *vn;
   HighVariable *high;
 
@@ -571,32 +607,7 @@ void Funcdata::saveXmlHigh(ostream &s) const
     high = vn->getHigh();
     if (high->isMark()) continue;
     high->setMark();
-    vn = high->getNameRepresentative(); // Get representative varnode
-    s << "<high ";
-    //    a_v(s,"name",high->getName());
-    a_v_u(s,"repref",vn->getCreateIndex());
-    if (high->isSpacebase()||high->isImplied()) // This is a special variable
-      a_v(s,"class",string("other"));
-    else if (high->isPersist()&&high->isAddrTied()) // Global variable
-      a_v(s,"class",string("global"));
-    else if (high->isConstant())
-      a_v(s,"class",string("constant"));
-    else if (!high->isPersist())
-      a_v(s,"class",string("local"));
-    else
-      a_v(s,"class",string("other"));
-    if (high->isTypeLock())
-      a_v_b(s,"typelock",true);
-    if (high->getSymbol() != (Symbol *)0)
-      a_v_u(s,"symref",high->getSymbol()->getId());
-    s << '>';
-    high->getType()->saveXml(s);
-    for(j=0;j<high->numInstances();++j) {
-      s << "<addr ";
-      a_v_u(s,"ref",high->getInstance(j)->getCreateIndex());
-      s << "/>";
-    }
-    s << "</high>";
+    high->saveXml(s);
   }
   for(iter=beginLoc();iter!=endLoc();++iter) {
     vn = *iter;
@@ -617,7 +628,7 @@ void Funcdata::saveXmlTree(ostream &s) const
   s << "<varnodes>\n";
   for(int4 i=0;i<glb->numSpaces();++i) {
     AddrSpace *base = glb->getSpace(i);
-    if (base->getType()==IPTR_IOP) continue;
+    if (base == (AddrSpace *)0 || base->getType()==IPTR_IOP) continue;
     VarnodeLocSet::const_iterator iter = vbank.beginLoc(base);
     VarnodeLocSet::const_iterator enditer = vbank.endLoc(base);
     saveVarnodeXml(s,iter,enditer);
@@ -659,11 +670,14 @@ void Funcdata::saveXmlTree(ostream &s) const
 /// If indicated by the caller, a description of the entire PcodeOp and Varnode
 /// tree is also emitted.
 /// \param s is the output stream
+/// \param id is the unique id associated with the function symbol
 /// \param savetree is \b true if the p-code tree should be emitted
-void Funcdata::saveXml(ostream &s,bool savetree) const
+void Funcdata::saveXml(ostream &s,uint8 id,bool savetree) const
 
 {
   s << "<function";
+  if (id != 0)
+    a_v_u(s, "id", id);
   a_v(s,"name",name);
   a_v_i(s,"size",size);
   if (hasNoCode())
@@ -689,22 +703,30 @@ void Funcdata::saveXml(ostream &s,bool savetree) const
 /// From an XML \<function> tag, recover the name, address, prototype, symbol,
 /// jump-table, and override information for \b this function.
 /// \param el is the root \<function> tag
-void Funcdata::restoreXml(const Element *el)
+/// \return the symbol id associated with the function
+uint8 Funcdata::restoreXml(const Element *el)
 
 {
   //  clear();  // Shouldn't be needed
   name.clear();
   size = -1;
+  uint8 id = 0;
   AddrSpace *stackid = glb->getStackSpace();
   for(int4 i=0;i<el->getNumAttributes();++i) {
-    if (el->getAttributeName(i) == "name")
+    const string &attrName(el->getAttributeName(i));
+    if (attrName == "name")
       name = el->getAttributeValue(i);
-    else if (el->getAttributeName(i) == "size") {
+    else if (attrName == "size") {
       istringstream s( el->getAttributeValue(i));
       s.unsetf(ios::dec | ios::hex | ios::oct);
       s >> size;
     }
-    else if (el->getAttributeName(i) == "nocode") {
+    else if (attrName == "id") {
+      istringstream s( el->getAttributeValue(i));
+      s.unsetf(ios::dec | ios::hex | ios::oct);
+      s >> id;
+    }
+    else if (attrName == "nocode") {
       if (xml_readbool(el->getAttributeValue(i)))
 	flags |= no_code;
     }
@@ -721,7 +743,7 @@ void Funcdata::restoreXml(const Element *el)
     if ((*iter)->getName() == "localdb") {
       if (localmap != (ScopeLocal *)0)
 	throw LowlevelError("Pre-existing local scope when restoring: "+name);
-      ScopeLocal *newMap = new ScopeLocal(stackid,this,glb);
+      ScopeLocal *newMap = new ScopeLocal(id,stackid,this,glb);
       glb->symboltab->restoreXmlScope(*iter,newMap);	// May delete newMap and throw
       localmap = newMap;
     }
@@ -736,7 +758,7 @@ void Funcdata::restoreXml(const Element *el)
     else if ((*iter)->getName() == "prototype") {
       if (localmap == (ScopeLocal *)0) {
 	// If we haven't seen a <localdb> tag yet, assume we have a default local scope
-	ScopeLocal *newMap = new ScopeLocal(stackid,this,glb);
+	ScopeLocal *newMap = new ScopeLocal(id,stackid,this,glb);
 	Scope *scope = glb->symboltab->getGlobalScope();
 	glb->symboltab->attachScope(newMap,scope);	// May delete newMap and throw
 	localmap = newMap;
@@ -749,13 +771,14 @@ void Funcdata::restoreXml(const Element *el)
   }
   if (localmap == (ScopeLocal *)0) { // Seen neither <localdb> or <prototype>
     // This is a function shell, so we provide default locals
-    ScopeLocal *newMap = new ScopeLocal(stackid,this,glb);
+    ScopeLocal *newMap = new ScopeLocal(id,stackid,this,glb);
     Scope *scope = glb->symboltab->getGlobalScope();
     glb->symboltab->attachScope(newMap,scope);		// May delete newMap and throw
     localmap = newMap;
     funcp.setScope(localmap,baseaddr+ -1);
   }
   localmap->resetLocalWindow();
+  return id;
 }
 
 /// \brief Inject p-code from a \e payload into \b this live function

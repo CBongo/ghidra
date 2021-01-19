@@ -31,7 +31,7 @@ class ApplyLineNumbers {
 	private XmlPullParser xmlParser;
 	private Program program;
 
-	ApplyLineNumbers(PdbParserNEW pdbParser, XmlPullParser xmlParser, Program program) {
+	ApplyLineNumbers(PdbParser pdbParser, XmlPullParser xmlParser, Program program) {
 		//this.pdbParser = pdbParser;
 		this.xmlParser = xmlParser;
 		this.program = program;
@@ -62,9 +62,9 @@ class ApplyLineNumbers {
 			// "REP" (f3) portion (beginning) of the instruction.
 			CodeUnit cu = program.getListing().getCodeUnitContaining(address);
 			if (cu == null) {
-				log.appendMsg(
-					"Could not apply source code line number found in PDB (no code unit found at " +
-						address + ")");
+				log.appendMsg("PDB",
+					"Could not apply source code line number (no code unit found at " + address +
+						")");
 			}
 			else {
 				cu.setProperty("Source Path", sourcefileName);

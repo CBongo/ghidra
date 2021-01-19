@@ -15,16 +15,17 @@
  */
 package ghidra.app.util.bin.format.elf.relocation;
 
+import ghidra.app.util.MemoryBlockUtils;
 import ghidra.app.util.bin.StructConverter;
 import ghidra.app.util.bin.format.elf.*;
-import ghidra.program.model.address.*;
+import ghidra.program.model.address.Address;
+import ghidra.program.model.address.AddressSpace;
 import ghidra.program.model.listing.Listing;
 import ghidra.program.model.listing.Program;
 import ghidra.program.model.mem.Memory;
 import ghidra.program.model.mem.MemoryAccessException;
 import ghidra.program.model.util.CodeUnitInsertionException;
 import ghidra.util.exception.NotFoundException;
-import ghidra.util.task.TaskMonitor;
 
 public class AVR32_ElfRelocationHandler extends ElfRelocationHandler {
 
@@ -144,18 +145,10 @@ public class AVR32_ElfRelocationHandler extends ElfRelocationHandler {
 								newSectionTypeBuff.append("Global External Function");
 							}
 							ElfLoadHelper loadHelper = elfRelocationContext.getLoadHelper();
-							try {
-								loadHelper.getMemoryBlockUtil().createInitializedBlock(
-									newSectionNameBuff.toString(), currNewAddress, null,
-									currElfSymbolSize, newSectionTypeBuff.toString(), null,
-									isReadable, // Readable
-									isWritable, // Not Writable
-									isExecutable, // Executable
-									TaskMonitor.DUMMY);
-							}
-							catch (AddressOverflowException e) {
-								loadHelper.log(e.getMessage());
-							}
+							MemoryBlockUtils.createInitializedBlock(program, false,
+								newSectionNameBuff.toString(), currNewAddress, currElfSymbolSize,
+								newSectionTypeBuff.toString(), "AVR32-ELF Loader", isReadable,
+								isWritable, isExecutable, loadHelper.getLog());
 						}
 					}
 					try {
@@ -256,7 +249,7 @@ public class AVR32_ElfRelocationHandler extends ElfRelocationHandler {
 				    memory.setInt(relocationAddress, newValue);
 				    System.out.println("  HANDLED AVR relocation: R_AVR32_21S at "+relocationAddress + ", New = " + newValue);
 				    break;
-				case AVR32_ElfRelocationConstants.R_AVR32_16U: //Use long to accomodate the Unsignedness...
+				case AVR32_ElfRelocationConstants.R_AVR32_16U: //Use long to accommodate the Unsignedness...
 				    long newValueLong = ((symbolValue + addend) & 0x0000ffff);
 				    memory.setLong(relocationAddress, newValueLong);
 				    System.out.println("  HANDLED AVR relocation: R_AVR32_16U at "+relocationAddress + ", NewLong = " + newValueLong);

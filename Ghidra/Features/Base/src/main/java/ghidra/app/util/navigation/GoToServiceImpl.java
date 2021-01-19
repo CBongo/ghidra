@@ -105,7 +105,7 @@ public class GoToServiceImpl implements GoToService {
 			programLocation = override.goTo(goToAddress);
 		}
 		if (programLocation == null) {
-			programLocation = helper.getProgramLocationForAddress(goToAddress, program);
+			programLocation = GoToHelper.getProgramLocationForAddress(goToAddress, program);
 		}
 		else {
 			program = programLocation.getProgram();
@@ -116,13 +116,19 @@ public class GoToServiceImpl implements GoToService {
 
 	@Override
 	public boolean goTo(Address goToAddress, Program program) {
-		ProgramLocation location = helper.getProgramLocationForAddress(goToAddress, program);
+		ProgramLocation location = GoToHelper.getProgramLocationForAddress(goToAddress, program);
 		return helper.goTo(defaultNavigatable, location, program);
 	}
 
 	@Override
 	public boolean goToExternalLocation(ExternalLocation extLoc, boolean checkNavigationOption) {
 		return helper.goToExternalLocation(defaultNavigatable, extLoc, checkNavigationOption);
+	}
+
+	@Override
+	public boolean goToExternalLocation(Navigatable navigatable, ExternalLocation extLoc,
+			boolean checkNavigationOption) {
+		return helper.goToExternalLocation(navigatable, extLoc, checkNavigationOption);
 	}
 
 	@Override
@@ -133,9 +139,8 @@ public class GoToServiceImpl implements GoToService {
 			navigatable = defaultNavigatable;
 		}
 
-		GoToQuery query =
-			new GoToQuery(navigatable, plugin, this, queryData, fromAddr, listener,
-				helper.getOptions(), monitor);
+		GoToQuery query = new GoToQuery(navigatable, plugin, this, queryData, fromAddr, listener,
+			helper.getOptions(), monitor);
 
 		return query.processQuery();
 	}

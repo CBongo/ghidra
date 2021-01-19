@@ -125,17 +125,15 @@ public class ElfLoadAdapter {
 	}
 
 	/**
-	 * Get the preferred load address space for a program segment
+	 * Get the preferred load address space for an allocated program segment.
+	 * The OTHER space is reserved and should not be returned by this method.
 	 * @param elfLoadHelper load helper object
 	 * @param elfProgramHeader elf program segment header
-	 * @return preferred load address space or null to use default behavior
+	 * @return preferred load address space
 	 */
 	public AddressSpace getPreferredSegmentAddressSpace(ElfLoadHelper elfLoadHelper,
 			ElfProgramHeader elfProgramHeader) {
-		if (elfProgramHeader.getType() != ElfProgramHeaderConstants.PT_LOAD &&
-			elfProgramHeader.getVirtualAddress() == 0) {
-			return AddressSpace.OTHER_SPACE;
-		}
+
 		Program program = elfLoadHelper.getProgram();
 		if (elfProgramHeader.isExecute()) {
 			return program.getAddressFactory().getDefaultAddressSpace();
@@ -145,8 +143,30 @@ public class ElfLoadAdapter {
 	}
 
 	/**
+	 * Get the preferred load address for a program segment
+	 * @param elfLoadHelper load helper object
+	 * @param elfProgramHeader elf program segment header
+	 * @return preferred load address
+	 */
+	public Address getPreferredSegmentAddress(ElfLoadHelper elfLoadHelper,
+			ElfProgramHeader elfProgramHeader) {
+
+		Program program = elfLoadHelper.getProgram();
+
+		AddressSpace space = getPreferredSegmentAddressSpace(elfLoadHelper, elfProgramHeader);
+
+		long addrWordOffset = elfProgramHeader.getVirtualAddress();
+
+		if (space == program.getAddressFactory().getDefaultAddressSpace()) {
+			addrWordOffset += elfLoadHelper.getImageBaseWordAdjustmentOffset();
+		}
+
+		return space.getTruncatedAddress(addrWordOffset, true);
+	}
+
+	/**
 	 * Get the default alignment within the default address space.
-	 * @param load helper object
+	 * @param elfLoadHelper helper object
 	 * @return default alignment within the default address space.
 	 */
 	public int getDefaultAlignment(ElfLoadHelper elfLoadHelper) {
@@ -160,10 +180,11 @@ public class ElfLoadAdapter {
 	}
 
 	/**
-	 * Get the preferred load address space for an allocated section.
+	 * Get the preferred load address space for an allocated section.   The OTHER space
+	 * is reserved and should not be returned by this method.
 	 * @param elfLoadHelper load helper object
 	 * @param elfSectionHeader elf section header
-	 * @return preferred load address space or null to use default behavior
+	 * @return preferred load address space
 	 */
 	public AddressSpace getPreferredSectionAddressSpace(ElfLoadHelper elfLoadHelper,
 			ElfSectionHeader elfSectionHeader) {
@@ -173,6 +194,27 @@ public class ElfLoadAdapter {
 		}
 		// segment is not marked execute, use the data space by default
 		return program.getLanguage().getDefaultDataSpace();
+	}
+
+	/**
+	 * Get the preferred load address for an allocated program section.  
+	 * @param elfLoadHelper load helper object
+	 * @param elfSectionHeader elf program section header
+	 * @return preferred load address
+	 */
+	public Address getPreferredSectionAddress(ElfLoadHelper elfLoadHelper,
+			ElfSectionHeader elfSectionHeader) {
+		Program program = elfLoadHelper.getProgram();
+
+		AddressSpace space = getPreferredSectionAddressSpace(elfLoadHelper, elfSectionHeader);
+
+		long addrWordOffset = elfSectionHeader.getAddress();
+
+		if (space == program.getAddressFactory().getDefaultAddressSpace()) {
+			addrWordOffset += elfLoadHelper.getImageBaseWordAdjustmentOffset();
+		}
+
+		return space.getTruncatedAddress(addrWordOffset, true);
 	}
 
 	/**
@@ -192,7 +234,7 @@ public class ElfLoadAdapter {
 	 * a more accurate check based upon the actual language utilized.  While the ELF header
 	 * may have stipulated a specific processor via the machine-id, a completely different
 	 * and incompatible language may have been used.
-	 * @param elf elf header
+	 * @param elfLoadHelper elf header
 	 * @return true if this extension can properly support the ELF header and the 
 	 * current program/language.
 	 */
@@ -207,6 +249,22 @@ public class ElfLoadAdapter {
 	 */
 	public String getDataTypeSuffix() {
 		return null;
+	}
+
+	/**
+	 * Perform any required offset adjustment to account for differences between offset 
+	 * values contained within ELF headers and the language modeling of the 
+	 * associated address space.
+	 * <br>
+	 * WARNING: This is an experimental method and is not yet fully supported.
+	 * <br>
+	 * NOTE: This has currently been utilized for symbol address offset adjustment only.
+	 * @param elfOffset memory offset from ELF header
+	 * @param space associated address space
+	 * @return offset appropriate for use in space (does not account for image base alterations)
+	 */
+	public long getAdjustedMemoryOffset(long elfOffset, AddressSpace space) {
+		return elfOffset;
 	}
 
 	/**
@@ -383,7 +441,7 @@ public class ElfLoadAdapter {
 	/**
 	 * Return the memory section size in bytes for the specified section header.
 	 * The returned value will be consistent with any byte filtering which may be required.
-	 * @param ElfSectionHeader
+	 * @param section the section header
 	 * @return preferred memory block size in bytes which corresponds to the specified section header
 	 */
 	public long getAdjustedSize(ElfSectionHeader section) {
@@ -392,6 +450,8 @@ public class ElfLoadAdapter {
 
 	/**
 	 * Return filtered InputStream for loading a memory block (includes non-loaded OTHER blocks).
+	 * NOTE: If this method is overriden, the {@link #hasFilteredLoadInputStream(ElfLoadHelper, MemoryLoadable, Address)}
+	 * must also be overriden in a consistent fashion.
 	 * @param elfLoadHelper
 	 * @param loadable Corresponding ElfSectionHeader or ElfProgramHeader for the memory block to be created.
 	 * @param start memory load address
@@ -405,6 +465,20 @@ public class ElfLoadAdapter {
 	}
 
 	/**
+	 * Determine if the use of {@link #getFilteredLoadInputStream(ElfLoadHelper, MemoryLoadable, Address, long, InputStream)} 
+	 * is required when loading a memory block.  If a filtered input stream is required this will prevent the use of a direct 
+	 * mapping to file bytes.
+	 * @param elfLoadHelper 
+	 * @param loadable Corresponding ElfSectionHeader or ElfProgramHeader for the memory block to be loaded.
+	 * @param start memory load address
+	 * @return true if the use of a filtered input stream is required
+	 */
+	public boolean hasFilteredLoadInputStream(ElfLoadHelper elfLoadHelper, MemoryLoadable loadable,
+			Address start) {
+		return false;
+	}
+
+	/**
 	 * Get the ElfRelocation class which should be used to properly parse
 	 * the relocation tables.
 	 * @param elfHeader ELF header object (for header field access only)
@@ -413,5 +487,4 @@ public class ElfLoadAdapter {
 	public Class<? extends ElfRelocation> getRelocationClass(ElfHeader elfHeader) {
 		return null;
 	}
-
 }

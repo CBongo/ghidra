@@ -1,7 +1,5 @@
 /* ###
  * IP: GHIDRA
- * EXCLUDE: YES
- * REVIEWED: YES
  * NOTE: This was included for debugging purposes; while it has utility, better and more complete options should be considered...
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -18,7 +16,7 @@
  */
 package ghidra.app.plugin.exceptionhandlers.gcc.structures.ehFrame;
 
-import ghidra.app.cmd.comments.SetCommentsCmd;
+import ghidra.app.cmd.comments.SetCommentCmd;
 import ghidra.app.plugin.exceptionhandlers.gcc.GccAnalysisUtils;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.listing.CodeUnit;
@@ -142,7 +140,7 @@ public class DwarfCallFrameOpcodeParser {
 			else {
 				switch (exOpcodeOrParam) {
 
-				//  case DW_CFA_extended:
+					//  case DW_CFA_extended:
 					case DW_CFA_nop:
 						primaryOpcode = true;
 						sb.append("DW_CFA_nop");
@@ -187,8 +185,8 @@ public class DwarfCallFrameOpcodeParser {
 						operand2Len = GccAnalysisUtils.getULEB128Length(program, curr);
 						curr = curr.add(operand2Len);
 
-						sb.append("DW_CFA_offset_extended reg[" + operand1 + "] reg[" + operand2 +
-							"]");
+						sb.append(
+							"DW_CFA_offset_extended reg[" + operand1 + "] reg[" + operand2 + "]");
 						break;
 
 					case DW_CFA_restore_extended:
@@ -370,35 +368,10 @@ public class DwarfCallFrameOpcodeParser {
 				}
 			}
 
-			setComment(instrAddr, sb.toString(), CodeUnit.EOL_COMMENT);
+			SetCommentCmd.createComment(program, instrAddr, sb.toString(), CodeUnit.EOL_COMMENT);
 
 			Msg.info(this, sb.toString());
 		}
-	}
-
-	private void setComment(Address addr, String comment, int commentType) {
-		SetCommentsCmd commentCmd = null;
-
-		switch (commentType) {
-			case CodeUnit.PRE_COMMENT:
-				commentCmd = new SetCommentsCmd(addr, comment, null, null, null, null);
-				break;
-			case CodeUnit.POST_COMMENT:
-				commentCmd = new SetCommentsCmd(addr, null, comment, null, null, null);
-				break;
-			case CodeUnit.EOL_COMMENT:
-				commentCmd = new SetCommentsCmd(addr, null, null, comment, null, null);
-				break;
-			case CodeUnit.PLATE_COMMENT:
-				commentCmd = new SetCommentsCmd(addr, null, null, null, comment, null);
-				break;
-			case CodeUnit.REPEATABLE_COMMENT:
-				commentCmd = new SetCommentsCmd(addr, null, null, null, null, comment);
-				break;
-			default:
-				commentCmd = new SetCommentsCmd(addr, null, null, comment, null, null);
-		}
-		commentCmd.applyTo(program);
 	}
 
 }

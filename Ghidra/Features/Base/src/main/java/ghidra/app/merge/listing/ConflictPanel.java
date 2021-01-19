@@ -1,6 +1,5 @@
 /* ###
  * IP: GHIDRA
- * REVIEWED: YES
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,6 +18,8 @@ package ghidra.app.merge.listing;
 import java.awt.LayoutManager;
 
 import javax.swing.JCheckBox;
+
+import docking.widgets.checkbox.GCheckBox;
 
 /**
  * Abstract class that should be implemented by the conflict panel that appears 
@@ -52,7 +53,6 @@ public abstract class ConflictPanel extends ChoiceComponent {
 	 * row or 0 is returned.
 	 * Each button or check box has an associated value that can be bitwise 'OR'ed together
 	 * to get the entire choice for the row.
-	 * @param row the row of the conflict resolution table.
 	 * @return the choice(s) currently selected.
 	 */
 	public abstract int getUseForAllChoice();
@@ -76,7 +76,7 @@ public abstract class ConflictPanel extends ChoiceComponent {
 	public abstract void clear();
 
 	protected JCheckBox createUseForAllCheckBox() {
-		useForAllCB = new JCheckBox(getUseAllString("unknown"));
+		useForAllCB = new GCheckBox(getUseAllString("unknown"));
 		useForAllCB.setName(USE_FOR_ALL_CHECKBOX);
 		return useForAllCB;
 	}

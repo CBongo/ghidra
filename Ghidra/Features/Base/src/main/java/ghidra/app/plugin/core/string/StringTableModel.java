@@ -21,7 +21,9 @@ import ghidra.docking.settings.Settings;
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.framework.plugintool.ServiceProvider;
 import ghidra.program.model.address.Address;
+import ghidra.program.model.address.AddressSet;
 import ghidra.program.model.listing.Program;
+import ghidra.program.util.ProgramSelection;
 import ghidra.program.util.string.FoundString;
 import ghidra.util.datastruct.Accumulator;
 import ghidra.util.exception.CancelledException;
@@ -30,7 +32,7 @@ import ghidra.util.table.field.*;
 import ghidra.util.task.TaskMonitor;
 
 /**
- * Table model for the Search -> For Strings... result dialog.
+ * Table model for the Search -&gt; For Strings... result dialog.
  * <p>
  */
 public class StringTableModel extends AddressBasedTableModel<FoundString> {
@@ -44,6 +46,20 @@ public class StringTableModel extends AddressBasedTableModel<FoundString> {
 		if (options.getWordModelInitialized()) {
 			addTableColumn(new ConfidenceWordTableColumn());
 		}
+	}
+
+	@Override
+	public ProgramSelection getProgramSelection(int[] rows) {
+
+		AddressSet addressSet = new AddressSet();
+		for (int row : rows) {
+			FoundString foundString = getRowObject(row);
+			Address addr = foundString.getAddress();
+			if (addr != null) {
+				addressSet.addRange(addr, addr.add(foundString.getLength() - 1));
+			}
+		}
+		return new ProgramSelection(addressSet);
 	}
 
 	@Override

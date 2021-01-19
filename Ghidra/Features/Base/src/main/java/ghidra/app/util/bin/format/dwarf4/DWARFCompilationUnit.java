@@ -111,15 +111,15 @@ public class DWARFCompilationUnit {
 	 * leaves the input stream at the next compilation unit to read), otherwise throws
 	 * an IOException if there was an unrecoverable error.
 	 *
-	 * @param debugInfoBR
-	 * @param debugAbbrBR
-	 * @param cuNumber
-	 * @param helper
-	 * @param monitor
-	 * @return
-	 * @throws DWARFException
-	 * @throws IOException
-	 * @throws CancelledException
+	 * @param dwarfProgram the dwarf program.
+	 * @param debugInfoBR the debug info binary reader.
+	 * @param debugAbbrBR the debug abbreviation binary reader
+	 * @param cuNumber the compilation unit number
+	 * @param monitor the current task monitor
+	 * @return the read compilation unit.
+	 * @throws DWARFException if an invalid or unsupported DWARF version is read.
+	 * @throws IOException if the length of the compilation unit is invalid.
+	 * @throws CancelledException if the task has been canceled.
 	 */
 	public static DWARFCompilationUnit readCompilationUnit(DWARFProgram dwarfProgram,
 			BinaryReader debugInfoBR, BinaryReader debugAbbrBR, int cuNumber, TaskMonitor monitor)
@@ -148,6 +148,7 @@ public class DWARFCompilationUnit {
 		else {
 			format = DWARF_32;
 		}
+
 		long endOffset = (debugInfoBR.getPointerIndex() + length);
 		short version = debugInfoBR.readNextShort();
 		long abbreviationOffset = DWARFUtil.readOffsetByDWARFformat(debugInfoBR, format);
@@ -158,6 +159,14 @@ public class DWARFCompilationUnit {
 			throw new DWARFException(
 				"Only DWARF version 2, 3, or 4 information is currently supported.");
 		}
+		if (firstDIEOffset > endOffset) {
+			throw new IOException("Invalid length " + (endOffset - startOffset) +
+				" for DWARF Compilation Unit at 0x" + Long.toHexString(startOffset));
+		}
+		else if (firstDIEOffset == endOffset) {
+			// silently skip this empty compunit
+			return null;
+		}
 
 		debugAbbrBR.setPointerIndex(abbreviationOffset);
 		Map<Integer, DWARFAbbreviation> abbrMap =
@@ -167,10 +176,10 @@ public class DWARFCompilationUnit {
 			new DWARFCompilationUnit(dwarfProgram, startOffset, endOffset, length, format, version,
 				abbreviationOffset, pointerSize, cuNumber, firstDIEOffset, abbrMap);
 
-		DebugInfoEntry compileUnitDIE =
-			DebugInfoEntry.read(debugInfoBR, cu, dwarfProgram.getAttributeFactory());
-
 		try {
+			DebugInfoEntry compileUnitDIE =
+				DebugInfoEntry.read(debugInfoBR, cu, dwarfProgram.getAttributeFactory());
+
 			DWARFCompileUnit compUnit = DWARFCompileUnit.read(
 				DIEAggregate.createSingle(compileUnitDIE), dwarfProgram.getDebugLine());
 			cu.setCompileUnit(compUnit);
@@ -189,18 +198,6 @@ public class DWARFCompilationUnit {
 
 	/**
 	 * This ctor is public only for junit tests.  Do not use directly.
-	 *
-	 * @param dwarfProgram
-	 * @param startOffset
-	 * @param endOffset
-	 * @param length
-	 * @param format
-	 * @param version
-	 * @param abbreviationOffset
-	 * @param pointerSize
-	 * @param compUnitNumber
-	 * @param firstDIEOffset
-	 * @param codeToAbbreviationMap
 	 */
 	public DWARFCompilationUnit(DWARFProgram dwarfProgram, long startOffset, long endOffset,
 			long length, int format, short version, long abbreviationOffset, byte pointerSize,

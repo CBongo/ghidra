@@ -19,16 +19,14 @@ import java.io.IOException;
 import java.io.PrintStream;
 import java.net.Socket;
 
-import docking.ActionContext;
-import docking.action.DockingAction;
-import docking.action.ToolBarData;
 import generic.jar.ResourceFile;
 import ghidra.app.CorePluginPackage;
 import ghidra.app.plugin.PluginCategoryNames;
 import ghidra.app.plugin.ProgramPlugin;
 import ghidra.app.plugin.core.eclipse.EclipseConnection;
 import ghidra.app.plugin.core.eclipse.EclipseIntegrationOptionsPlugin;
-import ghidra.app.script.GhidraState;
+import ghidra.app.plugin.core.osgi.BundleHost;
+import ghidra.app.script.*;
 import ghidra.app.services.*;
 import ghidra.framework.options.SaveState;
 import ghidra.framework.options.ToolOptions;
@@ -36,9 +34,7 @@ import ghidra.framework.plugintool.PluginInfo;
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.framework.plugintool.util.PluginStatus;
 import ghidra.program.model.listing.Program;
-import ghidra.util.HelpLocation;
 import ghidra.util.task.TaskListener;
-import resources.ResourceManager;
 
 //@formatter:off
 @PluginInfo(
@@ -52,42 +48,30 @@ import resources.ResourceManager;
 )
 //@formatter:on
 public class GhidraScriptMgrPlugin extends ProgramPlugin implements GhidraScriptService {
+	private final GhidraScriptComponentProvider provider;
 
-	private GhidraScriptComponentProvider provider;
-	private DockingAction action;
+	private final BundleHost bundleHost;
 
+	/**
+	 * {@link GhidraScriptMgrPlugin} is the entry point for all {@link GhidraScript} capabilities.
+	 * 
+	 * @param tool the tool this plugin is added to
+	 */
 	public GhidraScriptMgrPlugin(PluginTool tool) {
 		super(tool, true, true, true);
 
-		provider = new GhidraScriptComponentProvider(this);
-	}
-
-	@Override
-	protected void init() {
-		super.init();
-
-		action = new DockingAction("Display Script Manager", getName()) {
-
-			@Override
-			public void actionPerformed(ActionContext context) {
-				tool.showComponentProvider(provider, true);
-			}
-		};
-
-		// ACTIONS - auto generated
-		action.setToolBarData(
-			new ToolBarData(ResourceManager.loadImage("images/play.png"), "View"));
-
-		action.setEnabled(true);
-		action.setHelpLocation(new HelpLocation(getName(), "Script_Manager"));
-		tool.addAction(action);
+		// Each tool starts a new script manager plugin, but we only ever want one bundle host.
+		// GhidraScriptUtil (creates and) manages one instance.
+		bundleHost = GhidraScriptUtil.acquireBundleHostReference();
+		
+		provider = new GhidraScriptComponentProvider(this, bundleHost);
 	}
 
 	@Override
 	protected void dispose() {
 		super.dispose();
-		action.dispose();
 		provider.dispose();
+		GhidraScriptUtil.releaseBundleHostReference();
 	}
 
 	@Override
@@ -122,6 +106,11 @@ public class GhidraScriptMgrPlugin extends ProgramPlugin implements GhidraScript
 		provider.runScript(scriptName, listener);
 	}
 
+	/**
+	 * Attempts to run a script in a {@link RunScriptTask}. 
+	 * 
+	 * @param scriptFile the script's source file
+	 */
 	public void runScript(ResourceFile scriptFile) {
 		provider.runScript(scriptFile);
 	}

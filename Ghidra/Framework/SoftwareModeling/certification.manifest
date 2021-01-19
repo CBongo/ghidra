@@ -2,8 +2,6 @@
 ##MODULE IP: BSD
 ##MODULE IP: Creative Commons Attribution 2.5
 ##MODULE IP: Tango Icons - Public Domain
-.classpath||GHIDRA||||END|
-.project||GHIDRA||||END|
 Module.manifest||GHIDRA||||END|
 Sleigh.launch||GHIDRA||||END|
 build.gradle||GHIDRA||||END|
@@ -31,7 +29,6 @@ src/main/java/ghidra/program/database/package.html||GHIDRA||||END|
 src/main/java/ghidra/program/model/address/package.html||GHIDRA||||END|
 src/main/java/ghidra/program/model/block/package.html||GHIDRA||||END|
 src/main/java/ghidra/program/model/data/package.html||GHIDRA||||END|
-src/main/java/ghidra/program/model/graph/package.html||GHIDRA||||END|
 src/main/java/ghidra/program/model/lang/package.html||GHIDRA||||END|
 src/main/java/ghidra/program/model/listing/package.html||GHIDRA||||END|
 src/main/java/ghidra/program/model/mem/package.html||GHIDRA||||END|

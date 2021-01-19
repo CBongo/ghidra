@@ -25,7 +25,8 @@ import org.apache.commons.io.FilenameUtils;
 import ghidra.app.util.Option;
 import ghidra.app.util.bin.ByteProvider;
 import ghidra.app.util.bin.RandomAccessByteProvider;
-import ghidra.app.util.importer.*;
+import ghidra.app.util.importer.LibrarySearchPathManager;
+import ghidra.app.util.importer.MessageLog;
 import ghidra.formats.gfilesystem.FSRL;
 import ghidra.framework.model.*;
 import ghidra.framework.options.Options;
@@ -59,14 +60,13 @@ public abstract class AbstractLibrarySupportLoader extends AbstractProgramLoader
 	 * @param loadSpec The {@link LoadSpec} to use during load.
 	 * @param options The load options.
 	 * @param program The {@link Program} to load into.
-	 * @param handler How to handle memory conflicts that occur during the load.
 	 * @param monitor A cancelable task monitor.
 	 * @param log The message log.
 	 * @throws IOException if there was an IO-related problem loading.
 	 * @throws CancelledException if the user cancelled the load.
 	 */
 	protected abstract void load(ByteProvider provider, LoadSpec loadSpec, List<Option> options,
-			Program program, MemoryConflictHandler handler, TaskMonitor monitor, MessageLog log)
+			Program program, TaskMonitor monitor, MessageLog log)
 			throws CancelledException, IOException;
 
 	@Override
@@ -110,8 +110,8 @@ public abstract class AbstractLibrarySupportLoader extends AbstractProgramLoader
 
 	@Override
 	protected boolean loadProgramInto(ByteProvider provider, LoadSpec loadSpec,
-			List<Option> options, MessageLog log, Program program, TaskMonitor monitor,
-			MemoryConflictHandler memoryConflictHandler) throws CancelledException, IOException {
+			List<Option> options, MessageLog log, Program program, TaskMonitor monitor)
+			throws CancelledException, IOException {
 
 		LanguageCompilerSpecPair pair = loadSpec.getLanguageCompilerSpec();
 		LanguageID languageID = program.getLanguageID();
@@ -122,7 +122,7 @@ public abstract class AbstractLibrarySupportLoader extends AbstractProgramLoader
 			return false;
 		}
 		log.appendMsg("----- Loading " + provider.getAbsolutePath() + " -----");
-		load(provider, loadSpec, options, program, memoryConflictHandler, monitor, log);
+		load(provider, loadSpec, options, program, monitor, log);
 		return true;
 	}
 
@@ -139,7 +139,8 @@ public abstract class AbstractLibrarySupportLoader extends AbstractProgramLoader
 	}
 
 	@Override
-	public String validateOptions(ByteProvider provider, LoadSpec loadSpec, List<Option> options) {
+	public String validateOptions(ByteProvider provider, LoadSpec loadSpec, List<Option> options,
+			Program program) {
 
 		if (options != null) {
 			for (Option option : options) {
@@ -151,7 +152,7 @@ public abstract class AbstractLibrarySupportLoader extends AbstractProgramLoader
 				}
 			}
 		}
-		return super.validateOptions(provider, loadSpec, options);
+		return super.validateOptions(provider, loadSpec, options, program);
 	}
 
 	@Override
@@ -336,15 +337,14 @@ public abstract class AbstractLibrarySupportLoader extends AbstractProgramLoader
 
 		Address imageBaseAddr = language.getAddressFactory().getDefaultAddressSpace().getAddress(
 			loadSpec.getDesiredImageBase());
-		Program program = createProgram(provider, programName, imageBaseAddr, getName(),
-			language, compilerSpec, consumer);
+		Program program = createProgram(provider, programName, imageBaseAddr, getName(), language,
+			compilerSpec, consumer);
 
 		int transactionID = program.startTransaction("importing");
 		boolean success = false;
 		try {
 			log.appendMsg("----- Loading " + provider.getAbsolutePath() + " -----");
-			load(provider, loadSpec, options, program, MemoryConflictHandler.ALWAYS_OVERWRITE,
-				monitor, log);
+			load(provider, loadSpec, options, program, monitor, log);
 
 			createDefaultMemoryBlocks(program, language, log);
 
@@ -624,8 +624,8 @@ public abstract class AbstractLibrarySupportLoader extends AbstractProgramLoader
 	 */
 	protected boolean importLibrary(String libName, DomainFolder libFolder, File libFile,
 			LoadSpec loadSpec, List<Option> options, MessageLog log, Object consumer,
-			Set<String> unprocessedLibs, List<Program> programList,
-			TaskMonitor monitor) throws CancelledException, IOException {
+			Set<String> unprocessedLibs, List<Program> programList, TaskMonitor monitor)
+			throws CancelledException, IOException {
 
 		if (!libFile.isFile()) {
 			return false;
@@ -659,8 +659,7 @@ public abstract class AbstractLibrarySupportLoader extends AbstractProgramLoader
 	protected boolean importLibrary(String libName, DomainFolder libFolder, File libFile,
 			ByteProvider provider, LoadSpec loadSpec, List<Option> options, MessageLog log,
 			Object consumer, Set<String> unprocessedLibs, List<Program> programList,
-			TaskMonitor monitor)
-			throws CancelledException, IOException {
+			TaskMonitor monitor) throws CancelledException, IOException {
 
 		Program lib = null;
 		int size = loadSpec.getLanguageCompilerSpec().getLanguageDescription().getSize();
@@ -671,6 +670,8 @@ public abstract class AbstractLibrarySupportLoader extends AbstractProgramLoader
 			return false;
 		}
 		if (!isLoadLibraries(options)) {
+			// TODO: LibraryLookupTable support currently assumes Windows for x86 (32 or 64 bit).
+			//       Need to investigate adding support for other architectures
 			if (LibraryLookupTable.hasFileAndPathAndTimeStampMatch(libFile, size)) {
 				return true;// no need to really import it
 			}
@@ -711,9 +712,11 @@ public abstract class AbstractLibrarySupportLoader extends AbstractProgramLoader
 	 * @param monitor the task monitor
 	 * @param size the language size
 	 * @param program the loaded library program
+	 * @throws CancelledException thrown is task cancelled
+	 * 
 	 */
 	protected void createExportsFile(String libName, File libFile, MessageLog log,
-			TaskMonitor monitor, int size, Program program) {
+			TaskMonitor monitor, int size, Program program) throws CancelledException {
 
 		if (!LibraryLookupTable.libraryLookupTableFileExists(libName, size) ||
 			!LibraryLookupTable.hasFileAndPathAndTimeStampMatch(libFile, size)) {
@@ -729,8 +732,7 @@ public abstract class AbstractLibrarySupportLoader extends AbstractProgramLoader
 		}
 	}
 
-	protected LoadSpec getLoadSpec(LoadSpec loadSpec, ByteProvider provider)
-			throws IOException {
+	protected LoadSpec getLoadSpec(LoadSpec loadSpec, ByteProvider provider) throws IOException {
 		LanguageCompilerSpecPair pair = loadSpec.getLanguageCompilerSpec();
 		Collection<LoadSpec> loadSpecs = findSupportedLoadSpecs(provider);
 		if (loadSpecs != null) { // shouldn't be null, but protect against rogue loaders
@@ -759,9 +761,8 @@ public abstract class AbstractLibrarySupportLoader extends AbstractProgramLoader
 		// Check based on the original program name, not on the name I gave this program
 		int size = program.getLanguage().getLanguageDescription().getSize();
 
-		LibrarySymbolTable symtab =
-			LibraryLookupTable.getSymbolTable(new File(program.getExecutablePath()).getName(),
-				size);
+		LibrarySymbolTable symtab = LibraryLookupTable.getSymbolTable(
+			new File(program.getExecutablePath()).getName(), size);
 		if (symtab == null) {
 			// now try based on the name given to the program
 			symtab = LibraryLookupTable.getSymbolTable(program.getName(), size);
@@ -893,14 +894,14 @@ public abstract class AbstractLibrarySupportLoader extends AbstractProgramLoader
 				if (expSym.hasNoReturn()) {
 					extFunc.setNoReturn(true);
 				}
-				int stackShift = program.getCompilerSpec().getCallStackShift();
-				if (stackShift == -1) {
-					stackShift = 0;
-				}
+// TODO: This should not be done at time of import and should be done
+// by a late running analyzer (e.g., stack analyzer) if no signature
+// has been established
+//				int stackShift = program.getCompilerSpec().getDefaultCallingConvention().getStackshift();
+//				if (stackShift == -1) {
+//					stackShift = 0;
+//				}
 
-				// TODO: This should not be done at time of import and should be done
-				// by a late running analyzer (e.g., stack analyzer) if no signature
-				// has been established
 //				int numParams = expSym.getPurge() / 4;
 //				if (numParams > 0) {
 //					// HACK: assumes specific stack-based x86 convention

@@ -15,35 +15,29 @@
  */
 package ghidra.app.plugin.core.functionwindow;
 
-import java.util.List;
-
-import javax.swing.ImageIcon;
-import javax.swing.KeyStroke;
-
-import docking.ActionContext;
-import docking.action.*;
+import docking.ComponentProvider;
+import docking.ComponentProviderActivationListener;
+import docking.action.DockingAction;
 import ghidra.app.CorePluginPackage;
 import ghidra.app.events.ProgramClosedPluginEvent;
-import ghidra.app.events.ProgramSelectionPluginEvent;
 import ghidra.app.plugin.PluginCategoryNames;
 import ghidra.app.plugin.ProgramPlugin;
 import ghidra.app.plugin.core.functioncompare.FunctionComparisonProvider;
-import ghidra.app.plugin.core.functioncompare.FunctionComparisonProviderManager;
+import ghidra.app.plugin.core.functioncompare.actions.CompareFunctionsFromFunctionTableAction;
+import ghidra.app.services.FunctionComparisonService;
 import ghidra.framework.model.*;
-import ghidra.framework.options.*;
 import ghidra.framework.plugintool.PluginInfo;
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.framework.plugintool.util.PluginStatus;
-import ghidra.framework.plugintool.util.ToolConstants;
 import ghidra.program.model.address.Address;
-import ghidra.program.model.listing.*;
+import ghidra.program.model.listing.Function;
+import ghidra.program.model.listing.Program;
 import ghidra.program.model.symbol.Symbol;
-import ghidra.program.util.*;
-import ghidra.util.Msg;
-import ghidra.util.table.GhidraTable;
+import ghidra.program.util.ChangeManager;
+import ghidra.program.util.ProgramChangeRecord;
 import ghidra.util.table.SelectionNavigationAction;
+import ghidra.util.table.actions.MakeProgramSelectionAction;
 import ghidra.util.task.SwingUpdateManager;
-import resources.ResourceManager;
 
 //@formatter:off
 @PluginInfo(
@@ -55,37 +49,34 @@ import resources.ResourceManager;
 	eventsConsumed = { ProgramClosedPluginEvent.class }
 )
 //@formatter:on
-public class FunctionWindowPlugin extends ProgramPlugin
-		implements DomainObjectListener, OptionsChangeListener {
+public class FunctionWindowPlugin extends ProgramPlugin implements DomainObjectListener,
+		ComponentProviderActivationListener {
 
 	private DockingAction selectAction;
-	private DockingAction compareAction;
+	private DockingAction compareFunctionsAction;
 	private FunctionWindowProvider provider;
 	private SwingUpdateManager swingMgr;
-	private FunctionComparisonProviderManager functionComparisonManager;
-
-	///////////////////////////////////////////////////////////
+	private FunctionComparisonService functionComparisonService;
 
 	public FunctionWindowPlugin(PluginTool tool) {
 		super(tool, true, false);
 
-		functionComparisonManager = new FunctionComparisonProviderManager(this);
-
-		swingMgr = new SwingUpdateManager(1000, new Runnable() {
-			@Override
-			public void run() {
-				provider.reload();
-			}
-		});
-
+		swingMgr = new SwingUpdateManager(1000, () -> provider.reload());
 	}
 
 	@Override
 	public void init() {
 		super.init();
-
 		provider = new FunctionWindowProvider(this);
 		createActions();
+
+		/**
+		 * Kicks the tool actions to set the proper enablement when selection changes
+		 * on the function table
+		 */
+		provider.getTable().getSelectionModel().addListSelectionListener(x -> {
+			tool.contextChanged(provider);
+		});
 	}
 
 	@Override
@@ -94,21 +85,34 @@ public class FunctionWindowPlugin extends ProgramPlugin
 			currentProgram.removeListener(this);
 		}
 		swingMgr.dispose();
-		provider.dispose();
+		if (provider != null) {
+			provider.dispose();
+		}
 		super.dispose();
 	}
 
-	////////////////////////////////////////////////////////////////////////////
-	//
-	//  Implementation of DomainObjectListener
-	//
-	////////////////////////////////////////////////////////////////////////////
+	@Override
+	public void serviceAdded(Class<?> interfaceClass, Object service) {
+		if (interfaceClass == FunctionComparisonService.class) {
+			functionComparisonService = (FunctionComparisonService) service;
+
+			// Listen for providers being opened/closed to we can disable 
+			// comparison actions if there are no comparison providers
+			// open
+			functionComparisonService.addFunctionComparisonProviderListener(this);
+		}
+	}
+
+	@Override
+	public void serviceRemoved(Class<?> interfaceClass, Object service) {
+		if (interfaceClass == FunctionComparisonService.class) {
+			functionComparisonService.removeFunctionComparisonProviderListener(this);
+			functionComparisonService = null;
+		}
+	}
 
 	@Override
 	public void domainObjectChanged(DomainObjectChangedEvent ev) {
-		if (ev.containsEvent(DomainObject.DO_OBJECT_RESTORED)) {
-			functionComparisonManager.domainObjectRestored(ev);
-		}
 
 		if (!provider.isVisible()) {
 			return;
@@ -168,19 +172,17 @@ public class FunctionWindowPlugin extends ProgramPlugin
 						provider.update(function);
 					}
 					break;
-			/*case ChangeManager.DOCR_SYMBOL_REMOVED:
-				rec = (ProgramChangeRecord)ev.getChangeRecord(i);
-				addr = (Address)rec.getObject();
-				function = currentProgram.getListing().getFunctionAt(addr);
-				if (function != null) {
-					provider.functionChanged(function);
-				}
-				break;*/
+				/*case ChangeManager.DOCR_SYMBOL_REMOVED:
+					rec = (ProgramChangeRecord)ev.getChangeRecord(i);
+					addr = (Address)rec.getObject();
+					function = currentProgram.getListing().getFunctionAt(addr);
+					if (function != null) {
+						provider.functionChanged(function);
+					}
+					break;*/
 			}
 		}
 	}
-
-	////////////////////////////////////////////////////////////////////////////
 
 	@Override
 	protected void programActivated(Program program) {
@@ -194,134 +196,36 @@ public class FunctionWindowPlugin extends ProgramPlugin
 		provider.programClosed();
 	}
 
-	////////////////////////////////////////////////////////////////////////////
-
 	Program getProgram() {
 		return currentProgram;
 	}
 
-	////////////////////////////////////////////////////////////////////////////
-
-	/**
-	 * Create the action objects for this plugin.
-	 */
 	private void createActions() {
-		addSelectAction();
-		addCompareAction();
-
 		DockingAction action = new SelectionNavigationAction(this, provider.getTable());
 		tool.addLocalAction(provider, action);
-	}
 
-	private void addSelectAction() {
-		selectAction = new DockingAction("Make Selection", getName(), false) {
-			@Override
-			public void actionPerformed(ActionContext context) {
-				selectFunctions(provider.selectFunctions());
-			}
-		};
-		selectAction.setEnabled(false);
-		ImageIcon icon = ResourceManager.loadImage("images/text_align_justify.png");
-		selectAction.setPopupMenuData(new MenuData(new String[] { "Make Selection" }, icon));
-		selectAction.setDescription("Selects currently selected function(s) in table");
-		selectAction.setToolBarData(new ToolBarData(icon));
-
-		installDummyAction(selectAction);
-
+		selectAction = new MakeProgramSelectionAction(this, provider.getTable());
 		tool.addLocalAction(provider, selectAction);
-	}
 
-	private void addCompareAction() {
-		compareAction = new DockingAction("Compare Selected Functions", getName(), false) {
-			@Override
-			public void actionPerformed(ActionContext context) {
-				compareSelectedFunctions();
-			}
-		};
-		compareAction.setEnabled(false);
-		ImageIcon icon = ResourceManager.loadImage("images/page_white_c.png");
-		compareAction.setPopupMenuData(new MenuData(new String[] { "Compare Functions" }, icon));
-		compareAction.setDescription("Compares the currently selected function(s) in the table.");
-		compareAction.setToolBarData(new ToolBarData(icon));
-
-		installDummyAction(compareAction);
-
-		tool.addLocalAction(provider, compareAction);
-	}
-
-	private void installDummyAction(DockingAction action) {
-		DummyKeyBindingsOptionsAction dummyAction =
-			new DummyKeyBindingsOptionsAction(action.getName(), null);
-		tool.addAction(dummyAction);
-
-		ToolOptions options = tool.getOptions(ToolConstants.KEY_BINDINGS);
-		options.addOptionsChangeListener(this);
-
-		KeyStroke keyStroke = options.getKeyStroke(dummyAction.getFullName(), null);
-		if (keyStroke != null) {
-			action.setUnvalidatedKeyBindingData(new KeyBindingData(keyStroke));
-		}
-	}
-
-	@Override
-	public void optionsChanged(ToolOptions options, String optionName, Object oldValue, Object newValue) {
-		if (optionName.startsWith(selectAction.getName())) {
-			KeyStroke keyStroke = (KeyStroke) newValue;
-			selectAction.setUnvalidatedKeyBindingData(new KeyBindingData(keyStroke));
-		}
-		if (optionName.startsWith(compareAction.getName())) {
-			KeyStroke keyStroke = (KeyStroke) newValue;
-			compareAction.setUnvalidatedKeyBindingData(new KeyBindingData(keyStroke));
-		}
-	}
-
-	void setActionsEnabled(boolean enabled) {
-		selectAction.setEnabled(enabled);
-		compareAction.setEnabled(enabled);
+		compareFunctionsAction = new CompareFunctionsFromFunctionTableAction(tool, getName());
+		tool.addLocalAction(provider, compareFunctionsAction);
 	}
 
 	void showFunctions() {
 		provider.showFunctions();
 	}
 
-	private void selectFunctions(ProgramSelection selection) {
-		ProgramSelectionPluginEvent pspe =
-			new ProgramSelectionPluginEvent("Selection", selection, currentProgram);
-		firePluginEvent(pspe);
-	}
-
-	private FunctionComparisonProvider compareSelectedFunctions() {
-		Function[] functions = getSelectedFunctions();
-		if (functions.length < 2) {
-			Msg.showError(this, provider.getComponent(), "Compare Selected Functions",
-				"Select two or more rows in the table indicating functions to compare.");
-			return null;
+	@Override
+	public void componentProviderActivated(ComponentProvider componentProvider) {
+		if (componentProvider instanceof FunctionComparisonProvider) {
+			tool.contextChanged(provider);
 		}
-		return functionComparisonManager.showFunctionComparisonProvider(functions);
-	}
-
-	/**
-	 * Gets the functions that are currently selected in the table.
-	 * @return the selected functions
-	 */
-	private Function[] getSelectedFunctions() {
-		GhidraTable table = provider.getTable();
-		int[] selectedRows = table.getSelectedRows();
-		Function[] functions = new Function[selectedRows.length];
-		FunctionTableModel model = provider.getModel();
-		Program program = model.getProgram();
-		FunctionManager functionManager = program.getFunctionManager();
-		List<FunctionRowObject> functionRowObjects = model.getRowObjects(selectedRows);
-		int index = 0;
-		for (FunctionRowObject functionRowObject : functionRowObjects) {
-			long key = functionRowObject.getKey();
-			functions[index++] = functionManager.getFunction(key);
-		}
-		return functions;
 	}
 
 	@Override
-	protected void programClosed(Program program) {
-		functionComparisonManager.closeProviders(program);
+	public void componentProviderDeactivated(ComponentProvider componentProvider) {
+		if (componentProvider instanceof FunctionComparisonProvider) {
+			tool.contextChanged(provider);
+		}
 	}
 }

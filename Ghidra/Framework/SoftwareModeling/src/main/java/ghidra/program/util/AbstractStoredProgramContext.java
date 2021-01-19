@@ -20,8 +20,7 @@ import java.util.*;
 
 import ghidra.program.database.register.InMemoryRangeMapAdapter;
 import ghidra.program.model.address.*;
-import ghidra.program.model.lang.Register;
-import ghidra.program.model.lang.RegisterValue;
+import ghidra.program.model.lang.*;
 import ghidra.program.model.listing.ContextChangeException;
 import ghidra.util.exception.AssertException;
 import ghidra.util.exception.CancelledException;
@@ -34,10 +33,10 @@ abstract public class AbstractStoredProgramContext extends AbstractProgramContex
 
 	private Set<Register> registersWithValues; // cached set, recomputed whenever null
 
-	protected AbstractStoredProgramContext(Register[] registers) {
-		super(registers);
-		registerValueMap = new HashMap<Register, RegisterValueStore>();
-		defaultRegisterValueMap = new HashMap<Register, RegisterValueStore>();
+	protected AbstractStoredProgramContext(Language language) {
+		super(language);
+		registerValueMap = new HashMap<>();
+		defaultRegisterValueMap = new HashMap<>();
 	}
 
 	/**
@@ -79,7 +78,7 @@ abstract public class AbstractStoredProgramContext extends AbstractProgramContex
 	public void setRegisterValue(Address start, Address end, RegisterValue value)
 			throws ContextChangeException {
 		if (value == null) {
-			throw new IllegalArgumentException("Value cannot be null, use clear() instead!");
+			throw new IllegalArgumentException("Value cannot be null, use remove() instead!");
 		}
 		Register baseRegister = value.getRegister().getBaseRegister();
 		RegisterValueStore store = registerValueMap.get(baseRegister);
@@ -177,8 +176,8 @@ abstract public class AbstractStoredProgramContext extends AbstractProgramContex
 		if (store == null) {
 			return new AddressSet().getAddressRanges();
 		}
-		return new RegisterAddressRangeIterator(register,
-			store.getAddressRangeIterator(start, end), registerValueMap);
+		return new RegisterAddressRangeIterator(register, store.getAddressRangeIterator(start, end),
+			registerValueMap);
 	}
 
 	@Override
@@ -198,15 +197,15 @@ abstract public class AbstractStoredProgramContext extends AbstractProgramContex
 		if (store == null) {
 			return new AddressSet().getAddressRanges();
 		}
-		return new RegisterAddressRangeIterator(register,
-			store.getAddressRangeIterator(start, end), defaultRegisterValueMap);
+		return new RegisterAddressRangeIterator(register, store.getAddressRangeIterator(start, end),
+			defaultRegisterValueMap);
 	}
 
 	@Override
 	public Register[] getRegistersWithValues() {
 		if (registersWithValues == null) {
-			registersWithValues = new HashSet<Register>();
-			for (Register register : registers) {
+			registersWithValues = new HashSet<>();
+			for (Register register : language.getRegisters()) {
 				RegisterValueStore store = registerValueMap.get(register.getBaseRegister());
 				if (store != null && !store.isEmpty()) {
 					registersWithValues.add(register);
@@ -247,7 +246,8 @@ abstract public class AbstractStoredProgramContext extends AbstractProgramContex
 	}
 
 	@Override
-	public void remove(Address start, Address end, Register register) throws ContextChangeException {
+	public void remove(Address start, Address end, Register register)
+			throws ContextChangeException {
 		if (start.getAddressSpace() != end.getAddressSpace()) {
 			throw new AssertException("start and end address must be in the same address space");
 		}
@@ -306,7 +306,7 @@ abstract public class AbstractStoredProgramContext extends AbstractProgramContex
 		if (space.isOverlaySpace()) {
 			address = ((OverlayAddressSpace) space).translateAddress(address, true);
 		}
-		// there is a wierd deleted overlay case that the following code handles - sortof
+		// there is a weird deleted overlay case that the following code handles - sortof
 		else if (space.getType() == AddressSpace.TYPE_UNKNOWN) {
 			return new RegisterValue(register);
 		}

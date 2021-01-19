@@ -15,7 +15,7 @@
  */
 package ghidra.graph.viewer;
 
-import static org.hamcrest.CoreMatchers.containsString;
+import static org.hamcrest.CoreMatchers.*;
 import static org.junit.Assert.*;
 
 import java.awt.*;
@@ -25,7 +25,8 @@ import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 
-import javax.swing.*;
+import javax.swing.JDialog;
+import javax.swing.JTextArea;
 
 import org.junit.Before;
 import org.junit.Test;
@@ -261,8 +262,8 @@ public class GraphComponentTest extends AbstractVisualGraphTest {
 		Shape edgeShape =
 			GraphViewerUtils.getEdgeShapeInGraphSpace(graphComponent.getPrimaryViewer(), e);
 		Rectangle bounds = edgeShape.getBounds();
-		assertTrue("Edge width not initialized", bounds.width > 1);
-		assertTrue("Edge height not initialized", bounds.height > 1);
+		assertTrue("Edge width not initialized - width: " + bounds.width, bounds.width > 1);
+		assertTrue("Edge height not initialized - height: " + bounds.height, bounds.height > 1);
 	}
 
 	@Test
@@ -370,7 +371,7 @@ public class GraphComponentTest extends AbstractVisualGraphTest {
 	}
 
 	@Override
-	public void capture(JComponent c, String name) throws Exception {
+	public void capture(Component c, String name) throws Exception {
 
 		waitForAnimation();
 		super.capture(c, name);

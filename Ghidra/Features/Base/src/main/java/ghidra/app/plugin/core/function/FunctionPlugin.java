@@ -71,7 +71,6 @@ public class FunctionPlugin extends Plugin implements DataService {
 
 	public final static String FUNCTION_SUBGROUP_BEGINNING = "A_Beginning";
 	public final static String FUNCTION_SUBGROUP_MIDDLE = "M_Middle";
-	public final static String FUNCTION_SUBGROUP_END = "Z_End";
 
 	public static final String SET_DATA_TYPE_PULLRIGHT = "Set Data Type";
 
@@ -374,7 +373,8 @@ public class FunctionPlugin extends Plugin implements DataService {
 	/**
 	 * Get an iterator over all functions overlapping the current selection.
 	 * If there is no selection any functions overlapping the current location.
-	 *
+	 * 
+	 * @param context the context 
 	 * @return Iterator over functions
 	 */
 	public Iterator<Function> getFunctions(ListingActionContext context) {
@@ -388,23 +388,7 @@ public class FunctionPlugin extends Plugin implements DataService {
 			Address loc = location.getAddress();
 			return program.getFunctionManager().getFunctionsOverlapping(new AddressSet(loc, loc));
 		}
-		//return an empty iterator....
-		return new Iterator<Function>() {
-			@Override
-			public void remove() {
-				// not supported
-			}
-
-			@Override
-			public boolean hasNext() {
-				return false;
-			}
-
-			@Override
-			public Function next() {
-				return null;
-			}
-		};
+		return Collections.emptyIterator();
 	}
 
 	Function getFunction(ListingActionContext context) {
@@ -487,11 +471,10 @@ public class FunctionPlugin extends Plugin implements DataService {
 	 * Lay down the specified dataType on a function return, parameter or local variable
 	 * based upon the programActionContext.  Pointer conversion will be handled
 	 * by merging the existing dataType with the specified dataType.
-	 * @param dataType The DataType to create.
+	 * @param dt The DataType to create.
 	 * @param programActionContext action context
-	 * @param promptForConflictRemoval if true and specified dataType results in a storage conflict,
+	 * @param enableConflictHandling if true and specified dataType results in a storage conflict,
 	 * user may be prompted for removal of conflicting variables (not applicable for return type)
-	 * @return True if the DataType could be created at the given location.
 	 */
 	@Override
 	public boolean createData(DataType dt, ListingActionContext programActionContext,
@@ -500,11 +483,12 @@ public class FunctionPlugin extends Plugin implements DataService {
 	}
 
 	/**
-	 * This method is the same as {@link #createData(DataType, ProgramLocation)}, except that this
-	 * method will use the given value of <tt>convertPointers</tt> to determine if the new
-	 * DataType should be made into a pointer if the existing DataType is a pointer.
-	 * @param dataType The DataType to create.
-	 * @param location The location at which to create the DataType.
+	 * This method is the same as {@link #createData(DataType, ListingActionContext, boolean)}, 
+	 * except that this method will use the given value of <tt>convertPointers</tt> to determine 
+	 * if the new DataType should be made into a pointer if the existing DataType is a pointer.
+	 * 
+	 * @param dataType the DataType to create
+	 * @param context the context containing the location at which to create the DataType
 	 * @param convertPointers True signals to convert the given DataType to a pointer if there is
 	 *        an existing pointer at the specified location.
 	 * @param promptForConflictRemoval if true and specified dataType results in a storage conflict,
@@ -580,8 +564,8 @@ public class FunctionPlugin extends Plugin implements DataService {
 		catch (VariableSizeException e) {
 			tool.setStatusInfo(e.getMessage());
 			if (e.canForce() && promptForConflictRemoval) {
-				String msg = variable.getName() + " size change resulted in \n" + e.getMessage() +
-					"\n \nDelete conflicting " + varType + "(s)";
+				String msg = varType + " " + variable.getName() + " size change resulted in \n" +
+					e.getMessage() + "\n \nDelete conflicting " + varType + "(s)";
 				if (OptionDialog.YES_OPTION == OptionDialog.showYesNoDialog(tool.getActiveWindow(),
 					varType + " Conflict", msg)) {
 					tool.setStatusInfo("");
@@ -626,23 +610,12 @@ public class FunctionPlugin extends Plugin implements DataService {
 		return null;
 	}
 
-//	private boolean checkStackVarToFit(Function fun, StackVariable var, DataType dt) {
-//	    if (var.getDataType() instanceof Pointer) {
-//	        return true;
-//	    }
-//		int startOffset = var.getLength();
-//		if (startOffset < 0) startOffset = 1;
-//		int size = getMaxStackVariableSize(fun, var);
-//		if (size < 0) return true;
-//		return size >= dt.getLength();
-//	}
-
 	/**
-	 * Return the maximum data type length permitted
-	 * for the specified local variable.  A -1 returned
-	 * value indicates no limit imposed.
-	 * @param fun
-	 * @param var
+	 * Return the maximum data type length permitted for the specified local variable.  A -1 
+	 * returned value indicates no limit imposed.
+	 * 
+	 * @param fun the function
+	 * @param var the variable
 	 * @return maximum data type length permitted for var
 	 */
 	int getMaxStackVariableSize(Function fun, Variable var) {

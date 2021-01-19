@@ -16,8 +16,7 @@
 package ghidra.feature.vt.gui.provider.matchtable;
 
 import static ghidra.feature.vt.gui.actions.TableSelectionTrackingState.*;
-import static ghidra.feature.vt.gui.plugin.VTPlugin.FILTERED_ICON;
-import static ghidra.feature.vt.gui.plugin.VTPlugin.UNFILTERED_ICON;
+import static ghidra.feature.vt.gui.plugin.VTPlugin.*;
 import static ghidra.feature.vt.gui.util.VTOptionDefines.*;
 
 import java.awt.*;
@@ -181,7 +180,7 @@ public class VTMatchTableProvider extends ComponentProviderAdapter
 
 		if (filtered) {
 			int filteredCount = matchesTableModel.getRowCount();
-			int unfilteredCount = matchesTableModel.getUnfilteredCount();
+			int unfilteredCount = matchesTableModel.getUnfilteredRowCount();
 			int filteredOutCount = unfilteredCount - filteredCount;
 			ancillaryFilterButton.setToolTipText(
 				"More Filters - " + filteredOutCount + " item(s) hidden");
@@ -231,7 +230,7 @@ public class VTMatchTableProvider extends ComponentProviderAdapter
 		matchesTableModel = new VTMatchTableModel(controller);
 		matchesTableModel.addTableModelListener(e -> {
 			int filteredCount = matchesTableModel.getRowCount();
-			int unfilteredCount = matchesTableModel.getUnfilteredCount();
+			int unfilteredCount = matchesTableModel.getUnfilteredRowCount();
 
 			String sessionName = controller.getVersionTrackingSessionName();
 			StringBuffer buffy = new StringBuffer();
@@ -352,10 +351,9 @@ public class VTMatchTableProvider extends ComponentProviderAdapter
 		JComponent lengthFilterPanel = createLengthFilterPanel();
 		innerPanel.add(lengthFilterPanel);
 
-		ancillaryFilterButton = new JButton();
+		ancillaryFilterButton = new JButton(UNFILTERED_ICON);
 		ancillaryFilterButton.addActionListener(
 			e -> tool.showDialog(ancillaryFilterDialog, component));
-		ancillaryFilterButton.setIcon(UNFILTERED_ICON);
 		ancillaryFilterButton.setToolTipText("Filters Dialog");
 		HelpService helpService = DockingWindowManager.getHelpService();
 		HelpLocation filterHelpLocation =
@@ -696,25 +694,27 @@ public class VTMatchTableProvider extends ComponentProviderAdapter
 			"Markup items that are incomplete (for example, no destination address is specified) " +
 				"should become ignored by applying a match.");
 
-		vtOptions.getOptions(APPLY_MARKUP_OPTIONS_NAME).registerOptionsEditor(
-			new ApplyMarkupPropertyEditor(controller));
-		vtOptions.getOptions(DISPLAY_APPLY_MARKUP_OPTIONS).setOptionsHelpLocation(
-			new HelpLocation("VersionTracking", "Apply Markup Options"));
+		vtOptions.getOptions(APPLY_MARKUP_OPTIONS_NAME)
+				.registerOptionsEditor(
+					new ApplyMarkupPropertyEditor(controller));
+		vtOptions.getOptions(DISPLAY_APPLY_MARKUP_OPTIONS)
+				.setOptionsHelpLocation(
+					new HelpLocation("VersionTracking", "Apply Markup Options"));
 
 		HelpLocation applyOptionsHelpLocation =
 			new HelpLocation(VTPlugin.HELP_TOPIC_NAME, "Version_Tracking_Apply_Options");
-		HelpLocation acceptMatchOptionsHelpLocation =
-			new HelpLocation(VTPlugin.HELP_TOPIC_NAME, "Match_Accept_Options");
 		HelpLocation applyMatchOptionsHelpLocation =
 			new HelpLocation(VTPlugin.HELP_TOPIC_NAME, "Match_Apply_Options");
 
 		vtOptions.setOptionsHelpLocation(applyOptionsHelpLocation);
 
-		vtOptions.getOptions(ACCEPT_MATCH_OPTIONS_NAME).setOptionsHelpLocation(
-			applyMatchOptionsHelpLocation);
+		vtOptions.getOptions(ACCEPT_MATCH_OPTIONS_NAME)
+				.setOptionsHelpLocation(
+					applyMatchOptionsHelpLocation);
 
-		vtOptions.getOptions(APPLY_MARKUP_OPTIONS_NAME).setOptionsHelpLocation(
-			applyMatchOptionsHelpLocation);
+		vtOptions.getOptions(APPLY_MARKUP_OPTIONS_NAME)
+				.setOptionsHelpLocation(
+					applyMatchOptionsHelpLocation);
 	}
 
 //==================================================================================================
@@ -784,9 +784,9 @@ public class VTMatchTableProvider extends ComponentProviderAdapter
 			@SuppressWarnings("unchecked")
 			// this is our table model--we know its real type
 			@Override
-			protected SelectionManager createSelectionManager(TableModel tableModel) {
+			protected SelectionManager createSelectionManager() {
 				return new VTMatchTableSelectionManager(this,
-					(AbstractSortedTableModel<VTMatch>) tableModel);
+					(AbstractSortedTableModel<VTMatch>) getModel());
 			}
 		}
 	}
@@ -811,7 +811,7 @@ public class VTMatchTableProvider extends ComponentProviderAdapter
 		private final int row;
 		private final VTMatch match;
 
-		/**
+		/*
 		 * (see the class header for details) {@link SelectionOverrideMemento}
 		 */
 		SelectionOverrideMemento(int row, VTMatch match) {

@@ -35,9 +35,9 @@ public class StructureEditorUnlockedActions3Test
 	public void testDuplicateMultipleAction() throws Exception {
 		NumberInputDialog dialog;
 		init(complexStructure, pgmTestCat);
-
-		model.clearComponent(3);
-
+		runSwing(() -> {
+			model.clearComponent(3);
+		});
 		int num = model.getNumComponents();
 
 		setSelection(new int[] { 2 });
@@ -45,7 +45,7 @@ public class StructureEditorUnlockedActions3Test
 		DataType dt7 = getDataType(7);// SimpleUnion
 
 		invoke(duplicateMultipleAction);
-		dialog = env.waitForDialogComponent(NumberInputDialog.class, 1000);
+		dialog = waitForDialogComponent(NumberInputDialog.class);
 		assertNotNull(dialog);
 		okInput(dialog, 2);
 		dialog = null;
@@ -74,11 +74,12 @@ public class StructureEditorUnlockedActions3Test
 		DataType dt1 = getDataType(1);
 
 		invoke(duplicateMultipleAction);
-		dialog = env.waitForDialogComponent(NumberInputDialog.class, 1000);
+		dialog = waitForDialogComponent(NumberInputDialog.class);
 		assertNotNull(dialog);
 		okInput(dialog, 2);
 		dialog = null;
 		waitUntilDialogProviderGone(NumberInputDialog.class, 2000);
+		waitForBusyTool(tool); // the 'Duplicate Multiple' action uses a task
 
 		num += 2;
 		assertEquals(num, model.getNumComponents());
@@ -101,7 +102,7 @@ public class StructureEditorUnlockedActions3Test
 	public void testEditFieldOnBlankLine() throws Exception {
 		init(emptyStructure, pgmTestCat);
 
-		assertTrue(!model.isEditingField());
+		assertFalse(model.isEditingField());
 		triggerActionKey(getTable(), editFieldAction);
 		assertTrue(model.isEditingField());
 		assertEquals(0, model.getRow());
@@ -115,7 +116,7 @@ public class StructureEditorUnlockedActions3Test
 		init(complexStructure, pgmTestCat);
 
 		setSelection(new int[] { 3 });
-		assertTrue(!model.isEditingField());
+		assertFalse(model.isEditingField());
 		invoke(editFieldAction);
 		JTable table = getTable();
 		Container component = (Container) table.getEditorComponent();
@@ -131,6 +132,37 @@ public class StructureEditorUnlockedActions3Test
 
 		escape();// Remove the choose data type dialog.
 		assertNotEditingField();
+	}
+
+	@Test
+	public void testEditFieldSetBitfieldDataType() throws Exception {
+		init(complexStructure, pgmTestCat);
+
+		DataTypeComponent dtc = model.getComponent(3);
+		assertNotNull(dtc);
+		assertFalse(dtc.isBitFieldComponent());
+
+		setSelection(new int[] { 3 });
+		assertFalse(model.isEditingField());
+		invoke(editFieldAction);
+		JTable table = getTable();
+		Container component = (Container) table.getEditorComponent();
+		assertTrue(model.isEditingField());
+		assertEquals(3, model.getRow());
+		assertEquals(model.getDataTypeColumn(), model.getColumn());
+
+		JTextField textField = findComponent(component, JTextField.class);
+		triggerText(textField, "char:2\n");
+
+		waitForSwing();
+
+		assertFalse(model.isEditingField());
+		assertEquals(3, model.getRow());
+		assertNotEditingField();
+
+		dtc = model.getComponent(3);
+		assertNotNull(dtc);
+		assertTrue(dtc.isBitFieldComponent());
 	}
 
 	@Test
@@ -160,7 +192,7 @@ public class StructureEditorUnlockedActions3Test
 
 		int num = model.getNumComponents();
 		setSelection(new int[] { 3 });
-		assertTrue(!getDataType(3).isEquivalent(dt));
+		assertFalse(getDataType(3).isEquivalent(dt));
 		invoke(fav);// replacing dword with byte followed by 3 undefineds
 		assertEquals(num + 3, model.getNumComponents());
 		assertTrue(getDataType(3).isEquivalent(dt));
@@ -172,7 +204,9 @@ public class StructureEditorUnlockedActions3Test
 		init(complexStructure, pgmTestCat);
 
 		String desc = "This is a sample description.";
-		model.setDescription(desc);
+		runSwing(() -> {
+			model.setDescription(desc);
+		});
 		DataType viewCopy = model.viewComposite.clone(null);
 
 		assertEquals(desc, model.getDescription());

@@ -19,7 +19,6 @@ import java.awt.*;
 import java.awt.event.*;
 import java.io.IOException;
 import java.io.InputStream;
-import java.lang.reflect.InvocationTargetException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Scanner;
@@ -29,6 +28,7 @@ import javax.swing.*;
 import docking.DialogComponentProvider;
 import docking.DockingWindowManager;
 import docking.widgets.dialogs.ObjectChooserDialog;
+import docking.widgets.label.GDLabel;
 import generic.jar.ResourceFile;
 import generic.util.WindowUtilities;
 import ghidra.framework.Application;
@@ -73,7 +73,7 @@ public class AskPdbUrlDialog extends DialogComponentProvider {
 		JPanel panel = new JPanel(new BorderLayout(10, 10));
 		panel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
 
-		label = new JLabel(message);
+		label = new GDLabel(message);
 		panel.add(label, BorderLayout.WEST);
 
 		textField = new JTextField(40);
@@ -97,18 +97,8 @@ public class AskPdbUrlDialog extends DialogComponentProvider {
 
 		setDefaultButton(okButton);
 		setRememberSize(false);
-		if (SwingUtilities.isEventDispatchThread()) {
-			DockingWindowManager.showDialog(parent, this);
-		}
-		else {
-			try {
-				SwingUtilities.invokeAndWait(
-					() -> DockingWindowManager.showDialog(parent, AskPdbUrlDialog.this));
-			}
-			catch (InvocationTargetException | InterruptedException e) {
-				// TODO: handle this?
-			}
-		}
+
+		DockingWindowManager.showDialog(parent, AskPdbUrlDialog.this);
 	}
 
 	@Override

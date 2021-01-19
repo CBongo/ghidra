@@ -383,9 +383,8 @@ public class ProgramDiffDetails {
 		l1 = p1.getListing();
 		l2 = p2.getListing();
 
-		Register[] descs1 = p1.getProgramContext().getRegisters();
 		maxRegisterName = "Register".length(); // default name length.
-		for (Register element : descs1) {
+		for (Register element : p1.getProgramContext().getRegisters()) {
 			maxRegisterName = Math.max(maxRegisterName, element.getName().length());
 		}
 	}
@@ -683,7 +682,7 @@ public class ProgramDiffDetails {
 		ArrayList<Symbol> list = new ArrayList<>();
 		for (Symbol symbol : originalSymbols) {
 			SymbolType symbolType = symbol.getSymbolType();
-			if (symbolType.equals(SymbolType.FUNCTION) || (symbolType.equals(SymbolType.CODE) &&
+			if (symbolType.equals(SymbolType.FUNCTION) || (symbolType.equals(SymbolType.LABEL) &&
 				!symbol.getSource().equals(SourceType.DEFAULT))) {
 				list.add(symbol);
 			}
@@ -935,6 +934,7 @@ public class ProgramDiffDetails {
 				" (flexible array) " + ((comment != null) ? comment : "") + " " + newLine);
 		}
 		else {
+			// TODO: how should we display bitfields?
 			buf.append(indent + "Offset=" + DiffUtility.toSignedHexString(offset) + " " +
 				"Ordinal=" + ordinal + " " + fieldName + " " +
 				actualDt.getMnemonic(actualDt.getDefaultSettings()) + "  " +
@@ -1284,13 +1284,8 @@ public class ProgramDiffDetails {
 	 * @throws ConcurrentModificationException if analysis is modifying the program context.
 	 */
 	private void addProgramContextDetails() throws ConcurrentModificationException {
-		ProgramContext pc1 = p1.getProgramContext();
-		ProgramContext pc2 = p2.getProgramContext();
-		String[] names1 = pc1.getRegisterNames();
-		String[] names2 = pc2.getRegisterNames();
-		Arrays.sort(names1);
-		Arrays.sort(names2);
-		if (!Arrays.equals(names1, names2)) {
+
+		if (!ProgramMemoryComparator.sameProgramContextRegisterNames(p1, p2)) {
 			addDiffHeader("Program Context");
 			addText(
 				indent1 + "Program Context Registers don't match between the programs." + newLine);
@@ -1298,8 +1293,9 @@ public class ProgramDiffDetails {
 		}
 
 		// Check all the register's values and output any differences.
-		Register[] descs1 = pc1.getRegisters();
-		for (Register reg1 : descs1) {
+		ProgramContext pc1 = p1.getProgramContext();
+		ProgramContext pc2 = p2.getProgramContext();
+		for (Register reg1 : pc1.getRegisters()) {
 			addRegisterDiffDetails(pc1, pc2, reg1);
 		}
 	}
@@ -1505,8 +1501,8 @@ public class ProgramDiffDetails {
 	private boolean addSpecificCommentDetails(int commentType, String commentName) {
 		boolean hasCommentDiff = false;
 		try {
-			for (Address p1Address = minP1Address; p1Address
-				.compareTo(maxP1Address) <= 0; p1Address = p1Address.add(1L)) {
+			for (Address p1Address = minP1Address; p1Address.compareTo(
+				maxP1Address) <= 0; p1Address = p1Address.add(1L)) {
 				Address p2Address = SimpleDiffUtility.getCompatibleAddress(p1, p1Address, p2);
 				String noComment = "No " + commentName + ".";
 				String cmt1 = l1.getComment(commentType, p1Address);
@@ -2209,9 +2205,8 @@ public class ProgramDiffDetails {
 			for (String propertyName : names1) {
 				if (cu.hasProperty(propertyName)) {
 					// Handle case where the class for a Saveable property is missing (unsupported).
-					if (cu.getProgram()
-						.getListing()
-						.getPropertyMap(propertyName) instanceof UnsupportedMapDB) {
+					if (cu.getProgram().getListing().getPropertyMap(
+						propertyName) instanceof UnsupportedMapDB) {
 						buf.append(
 							indent2 + propertyName + " is an unsupported property." + newLine);
 						continue;
@@ -2282,8 +2277,8 @@ public class ProgramDiffDetails {
 		BookmarkManager bmm1 = p1.getBookmarkManager();
 		BookmarkManager bmm2 = p2.getBookmarkManager();
 		try {
-			for (Address p1Address = minP1Address; p1Address
-				.compareTo(maxP1Address) <= 0; p1Address = p1Address.add(1)) {
+			for (Address p1Address = minP1Address; p1Address.compareTo(
+				maxP1Address) <= 0; p1Address = p1Address.add(1)) {
 				Address p2Address = SimpleDiffUtility.getCompatibleAddress(p1, p1Address, p2);
 				Bookmark[] marks1 = bmm1.getBookmarks(p1Address);
 				Arrays.sort(marks1, BOOKMARK_COMPARATOR);

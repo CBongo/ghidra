@@ -16,20 +16,22 @@
 package ghidra.app.plugin.exceptionhandlers.gcc.structures.ehFrame;
 
 import ghidra.app.cmd.comments.SetCommentCmd;
-import ghidra.app.cmd.comments.SetCommentsCmd;
 import ghidra.app.cmd.data.CreateArrayCmd;
+import ghidra.app.cmd.data.CreateDataCmd;
 import ghidra.app.cmd.function.CreateFunctionCmd;
 import ghidra.app.plugin.exceptionhandlers.gcc.*;
 import ghidra.app.plugin.exceptionhandlers.gcc.datatype.UnsignedLeb128DataType;
 import ghidra.app.plugin.exceptionhandlers.gcc.sections.CieSource;
 import ghidra.app.plugin.exceptionhandlers.gcc.sections.DebugFrameSection;
 import ghidra.app.plugin.exceptionhandlers.gcc.structures.gccexcepttable.LSDATable;
+import ghidra.app.util.opinion.ElfLoader;
 import ghidra.program.model.address.*;
 import ghidra.program.model.data.*;
 import ghidra.program.model.listing.*;
 import ghidra.program.model.mem.*;
 import ghidra.program.model.scalar.Scalar;
 import ghidra.program.model.symbol.*;
+import ghidra.program.model.util.CodeUnitInsertionException;
 import ghidra.util.Msg;
 import ghidra.util.exception.InvalidInputException;
 import ghidra.util.task.TaskMonitor;
@@ -113,7 +115,7 @@ public class FrameDescriptionEntry extends GccAnalysisClass {
 	 * @param monitor a status monitor for tracking progress and allowing cancelling when creating
 	 * an FDE.
 	 * @param program the program where this will create an FDE.
-	 * @param cie the call frame information entry for this FDE.
+	 * @param cieSource the call frame information entry for this FDE.
 	 */
 	public FrameDescriptionEntry(TaskMonitor monitor, Program program, CieSource cieSource) {
 		super(monitor, program);
@@ -157,8 +159,8 @@ public class FrameDescriptionEntry extends GccAnalysisClass {
 			case 8:
 				return new QWordDataType();
 			default:
-				throw new IllegalArgumentException("Unhandled pointer size -- " +
-					pointerDecodeSize + " bytes");
+				throw new IllegalArgumentException(
+					"Unhandled pointer size -- " + pointerDecodeSize + " bytes");
 		}
 	}
 
@@ -190,8 +192,8 @@ public class FrameDescriptionEntry extends GccAnalysisClass {
 	 * @throws MemoryAccessException if the required memory can't be read
 	 * @throws ExceptionHandlerFrameException if there is an error creating the information.
 	 */
-	private Address createCiePointer(Address addr) throws MemoryAccessException,
-			ExceptionHandlerFrameException {
+	private Address createCiePointer(Address addr)
+			throws MemoryAccessException, ExceptionHandlerFrameException {
 		/*
 		 * Create a new CIE Pointer field at the specified address and sets an
 		 * appropriate comment for the new structure.
@@ -210,16 +212,16 @@ public class FrameDescriptionEntry extends GccAnalysisClass {
 		if (isInDebugFrame(addr)) {
 
 			if (intPtr == -1) {
-				throw new ExceptionHandlerFrameException("Invalid CIE Reference Pointer (0x" +
-					Integer.toHexString(intPtr) + ")");
+				throw new ExceptionHandlerFrameException(
+					"Invalid CIE Reference Pointer (0x" + Integer.toHexString(intPtr) + ")");
 			}
 			cieAddr = addr.getNewAddress(intPtr); // absolute ref
 
 		}
 		else {
 			if (intPtr == 0) {
-				throw new ExceptionHandlerFrameException("Invalid CIE Reference Pointer (0x" +
-					Integer.toHexString(intPtr) + ")");
+				throw new ExceptionHandlerFrameException(
+					"Invalid CIE Reference Pointer (0x" + Integer.toHexString(intPtr) + ")");
 			}
 			cieAddr = addr.subtract(intPtr); // relative ref
 		}
@@ -266,8 +268,10 @@ public class FrameDescriptionEntry extends GccAnalysisClass {
 		DataType encodedDt = cie.getFDEDecoder().getDataType(program);
 
 		createAndCommentData(program, addr, encodedDt, comment, CodeUnit.EOL_COMMENT);
-		program.getReferenceManager().addMemoryReference(addr, pcBeginAddr, RefType.DATA,
-			SourceType.ANALYSIS, 0);
+		if (pcBeginAddr.getOffset() != 0x0) {
+			program.getReferenceManager().addMemoryReference(addr, pcBeginAddr, RefType.DATA,
+				SourceType.ANALYSIS, 0);
+		}
 
 		curSize += encodedLen;
 		return addr.add(encodedLen);
@@ -282,8 +286,8 @@ public class FrameDescriptionEntry extends GccAnalysisClass {
 	 * @throws ExceptionHandlerFrameException if there is an error creating the information.
 	 * @throws MemoryAccessException if the required memory can't be read
 	 */
-	private Address createPcRange(Address addr) throws ExceptionHandlerFrameException,
-			MemoryAccessException {
+	private Address createPcRange(Address addr)
+			throws ExceptionHandlerFrameException, MemoryAccessException {
 
 		/* 
 		 * Create a new pcRange field at the specified address 
@@ -292,7 +296,13 @@ public class FrameDescriptionEntry extends GccAnalysisClass {
 		String comment = "(FDE) PcRange";
 
 		intPcRange = (int) GccAnalysisUtils.readDWord(program, addr);
+		if (intPcRange < 0) {
+			return null;
+		}
 
+		if (intPcRange == 0) {
+			intPcRange = 1;
+		}
 		pcEndAddr = pcBeginAddr.add(intPcRange - 1);
 
 		DataType dataType = getAddressSizeDataType();
@@ -362,14 +372,11 @@ public class FrameDescriptionEntry extends GccAnalysisClass {
 	 * @throws MemoryAccessException if the required memory can't be read
 	 */
 	private Address createAugmentationData(Address addr) throws MemoryAccessException {
-		SetCommentsCmd commentCmd = null;
-
 		/* 
 		 * Create a new Augmentation Data field at the specified address 
 		 * and sets an appropriate comment for the new structure.
 		 */
-		commentCmd = new SetCommentsCmd(addr, null, null, "(FDE) Augmentation Data", null, null);
-		commentCmd.applyTo(program);
+		SetCommentCmd.createComment(program, addr, "(FDE) Augmentation Data", CodeUnit.EOL_COMMENT);
 
 		this.augmentationData = new byte[intAugmentationDataLength];
 		program.getMemory().getBytes(addr, augmentationData);
@@ -387,16 +394,20 @@ public class FrameDescriptionEntry extends GccAnalysisClass {
 	 */
 	private Address createCallFrameInstructions(Address addr) throws MemoryAccessException {
 		CreateArrayCmd arrayCmd = null;
-		SetCommentsCmd commentCmd = null;
 
 		// Create initial instructions array with remaining bytes.
 		int instructionLength = intLength - curSize;
-		arrayCmd = new CreateArrayCmd(addr, instructionLength, new ByteDataType(), BYTE_LEN);
-		arrayCmd.applyTo(program);
+		ArrayDataType adt = new ArrayDataType(ByteDataType.dataType, instructionLength, BYTE_LEN);
+		try {
+			program.getListing().createData(addr, adt, adt.getLength());
+		}
+		catch (CodeUnitInsertionException e) {
+			CreateDataCmd dataCmd = new CreateDataCmd(addr, adt);
+			dataCmd.applyTo(program);
+		}
 
-		commentCmd =
-			new SetCommentsCmd(addr, null, null, "(FDE) Call Frame Instructions", null, null);
-		commentCmd.applyTo(program);
+		SetCommentCmd.createComment(program, addr, "(FDE) Call Frame Instructions",
+			CodeUnit.EOL_COMMENT);
 
 		callFrameInstructions = new byte[instructionLength];
 		program.getMemory().getBytes(addr, callFrameInstructions);
@@ -428,8 +439,8 @@ public class FrameDescriptionEntry extends GccAnalysisClass {
 	 * @throws MemoryAccessException if memory for the FDE or its associated data can't be accessed
 	 * @throws ExceptionHandlerFrameException if there is an error creating the FDE information.
 	 */
-	public RegionDescriptor create(Address fdeBaseAddress) throws MemoryAccessException,
-			ExceptionHandlerFrameException {
+	public RegionDescriptor create(Address fdeBaseAddress)
+			throws MemoryAccessException, ExceptionHandlerFrameException {
 
 		if (fdeBaseAddress == null || monitor.isCancelled()) {
 			return null;
@@ -464,8 +475,8 @@ public class FrameDescriptionEntry extends GccAnalysisClass {
 			createFuncCmd.applyTo(program);
 		}
 		catch (AddressOutOfBoundsException e) {
-			throw new ExceptionHandlerFrameException(e.getMessage() + ": " +
-				pcBeginAddr.toString() + " + " + intPcRange);
+			throw new ExceptionHandlerFrameException(
+				e.getMessage() + ": " + pcBeginAddr.toString() + " + " + intPcRange);
 		}
 
 		// If some FDE data remains, then it is the augmentation fields or call frame instructions.
@@ -572,9 +583,8 @@ public class FrameDescriptionEntry extends GccAnalysisClass {
 
 				DwarfEHDecoder decoder = cie.getLSDADecoder();
 
-				DwarfDecodeContext ctx =
-					new DwarfDecodeContext(program, augmentationDataAddr, region.getEHMemoryBlock()
-						.getStart());
+				DwarfDecodeContext ctx = new DwarfDecodeContext(program, augmentationDataAddr,
+					region.getEHMemoryBlock().getStart());
 
 				Address potentialAugmentationDataExAddr = decoder.decodeAddress(ctx);
 
@@ -588,9 +598,8 @@ public class FrameDescriptionEntry extends GccAnalysisClass {
 
 					try {
 
-						String label =
-							"eh_augmentation_" + pcBeginAddr + ".." + pcEndAddr + "_" +
-								augmentationDataExAddr;
+						String label = "eh_augmentation_" + pcBeginAddr + ".." + pcEndAddr + "_" +
+							augmentationDataExAddr;
 
 						program.getSymbolTable().createLabel(augmentationDataExAddr, label,
 							SourceType.ANALYSIS);
@@ -600,9 +609,8 @@ public class FrameDescriptionEntry extends GccAnalysisClass {
 					}
 				}
 				else {
-					CreateArrayCmd arrayCmd =
-						new CreateArrayCmd(augmentationDataAddr, intAugmentationDataLength,
-							new ByteDataType(), BYTE_LEN);
+					CreateArrayCmd arrayCmd = new CreateArrayCmd(augmentationDataAddr,
+						intAugmentationDataLength, new ByteDataType(), BYTE_LEN);
 					arrayCmd.applyTo(program);
 				}
 			}
@@ -635,10 +643,9 @@ public class FrameDescriptionEntry extends GccAnalysisClass {
 
 		if (!program.getMemory().getAllInitializedAddressSet().contains(lsdaAddr)) {
 
-			String errorMessage =
-				"Can't create LSDA data @ " + lsdaAddr +
-					". The address is not in the program's initialized memory!  CIE @ " +
-					cie.getAddress() + " FDE @ " + baseAddress;
+			String errorMessage = "Can't create LSDA data @ " + lsdaAddr +
+				". The address is not in the program's initialized memory!  CIE @ " +
+				cie.getAddress() + " FDE @ " + baseAddress;
 
 			// Log error.
 			Msg.error(this, errorMessage);

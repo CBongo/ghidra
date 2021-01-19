@@ -83,6 +83,8 @@ public class DisassemblerPlugin extends Plugin {
 	private DockingAction contextAction;
 	private DockingAction armDisassembleAction;
 	private DockingAction armThumbDisassembleAction;
+	private DockingAction hcs12DisassembleAction;
+	private DockingAction xgateDisassembleAction;
 	private DockingAction mipsDisassembleAction;
 	private DockingAction mips16DisassembleAction;
 	private DockingAction ppcDisassembleAction;
@@ -172,6 +174,8 @@ public class DisassemblerPlugin extends Plugin {
 		contextAction = new ContextAction(this, GROUP_NAME);
 		armDisassembleAction = new ArmDisassembleAction(this, GROUP_NAME, false);
 		armThumbDisassembleAction = new ArmDisassembleAction(this, GROUP_NAME, true);
+		hcs12DisassembleAction = new Hcs12DisassembleAction(this, GROUP_NAME, false);
+		xgateDisassembleAction = new Hcs12DisassembleAction(this, GROUP_NAME, true);
 		mipsDisassembleAction = new MipsDisassembleAction(this, GROUP_NAME, false);
 		mips16DisassembleAction = new MipsDisassembleAction(this, GROUP_NAME, true);
 		ppcDisassembleAction = new PowerPCDisassembleAction(this, GROUP_NAME, false);
@@ -183,6 +187,8 @@ public class DisassemblerPlugin extends Plugin {
 		tool.addAction(disassembleStaticAction);
 		tool.addAction(armDisassembleAction);
 		tool.addAction(armThumbDisassembleAction);
+		tool.addAction(hcs12DisassembleAction);
+		tool.addAction(xgateDisassembleAction);
 		tool.addAction(mipsDisassembleAction);
 		tool.addAction(mips16DisassembleAction);
 		tool.addAction(ppcDisassembleAction);
@@ -295,25 +301,11 @@ public class DisassemblerPlugin extends Plugin {
 		return currentProgram.getMemory().contains(address);
 	}
 
-	/**
-	 * @see ghidra.app.plugin.contrib.disassembler.DisassemblyTaskListener#disassembleMessageReported(String)
-	 */
-	public void disassembleMessageReported(String msg) {
-		tool.setStatusInfo(msg);
-	}
-
-	/**
-	 * @see ghidra.app.plugin.contrib.disassembler.DisassemblyTaskListener#disassemblyDone(DisassemblyTask)
-	 */
-	public void disassemblyDone(Disassembler task) {
-	}
-
 	public void setDefaultContext(ListingActionContext context) {
 
 		Program contextProgram = context.getProgram();
-		ProgramContext programContext = contextProgram.getProgramContext();
-		Register[] registers = programContext.getProcessorStateRegisters();
-		if (registers.length == 0) {
+		Register baseContextReg = contextProgram.getLanguage().getContextBaseRegister();
+		if (baseContextReg != null && baseContextReg.hasChildren()) {
 			return;
 		}
 
@@ -322,8 +314,8 @@ public class DisassemblerPlugin extends Plugin {
 	}
 
 	public boolean hasContextRegisters(Program currentProgram) {
-		Register[] registers = currentProgram.getProgramContext().getProcessorStateRegisters();
-		return registers.length > 0;
+		Register baseContextReg = currentProgram.getLanguage().getContextBaseRegister();
+		return baseContextReg != null && baseContextReg.hasChildren();
 	}
 
 	public void disassembleArmCallback(ListingActionContext context, boolean thumbMode) {
@@ -340,6 +332,30 @@ public class DisassemblerPlugin extends Plugin {
 			try {
 				currentProgram.getMemory().getByte(addr);
 				cmd = new ArmDisassembleCommand(addr, null, thumbMode);
+			}
+			catch (MemoryAccessException e) {
+				tool.setStatusInfo("Can't disassemble unitialized memory!", true);
+			}
+		}
+		if (cmd != null) {
+			tool.executeBackgroundCommand(cmd, currentProgram);
+		}
+	}
+	
+	public void disassembleHcs12Callback(ListingActionContext context, boolean xgMode) {
+		ProgramSelection currentSelection = context.getSelection();
+		ProgramLocation currentLocation = context.getLocation();
+		Program currentProgram = context.getProgram();
+		Hcs12DisassembleCommand cmd = null;
+
+		if ((currentSelection != null) && (!currentSelection.isEmpty())) {
+			cmd = new Hcs12DisassembleCommand(currentSelection, null, xgMode);
+		}
+		else {
+			Address addr = currentLocation.getAddress();
+			try {
+				currentProgram.getMemory().getByte(addr);
+				cmd = new Hcs12DisassembleCommand(addr, null, xgMode);
 			}
 			catch (MemoryAccessException e) {
 				tool.setStatusInfo("Can't disassemble unitialized memory!", true);

@@ -26,7 +26,6 @@ import ghidra.app.plugin.core.datamgr.DataTypesActionContext;
 import ghidra.app.plugin.core.datamgr.tree.*;
 import ghidra.program.model.data.*;
 import ghidra.util.StringUtilities;
-import ghidra.util.SystemUtilities;
 
 public class CreateTypeDefAction extends AbstractTypeDefAction {
 
@@ -64,6 +63,11 @@ public class CreateTypeDefAction extends AbstractTypeDefAction {
 		}
 
 		ArchiveNode archiveNode = node.getArchiveNode();
+		if (archiveNode == null) {
+			// this can happen as the tree is changing
+			return false;
+		}
+
 		boolean enabled = archiveNode.isModifiable();
 		if (archiveNode instanceof BuiltInArchiveNode) {
 			// these will be put into the program archive
@@ -125,7 +129,7 @@ public class CreateTypeDefAction extends AbstractTypeDefAction {
 
 		GTreeNode finalParentNode = info.getParentNode();
 		String newNodeName = newTypeDef.getName();
-		SystemUtilities.runSwingLater(() -> gTree.startEditing(finalParentNode, newNodeName));
+		gTree.startEditing(finalParentNode, newNodeName);
 	}
 
 	private static String getBaseName(DataType dt) {

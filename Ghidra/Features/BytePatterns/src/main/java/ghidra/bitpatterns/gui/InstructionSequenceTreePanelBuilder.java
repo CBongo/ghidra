@@ -25,6 +25,7 @@ import javax.swing.tree.TreePath;
 import javax.swing.tree.TreeSelectionModel;
 
 import docking.widgets.dialogs.NumberInputDialog;
+import docking.widgets.label.GDLabel;
 import docking.widgets.tree.GTree;
 import ghidra.bitpatterns.info.*;
 import ghidra.util.layout.PairLayout;
@@ -90,12 +91,13 @@ public class InstructionSequenceTreePanelBuilder extends ContextRegisterFilterab
 		applyPercentageFilterButton.addActionListener(new ActionListener() {
 			@Override
 			public void actionPerformed(ActionEvent e) {
-				NumberInputDialog percentageFilterCreater =
-					new NumberInputDialog(PERCENTAGE_FILTER_TITLE, null, DEFAULT_PERCENTAGE_FILTER);
-				percentageFilterCreater.show();
+				NumberInputDialog numberDialog =
+					new NumberInputDialog(PERCENTAGE_FILTER_TITLE, DEFAULT_PERCENTAGE_FILTER, 0,
+						100);
+				numberDialog.show();
 				double value = 0.0;
-				if (!percentageFilterCreater.wasCancelled()) {
-					value = percentageFilterCreater.getValue();
+				if (!numberDialog.wasCancelled()) {
+					value = numberDialog.getValue();
 				}
 				percentageFilter = new PercentageFilter(value);
 				applyFilterAction();
@@ -119,7 +121,7 @@ public class InstructionSequenceTreePanelBuilder extends ContextRegisterFilterab
 		countPanel = new JPanel();
 		PairLayout countLayout = new PairLayout();
 		countPanel.setLayout(countLayout);
-		JLabel countLabel = new JLabel(COUNT_FIELD_LABEL);
+		JLabel countLabel = new GDLabel(COUNT_FIELD_LABEL);
 		countPanel.add(countLabel);
 		countField = new JTextField(25);
 		countField.setEditable(false);
@@ -191,7 +193,7 @@ public class InstructionSequenceTreePanelBuilder extends ContextRegisterFilterab
 	}
 
 	/**
-	 * Returns the selection path of the {@link FunctionBitPatternGTree} associated with this panel.
+	 * Returns the selection path of the {@link FunctionBitPatternsGTree} associated with this panel.
 	 * @return the selection path
 	 */
 	public TreePath getSelectionPath() {

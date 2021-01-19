@@ -15,12 +15,13 @@
  */
 package ghidra.app.plugin.exceptionhandlers.gcc;
 
-import ghidra.app.cmd.comments.SetCommentsCmd;
+import ghidra.app.cmd.comments.SetCommentCmd;
 import ghidra.app.cmd.data.CreateDataCmd;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.data.*;
 import ghidra.program.model.listing.CodeUnit;
 import ghidra.program.model.listing.Program;
+import ghidra.program.model.util.CodeUnitInsertionException;
 import ghidra.util.task.TaskMonitor;
 
 /**
@@ -59,7 +60,7 @@ public abstract class GccAnalysisClass {
 	 * @param program the program being analyzed
 	 */
 	protected void init(Program program) {
-		initPointerInfo(program);
+		initPointerInfo();
 		dwordDT = new DWordDataType();
 	}
 
@@ -67,10 +68,8 @@ public abstract class GccAnalysisClass {
 	 * Method that initializes information about the
 	 * program's pointer size and creates an appropriate
 	 * pointer data type (i.e. ptrDT)
-	 * 
-	 * @param program the program being analyzed
 	 */
-	private void initPointerInfo(Program program) {
+	private void initPointerInfo() {
 		ptrDT = PointerDataType.getPointer(null, -1);
 	}
 
@@ -82,9 +81,14 @@ public abstract class GccAnalysisClass {
 	 * @param dt the type for the data
 	 */
 	protected static void createData(Program program, Address addr, DataType dt) {
-
-		CreateDataCmd dataCmd = new CreateDataCmd(addr, dt);
-		dataCmd.applyTo(program);
+		try {
+			// try creating without clearing, the code units should be clear
+			program.getListing().createData(addr, dt);
+		}
+		catch (CodeUnitInsertionException | DataTypeConflictException e) {
+			CreateDataCmd dataCmd = new CreateDataCmd(addr, dt);
+			dataCmd.applyTo(program);
+		}
 	}
 
 	/**
@@ -102,7 +106,7 @@ public abstract class GccAnalysisClass {
 	protected static void createAndCommentData(Program program, Address addr, DataType dt,
 			String comment, int commentType) {
 		createData(program, addr, dt);
-		SetCommentsCmd.createComment(program, addr, comment, commentType);
+		SetCommentCmd.createComment(program, addr, comment, commentType);
 	}
 
 }

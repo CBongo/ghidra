@@ -31,7 +31,6 @@ import ghidra.program.util.SymbolicPropogator.Value;
 import ghidra.util.Msg;
 import ghidra.util.exception.*;
 import ghidra.util.task.TaskMonitor;
-import ghidra.util.task.TaskMonitorAdapter;
 
 /**
  * CallDepthChangeInfo.java
@@ -89,7 +88,7 @@ public class CallDepthChangeInfo {
 		this.program = func.getProgram();
 		frameReg = program.getCompilerSpec().getStackPointer();
 		try {
-			initialize(func, func.getBody(), frameReg, TaskMonitorAdapter.DUMMY_MONITOR);
+			initialize(func, func.getBody(), frameReg, TaskMonitor.DUMMY);
 		}
 		catch (CancelledException e) {
 			throw new RuntimeException("Unexpected Exception", e);
@@ -112,7 +111,8 @@ public class CallDepthChangeInfo {
 
 	/**
 	 * Construct a new CallDepthChangeInfo object.
-	 * @param func function to examine
+	 * @param function function to examine
+	 * @param restrictSet set of addresses to restrict flow flowing to.
 	 * @param frameReg register that is to have it's depth(value) change tracked
 	 * @param monitor monitor used to cancel the operation
 	 * 
@@ -132,8 +132,8 @@ public class CallDepthChangeInfo {
 	 * Construct a new CallDepthChangeInfo object.
 	 * 
 	 * @param program  program containing the function to examime
-	 * @param restrictedSet set of addresses to restrict flow flowing to.
 	 * @param addr     address within the function to examine
+	 * @param restrictSet set of addresses to restrict flow flowing to.
 	 * @param frameReg register that is to have it's depth(value) change tracked
 	 * @param monitor  monitor used to cancel the operation
 	 * @throws CancelledException
@@ -273,8 +273,7 @@ public class CallDepthChangeInfo {
 
 		PcodeOp[] pcode = instr.getPcode();
 		Varnode outVarNode = null;
-		for (int i = 0; i < pcode.length; i++) {
-			PcodeOp op = pcode[i];
+		for (PcodeOp op : pcode) {
 			Varnode input0 = op.getInput(0);
 			Varnode input1 = op.getInput(1);
 			Varnode output = op.getOutput();
@@ -317,9 +316,10 @@ public class CallDepthChangeInfo {
 					break;
 				case PcodeOp.INT_AND: // Assume this is a stack alignment and do the and
 					if (isStackPointer(input0)) {
-						if (currentStackDepth != Function.UNKNOWN_STACK_DEPTH_CHANGE)
+						if (currentStackDepth != Function.UNKNOWN_STACK_DEPTH_CHANGE) {
 							possibleDepthChange =
 								(int) (currentStackDepth & input1.getOffset()) - currentStackDepth;
+						}
 						outVarNode = output;
 					}
 					else if (input0.equals(outVarNode)) {
@@ -327,9 +327,10 @@ public class CallDepthChangeInfo {
 						outVarNode = output;
 					}
 					else if (isStackPointer(input1)) {
-						if (currentStackDepth != Function.UNKNOWN_STACK_DEPTH_CHANGE)
+						if (currentStackDepth != Function.UNKNOWN_STACK_DEPTH_CHANGE) {
 							possibleDepthChange =
 								(int) (currentStackDepth & input0.getOffset()) - currentStackDepth;
+						}
 						outVarNode = output;
 					}
 					else if (input1.equals(outVarNode)) {
@@ -385,7 +386,7 @@ public class CallDepthChangeInfo {
 
 		// TODO: Modify return by normal stack shift....
 		if (flowType.isTerminal()) {
-			depthChange -= program.getCompilerSpec().getCallStackShift();
+			depthChange -= program.getCompilerSpec().getDefaultCallingConvention().getStackshift();
 		}
 
 		// if the current stack depth is still bad, don't return a depth change.
@@ -419,8 +420,9 @@ public class CallDepthChangeInfo {
 	 * @return
 	 */
 	private int getDefaultStackDepthChange(int depth) {
-		int callStackMod = program.getCompilerSpec().getCallStackMod();
-		int callStackShift = program.getCompilerSpec().getCallStackShift();
+		PrototypeModel defaultModel = program.getCompilerSpec().getDefaultCallingConvention();
+		int callStackMod = defaultModel.getExtrapop();
+		int callStackShift = defaultModel.getStackshift();
 		if (callStackMod != PrototypeModel.UNKNOWN_EXTRAPOP && callStackShift >= 0) {
 			return callStackShift - callStackMod;
 		}
@@ -529,7 +531,7 @@ public class CallDepthChangeInfo {
 		st.push(func.getEntryPoint());
 		st.push(new Integer(0));
 		st.push(Boolean.TRUE);
-		ProcessorContextImpl procContext = new ProcessorContextImpl(trans.getRegisters());
+		ProcessorContextImpl procContext = new ProcessorContextImpl(program.getLanguage());
 
 		AddressSet undone = new AddressSet(func.getBody());
 		AddressSet badStackSet = new AddressSet(undone);
@@ -578,8 +580,8 @@ public class CallDepthChangeInfo {
 			FlowType flow = instr.getFlowType();
 			if (!flow.isCall()) {
 				Address[] flows = instr.getFlows();
-				for (int i = 0; i < flows.length; i++) {
-					st.push(flows[i]);
+				for (Address flow2 : flows) {
+					st.push(flow2);
 					st.push(new Integer(stackPointerDepth));
 					st.push(stackOK);
 				}
@@ -653,7 +655,7 @@ public class CallDepthChangeInfo {
 			return;
 		}
 
-		int purge = (short) program.getCompilerSpec().getCallStackMod();
+		int purge = (short) program.getCompilerSpec().getDefaultCallingConvention().getExtrapop();
 		final boolean possiblePurge = purge == -1 || purge > 3200 || purge < -3200;
 
 		// follow all flows building up context
@@ -733,13 +735,13 @@ public class CallDepthChangeInfo {
 		return;
 	}
 
-	/**
-	 * Checks the indicated function in the program to determine if it is a jump thunk
-	 * through a function pointer.
-	 * @param func the function to check
-	 * @param monitor status monitor for indicating progress and allowing cancel.
-	 * @returntrue if check if this is a jump thunk through a function pointer
-	 */
+//	/**
+//	 * Checks the indicated function in the program to determine if it is a jump thunk
+//	 * through a function pointer.
+//	 * @param func the function to check
+//	 * @param monitor status monitor for indicating progress and allowing cancel.
+//	 * @return true if check if this is a jump thunk through a function pointer
+//	 */
 //	private boolean checkThunk(Function func, TaskMonitor monitor) {
 //		Instruction instr = program.getListing().getInstructionAt(func.getEntryPoint());
 //		if (instr == null) {
@@ -830,16 +832,17 @@ public class CallDepthChangeInfo {
 	}
 
 	/**
-	 * @param minAddress
-	 * @return
+	 * @param addr the address to get the stack pointer depth at.
+	 * @return the stack pointer depth at the address.
 	 */
 	public int getSPDepth(Address addr) {
 		return getRegDepth(addr, stackReg);
 	}
 
 	/**
-	 * @param minAddress
-	 * @return
+	 * @param addr the address to get the register depth at.
+	 * @param reg the register to get the depth of.
+	 * @return the depth of the register at the address.
 	 */
 	public int getRegDepth(Address addr, Register reg) {
 		// OK lets CHEAT...
@@ -872,8 +875,9 @@ public class CallDepthChangeInfo {
 	}
 
 	/**
-	 * @param minAddress
-	 * @return
+	 * @param addr the address of the register value to get the representation of.
+	 * @param reg the register to get the representation of.
+	 * @return the string representation of the register value.
 	 */
 	public String getRegValueRepresentation(Address addr, Register reg) {
 		return symEval.getRegisterValueRepresentation(addr, reg);
@@ -898,9 +902,9 @@ public class CallDepthChangeInfo {
 
 		Stack<Object> st = new Stack<Object>();
 		st.push(func.getEntryPoint());
-		st.push(new Integer(0));
+		st.push(Integer.valueOf(0));
 		st.push(Boolean.TRUE);
-		ProcessorContextImpl procContext = new ProcessorContextImpl(trans.getRegisters());
+		ProcessorContextImpl procContext = new ProcessorContextImpl(program.getLanguage());
 
 		AddressSet undone = new AddressSet(func.getBody());
 		AddressSet badStackSet = new AddressSet(undone);
@@ -948,9 +952,9 @@ public class CallDepthChangeInfo {
 			FlowType flow = instr.getFlowType();
 			if (!flow.isCall()) {
 				Address[] flows = instr.getFlows();
-				for (int i = 0; i < flows.length; i++) {
-					st.push(flows[i]);
-					st.push(new Integer(stackPointerDepth));
+				for (Address flow2 : flows) {
+					st.push(flow2);
+					st.push(Integer.valueOf(stackPointerDepth));
 					st.push(stackOK);
 				}
 			}
@@ -1027,11 +1031,11 @@ public class CallDepthChangeInfo {
 		}
 
 		// try to find a call destination that the stack frame is known
-		for (int i = 0; i < flows.length; i++) {
-			if (flows[i] == null) {
+		for (Address flow : flows) {
+			if (flow == null) {
 				continue;
 			}
-			Function func = program.getListing().getFunctionAt(flows[i]);
+			Function func = program.getListing().getFunctionAt(flow);
 			if (func != null) {
 				int purge = func.getStackPurgeSize();
 				if (func.isStackPurgeSizeValid() && purge != Function.UNKNOWN_STACK_DEPTH_CHANGE &&

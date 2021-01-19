@@ -25,7 +25,6 @@ import javax.swing.event.ChangeListener;
 import docking.ActionContext;
 import docking.action.*;
 import docking.widgets.table.GTable;
-import ghidra.app.events.ProgramSelectionPluginEvent;
 import ghidra.app.nav.Navigatable;
 import ghidra.app.nav.NavigatableRemovalListener;
 import ghidra.app.services.GoToService;
@@ -38,7 +37,10 @@ import ghidra.program.model.address.AddressSet;
 import ghidra.program.model.listing.Program;
 import ghidra.program.util.ProgramLocation;
 import ghidra.util.HelpLocation;
-import ghidra.util.table.*;
+import ghidra.util.table.GhidraTable;
+import ghidra.util.table.SelectionNavigationAction;
+import ghidra.util.table.actions.DeleteTableRowAction;
+import ghidra.util.table.actions.MakeProgramSelectionAction;
 import ghidra.util.task.SwingUpdateManager;
 import resources.Icons;
 import resources.ResourceManager;
@@ -49,7 +51,6 @@ import resources.ResourceManager;
 public class LocationReferencesProvider extends ComponentProviderAdapter
 		implements DomainObjectListener, NavigatableRemovalListener {
 
-	private static Icon SELECT_ICON = ResourceManager.loadImage("images/text_align_justify.png");
 	private static Icon HIGHLIGHT_ICON = ResourceManager.loadImage("images/tag_yellow.png");
 	private static Icon HOME_ICON = ResourceManager.loadImage("images/go-home.png");
 	private static Icon REFRESH_ICON = Icons.REFRESH_ICON;
@@ -151,11 +152,6 @@ public class LocationReferencesProvider extends ComponentProviderAdapter
 		referencesPanel.reloadModel();
 	}
 
-	private void makeSelection() {
-		locationReferencesPlugin.firePluginEvent(new ProgramSelectionPluginEvent(
-			locationReferencesPlugin.getName(), referencesPanel.getSelection(), program));
-	}
-
 	private void setLocationDescriptor(LocationDescriptor locationDescriptor,
 			Navigatable navigatable) {
 		// turn off highlighting, as we have a new descriptor, which may change the data
@@ -174,7 +170,10 @@ public class LocationReferencesProvider extends ComponentProviderAdapter
 		setTitle(generateTitle());
 	}
 
-	/** Sets the new LocationDescriptor and updates the providers table contents. */
+	/** 
+	 * Sets the new LocationDescriptor and updates the providers table contents. 
+	 * @param locationDescriptor the new descriptor 
+	 */
 	void update(LocationDescriptor locationDescriptor) {
 		setLocationDescriptor(locationDescriptor, navigatable);
 		updateManager.updateNow();
@@ -199,18 +198,14 @@ public class LocationReferencesProvider extends ComponentProviderAdapter
 	}
 
 	void dispose() {
+		updateManager.dispose();
+		referencesPanel.dispose();
 		highlightManager.dispose();
 		navigatable.removeNavigatableListener(this);
 		program.removeListener(this);
 		program = null;
-		updateManager.dispose();
 
 		tool.removeComponentProvider(this);
-
-		tool.removeLocalAction(this, homeAction);
-		tool.removeLocalAction(this, refreshAction);
-		tool.removeLocalAction(this, selectionAction);
-		tool.removeLocalAction(this, highlightAction);
 
 		homeAction.dispose();
 		refreshAction.dispose();
@@ -249,30 +244,8 @@ public class LocationReferencesProvider extends ComponentProviderAdapter
 		homeAction.setToolBarData(new ToolBarData(HOME_ICON));
 		updateHomeActionState();
 
-		selectionAction = new DockingAction("Make Selection", locationReferencesPlugin.getName()) {
-			@Override
-			public void actionPerformed(ActionContext context) {
-				makeSelection();
-			}
-
-			@Override
-			public boolean isEnabledForContext(ActionContext context) {
-				return referencesPanel.getTable().getSelectedRowCount() > 0;
-			}
-
-			@Override
-			public boolean isAddToPopup(ActionContext context) {
-				if (referencesPanel.getTable().getClass().isInstance(context.getContextObject())) {
-					return super.isEnabledForContext(context);
-				}
-				return false;
-			}
-		};
-		selectionAction.setPopupMenuData(
-			new MenuData(new String[] { "Make Selection" }, SELECT_ICON));
-		selectionAction.setToolBarData(new ToolBarData(SELECT_ICON));
-		selectionAction.setDescription("Make a program selection from selected rows in table");
-		selectionAction.setEnabled(false); // off by default; updated when the user clicks the table
+		selectionAction =
+			new MakeProgramSelectionAction(locationReferencesPlugin, referencesPanel.getTable());
 
 		highlightAction = new ToggleDockingAction("Highlight Matches", getName()) {
 			@Override
@@ -402,6 +375,7 @@ public class LocationReferencesProvider extends ComponentProviderAdapter
 		// locationReferencesPlugin.providerDismissed(this); here, as that can trigger a loop
 		// back when we are disposing.
 		clearHighlights();
+		updateManager.dispose();
 		referencesPanel.dispose();
 	}
 
@@ -426,12 +400,7 @@ public class LocationReferencesProvider extends ComponentProviderAdapter
 
 	@Override
 	public ActionContext getActionContext(MouseEvent event) {
-		if (event != null) {
-			if (referencesPanel.selectRow(event)) {
-				return new ActionContext(this, referencesPanel.getTable());
-			}
-		}
-		return null;
+		return new ActionContext(this, referencesPanel.getTable());
 	}
 
 //==================================================================================================
@@ -441,7 +410,7 @@ public class LocationReferencesProvider extends ComponentProviderAdapter
 	private class DeleteAction extends DeleteTableRowAction {
 
 		DeleteAction(PluginTool tool, GTable table) {
-			super(tool, table, locationReferencesPlugin.getName());
+			super(table, locationReferencesPlugin.getName());
 		}
 
 		@Override

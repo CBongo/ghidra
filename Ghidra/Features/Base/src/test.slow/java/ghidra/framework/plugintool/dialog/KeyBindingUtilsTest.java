@@ -19,6 +19,7 @@ import static org.junit.Assert.*;
 
 import java.awt.Rectangle;
 import java.awt.Window;
+import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
 import java.io.*;
 import java.util.*;
@@ -30,16 +31,18 @@ import javax.swing.tree.TreePath;
 import org.junit.*;
 
 import docking.action.DockingActionIf;
+import docking.actions.KeyBindingUtils;
 import docking.options.editor.OptionsDialog;
 import docking.options.editor.OptionsPanel;
-import docking.util.KeyBindingUtils;
+import docking.tool.ToolConstants;
+import docking.tool.util.DockingToolConstants;
 import docking.widgets.filechooser.GhidraFileChooser;
 import docking.widgets.tree.GTree;
+import docking.widgets.tree.GTreeNode;
 import generic.io.NullWriter;
 import ghidra.app.plugin.core.codebrowser.CodeBrowserPlugin;
 import ghidra.app.plugin.core.data.DataPlugin;
 import ghidra.app.plugin.core.datamgr.DataTypeManagerPlugin;
-import ghidra.app.plugin.core.equate.EquateTablePlugin;
 import ghidra.app.plugin.core.function.FunctionPlugin;
 import ghidra.app.plugin.core.memory.MemoryMapPlugin;
 import ghidra.app.plugin.core.navigation.GoToAddressLabelPlugin;
@@ -49,7 +52,6 @@ import ghidra.framework.options.Options;
 import ghidra.framework.options.ToolOptions;
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.framework.plugintool.mgr.OptionsManager;
-import ghidra.framework.plugintool.util.ToolConstants;
 import ghidra.test.AbstractGhidraHeadedIntegrationTest;
 import ghidra.test.TestEnv;
 import ghidra.util.Msg;
@@ -65,7 +67,6 @@ public class KeyBindingUtilsTest extends AbstractGhidraHeadedIntegrationTest {
 
 	private static final String TEST_FILENAME =
 		"KeyBindingUtilsTest_Test_Filename" + KeyBindingUtils.PREFERENCES_FILE_EXTENSION;
-	private static final String TEST_TOOL_NAME = "KeyBindingsUtilsTest_TestTool";
 
 	private Writer debug = new NullWriter();
 
@@ -87,6 +88,13 @@ public class KeyBindingUtilsTest extends AbstractGhidraHeadedIntegrationTest {
 //		Msg.debug(this, "Writing debug data to: " + file);
 //		debug = new FileWriter(file);
 
+		// debug to the local console
+//		debug = new PrintWriter(System.out);
+
+		setUpTool();
+	}
+
+	private void setUpTool() throws Exception {
 		debug("setUp()");
 
 		env = new TestEnv();
@@ -103,7 +111,8 @@ public class KeyBindingUtilsTest extends AbstractGhidraHeadedIntegrationTest {
 		tool.addPlugin(DataTypeManagerPlugin.class.getName());
 		tool.addPlugin(DataPlugin.class.getName());
 		tool.addPlugin(FunctionPlugin.class.getName());
-		tool.addPlugin(EquateTablePlugin.class.getName());
+
+		env.showTool();
 
 		debug("two");
 	}
@@ -131,13 +140,40 @@ public class KeyBindingUtilsTest extends AbstractGhidraHeadedIntegrationTest {
 		debug.close();
 	}
 
+	@Test
+	public void testParseKeyStroke() {
+
+		KeyStroke ks = KeyStroke.getKeyStroke(KeyEvent.VK_V, 0);
+		String parsed = KeyBindingUtils.parseKeyStroke(ks);
+		assertEquals("V", parsed);
+
+		ks = KeyStroke.getKeyStroke('v');
+		parsed = KeyBindingUtils.parseKeyStroke(ks);
+		assertEquals("v", parsed);
+
+		int modifiers = InputEvent.SHIFT_DOWN_MASK | InputEvent.CTRL_DOWN_MASK;
+		ks = KeyStroke.getKeyStroke(KeyEvent.VK_V, modifiers);
+		parsed = KeyBindingUtils.parseKeyStroke(ks);
+		assertEquals("Ctrl-Shift-V", parsed);
+
+		ks = KeyStroke.getKeyStroke(KeyEvent.VK_V, modifiers, true);
+		parsed = KeyBindingUtils.parseKeyStroke(ks);
+		assertEquals("Ctrl-Shift-V", parsed);
+
+		JButton b = new JButton();
+		KeyEvent event = new KeyEvent(b, KeyEvent.KEY_PRESSED, 1, modifiers, KeyEvent.VK_V, 'v');
+		ks = KeyStroke.getKeyStrokeForEvent(event);
+		parsed = KeyBindingUtils.parseKeyStroke(ks);
+		assertEquals("Ctrl-Shift-V", parsed);
+	}
+
 	/*
 	 * Test method for 'ghidra.framework.plugintool.dialog.KeyBindingUtils.importKeyBindings(PluginTool)'
 	 */
 	@Test
 	public void testExportImportKeyBindings() throws Exception {
 		debug("testExportImportKeyBindings()");
-		ToolOptions defaultKeyBindings = tool.getOptions(ToolConstants.KEY_BINDINGS);
+		ToolOptions defaultKeyBindings = tool.getOptions(DockingToolConstants.KEY_BINDINGS);
 
 		debug("a");
 
@@ -157,14 +193,13 @@ public class KeyBindingUtilsTest extends AbstractGhidraHeadedIntegrationTest {
 
 		debug("d");
 
-		// now repeat the above test with changing some values before writing
-		// out
+		// now repeat the above test with changing some values before writing out
 		invokeInstanceMethod("putObject", defaultKeyBindings,
 			new Class[] { String.class, Object.class },
-			new Object[] { "test1", KeyStroke.getKeyStroke(65, 0) });
+			new Object[] { "TestAction1 (Owner1)", KeyStroke.getKeyStroke(65, 0) });
 		invokeInstanceMethod("putObject", defaultKeyBindings,
 			new Class[] { String.class, Object.class },
-			new Object[] { "test2", KeyStroke.getKeyStroke(66, 0) });
+			new Object[] { "TestAction2 (Owner 2)", KeyStroke.getKeyStroke(66, 0) });
 
 		debug("e");
 
@@ -195,7 +230,7 @@ public class KeyBindingUtilsTest extends AbstractGhidraHeadedIntegrationTest {
 	@Test
 	public void testImportExportWithGUI() throws Exception {
 
-		setUpDialog();
+		setKeyBindingsUpDialog();
 
 		debug("a");
 
@@ -206,11 +241,11 @@ public class KeyBindingUtilsTest extends AbstractGhidraHeadedIntegrationTest {
 
 		// save and reload them to make sure they are the same
 		File saveFile = exportOptions(toolKeyBindingOptions);
-		ToolOptions savedOptions = importOptions(saveFile);
+		ToolOptions originalOptions = importOptions(saveFile);
 
 		assertOptionsMatch(
-			"The Options objects do not contain different data after " + "changes have been made.",
-			toolKeyBindingOptions, savedOptions);
+			"The Options objects do not contain different data after changes have been made.",
+			toolKeyBindingOptions, originalOptions);
 
 		debug("c");
 
@@ -221,26 +256,26 @@ public class KeyBindingUtilsTest extends AbstractGhidraHeadedIntegrationTest {
 
 		// verify the changes are different than the original values
 		assertOptionsDontMatch(
-			"The Options objects do not contain different data after " + "changes have been made.",
-			toolKeyBindingOptions, savedOptions);
+			"The Options objects do not contain different data after changes have been made.",
+			toolKeyBindingOptions, originalOptions);
 
 		debug("e");
 
 		// import the original values file through the tool
 		importOptionsWithGUI(saveFile, true);
 		// get the updated values that have not been applied
-		Map<?, ?> optionsMap = (Map<?, ?>) getInstanceField("actionMap", panel);
+		Map<String, KeyStroke> keyStrokeMap = panel.getKeyStrokeMap();
 
 		debug("f");
 
 		// verify the data is the same as it was before the changes
-		boolean same = compareOptionsWithKeyStrokeMap(savedOptions, optionsMap);
-		assertTrue("The Options object contains different data than was " + "imported.", same);
+		boolean same = compareOptionsWithKeyStrokeMap(originalOptions, keyStrokeMap);
+		assertTrue("The Options object contains different data than was imported.", same);
 
 		debug("g");
 
 		// close the tool *without* applying the changes
-		closeAllWindowsAndFrames();
+		closeAllWindows();
 		env.dispose();
 
 		debug("h");
@@ -250,7 +285,7 @@ public class KeyBindingUtilsTest extends AbstractGhidraHeadedIntegrationTest {
 		// reload the tool and make sure the values are those of the changes
 		// *before* the last import
 		setUp();
-		setUpDialog();
+		setKeyBindingsUpDialog();
 
 		debug("i");
 
@@ -258,7 +293,7 @@ public class KeyBindingUtilsTest extends AbstractGhidraHeadedIntegrationTest {
 		assertOptionsMatch(
 			"The options from the first tool instance have changed " +
 				"in the second tool instance even though the testing changes were not applied.",
-			savedOptions, newlyLoadedDefaultOptions);
+			originalOptions, newlyLoadedDefaultOptions);
 
 		debug("j");
 
@@ -281,44 +316,92 @@ public class KeyBindingUtilsTest extends AbstractGhidraHeadedIntegrationTest {
 
 		debug("n");
 
-		saveTool();
-		closeAllWindowsAndFrames();
-		env.dispose();
-
-		debug("o");
-
 		saveFile.delete();
 
 		// reload the tool and make sure the values are those of the changes
 		// *after* the last import
 		// reload with our saved tool
-		setUp();
-		runSwing(() -> {
-			ToolServices services = tool.getProject().getToolServices();
-			tool = (PluginTool) services.launchTool(TEST_TOOL_NAME, null);
-		});
+		saveAndCloseTool();
+		reopenTool(tool);
 
 		debug("p");
 
+		setKeyBindingsUpDialog(tool);
+
 		newlyLoadedDefaultOptions = (ToolOptions) getInstanceField("options", panel);
 		assertOptionsDontMatch(
-			"The options are the same after making changes, applying, " + "closing and reloading.",
-			savedOptions, newlyLoadedDefaultOptions);
+			"The options are the same after making changes, applying, closing and reloading.",
+			originalOptions, newlyLoadedDefaultOptions);
 
 		debug("q");
+		closeAllWindows();
 	}
 
-	private void saveTool() {
-		executeOnSwingWithoutBlocking(() -> tool.saveTool());
+	@Test
+	public void testSharedKeyBindingGetsRestoredWhenToolIsRestarted() throws Exception {
+
+		setKeyBindingsUpDialog();
+
+		// this action is known to be a 'Shared' action
+		// Remove Items  (Shared)
+		String actionName = "Remove Items";
+		DockingActionIf action = getAction(tool, ToolConstants.SHARED_OWNER, actionName);
+		assertNotNull(action);
+		KeyStroke defaultBinding = action.getKeyBinding();
+		KeyStroke newBinding = KeyStroke.getKeyStroke(KeyEvent.VK_X, 0);
+		assertNotEquals(defaultBinding, newBinding);
+		setKeyBinding(action, "x", newBinding.getKeyCode());
+
+		KeyStroke appliedBinding = action.getKeyBinding();
+		assertEquals(newBinding, appliedBinding);
+
+		// reload the tool and make sure the values are those of the changes get restored
+		saveAndCloseTool();
+
+		reopenTool(tool);
+
+		KeyStroke restoredBinding = action.getKeyBinding();
+		assertEquals(newBinding, restoredBinding);
+
+		setKeyBindingsUpDialog(tool);
+		ToolOptions options = (ToolOptions) getInstanceField("options", panel);
+		KeyStroke optionBinding = options.getKeyStroke(action.getFullName(), null);
+		assertEquals(appliedBinding, optionBinding);
+
+		closeAllWindows();
 	}
 
-	// open the options dialog and show the key bindings editor
-	private void setUpDialog() throws Exception {
-		debug("setUpDialog()");
+//==================================================================================================
+// Private Methods
+//==================================================================================================	
+
+	private void reopenTool(PluginTool tool2) {
+		runSwing(() -> {
+			ToolServices services = tool.getProject().getToolServices();
+			tool = services.launchTool(tool.getName(), null);
+		});
+		assertNotNull(tool);
+	}
+
+	private void saveAndCloseTool() {
+		runSwing(() -> {
+			ToolServices services = tool.getProject().getToolServices();
+			services.saveTool(tool);
+		});
+		env.closeTool(tool);
+	}
+
+	private void setKeyBindingsUpDialog() throws Exception {
 		env.showTool();
+		setKeyBindingsUpDialog(tool);
+	}
+
+	private void setKeyBindingsUpDialog(PluginTool pluginTool) throws Exception {
+		debug("setUpDialog()");
 		debug("aa");
 
-		final OptionsManager optionsManager = (OptionsManager) getInstanceField("optionsMgr", tool);
+		final OptionsManager optionsManager =
+			(OptionsManager) getInstanceField("optionsMgr", pluginTool);
 
 		debug("bb");
 		executeOnSwingWithoutBlocking(() -> {
@@ -337,7 +420,7 @@ public class KeyBindingUtilsTest extends AbstractGhidraHeadedIntegrationTest {
 
 		// this is an instance of OptionsNode
 		GTree tree = (GTree) getInstanceField("gTree", optionsPanel);
-		Object keyBindingsNode = getGTreeNode(tree.getRootNode(), "Key Bindings");
+		Object keyBindingsNode = getGTreeNode(tree.getModelRoot(), "Key Bindings");
 		selectNode(tree, keyBindingsNode);
 
 		debug("ee");
@@ -377,17 +460,18 @@ public class KeyBindingUtilsTest extends AbstractGhidraHeadedIntegrationTest {
 		SwingUtilities.invokeAndWait(() -> tree.setSelectionPath(path));
 	}
 
-	private Object getGTreeNode(Object parent, String nodeName) throws Exception {
-		List<?> children = (List<?>) getInstanceField("allChildrenList", parent);
-		if (children == null) {
+	private GTreeNode getGTreeNode(GTreeNode parent, String nodeName) throws Exception {
+		if (!parent.isLoaded()) {
 			return null;
 		}
-		for (Object rootChild : children) {
+
+		List<GTreeNode> children = parent.getChildren();
+		for (GTreeNode rootChild : children) {
 			String name = (String) invokeInstanceMethod("getName", rootChild);
 			if (nodeName.equals(name)) {
 				return rootChild;
 			}
-			Object foundNode = getGTreeNode(rootChild, nodeName);
+			GTreeNode foundNode = getGTreeNode(rootChild, nodeName);
 			if (foundNode != null) {
 				return foundNode;
 			}
@@ -396,18 +480,21 @@ public class KeyBindingUtilsTest extends AbstractGhidraHeadedIntegrationTest {
 	}
 
 	private void setKeyBinding(String keyText, int keyCode) throws Exception {
-		List<DockingActionIf> list = tool.getAllActions();
-		DockingActionIf action = null;
-		for (int i = 0; i < list.size(); i++) {
-			action = list.get(i);
-			if (action.isKeyBindingManaged() && action.getKeyBinding() == null) {
+		Set<DockingActionIf> list = tool.getAllActions();
+		DockingActionIf arbitraryAction = null;
+		for (DockingActionIf action : list) {
+			if (action.getKeyBindingType().isManaged() && action.getKeyBinding() == null) {
+				arbitraryAction = action;
 				break;
 			}
 		}
 
-		if (action == null) {
-			Assert.fail("Unable to find an action for which to set a key binding.");
-		}
+		assertNotNull("Unable to find an action for which to set a key binding", arbitraryAction);
+		setKeyBinding(arbitraryAction, keyText, keyCode);
+	}
+
+	private void setKeyBinding(DockingActionIf action, String keyText, int keyCode)
+			throws Exception {
 
 		selectRowForAction(action);
 		triggerText(keyField, keyText);
@@ -458,7 +545,7 @@ public class KeyBindingUtilsTest extends AbstractGhidraHeadedIntegrationTest {
 	}
 
 	private void closeWarningDialog(boolean proceed) {
-		Window window = waitForWindowByTitleContaining(null, "Continue", DEFAULT_WINDOW_TIMEOUT);
+		Window window = waitForWindowByTitleContaining("Continue");
 		assertNotNull(window);
 
 		String button = proceed ? "Yes" : "No";
@@ -488,7 +575,7 @@ public class KeyBindingUtilsTest extends AbstractGhidraHeadedIntegrationTest {
 	// locates the open file chooser and verifies its state
 	private File findAndTestFileChooser(File path, String filename) throws Exception {
 		// get the file chooser and set the file it will use
-		GhidraFileChooser fileChooser = waitForDialogComponent(null, GhidraFileChooser.class, 5000);
+		GhidraFileChooser fileChooser = waitForDialogComponent(GhidraFileChooser.class);
 		if (fileChooser == null) {
 			Msg.debug(this, "Couldn't find file chooser");
 			printOpenWindows();
@@ -524,20 +611,19 @@ public class KeyBindingUtilsTest extends AbstractGhidraHeadedIntegrationTest {
 	// compares the provided options with the mapping of property names to
 	// keystrokes (the map is obtained from the key bindings panel after an
 	// import is done).
-	private boolean compareOptionsWithKeyStrokeMap(Options options, Map<?, ?> optionsMap) {
-		List<String> propertyNames = options.getOptionNames();
-		for (String element : propertyNames) {
-			boolean match = optionsMap.containsKey(element);
+	private boolean compareOptionsWithKeyStrokeMap(Options oldOptions,
+			Map<String, KeyStroke> panelKeyStrokeMap) {
+		List<String> propertyNames = oldOptions.getOptionNames();
+		for (String name : propertyNames) {
 
-			Object value = invokeInstanceMethod("getKeyStroke", options,
-				new Class[] { String.class, KeyStroke.class }, new Object[] { element, null });
-			Object value2 = optionsMap.get(element);
+			boolean match = panelKeyStrokeMap.containsKey(name);
+			KeyStroke optionsKs = oldOptions.getKeyStroke(name, null);
+			KeyStroke panelKs = panelKeyStrokeMap.get(name);
 
-			// if the value is null, then it would not have been placed into the
-			// options map in the key bindings panel, so we only care about
-			// non-null values
-			if (value != null) {
-				match &= (value.equals(value2));
+			// if the value is null, then it would not have been placed into the options map 
+			// in the key bindings panel, so we only care about non-null values
+			if (optionsKs != null) {
+				match &= (optionsKs.equals(panelKs));
 			}
 			else {
 				match = true;
@@ -553,8 +639,6 @@ public class KeyBindingUtilsTest extends AbstractGhidraHeadedIntegrationTest {
 	}
 
 	private void assertOptionsMatch(String message, ToolOptions options1, ToolOptions options2) {
-
-//		System.out.println("assertOptionsMatch()");
 
 		List<String> propertyNames = getOptionsNamesWithValues(options1);
 		List<String> otherPropertyNames = getOptionsNamesWithValues(options2);
@@ -580,8 +664,6 @@ public class KeyBindingUtilsTest extends AbstractGhidraHeadedIntegrationTest {
 
 	private void assertOptionsDontMatch(String message, ToolOptions options1,
 			ToolOptions options2) {
-
-//		System.out.println("assertOptionsDontMatch()");
 
 		List<String> propertyNames = getOptionsNamesWithValues(options1);
 		List<String> otherPropertyNames = getOptionsNamesWithValues(options2);

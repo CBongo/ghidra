@@ -18,7 +18,8 @@ package ghidra.program.database.data;
 import java.io.IOException;
 import java.util.*;
 
-import db.Record;
+import db.Field;
+import db.DBRecord;
 import ghidra.docking.settings.Settings;
 import ghidra.program.database.DBObjectCache;
 import ghidra.program.model.data.*;
@@ -37,11 +38,11 @@ class FunctionDefinitionDB extends DataTypeDB implements FunctionDefinition {
 
 	FunctionDefinitionDB(DataTypeManagerDB dataMgr, DBObjectCache<DataTypeDB> cache,
 			FunctionDefinitionDBAdapter adapter, FunctionParameterAdapter paramAdapter,
-			Record record) {
+			DBRecord record) {
 		super(dataMgr, cache, record);
 		this.funDefAdapter = adapter;
 		this.paramAdapter = paramAdapter;
-		getParameters();
+		loadParameters();
 	}
 
 	@Override
@@ -54,12 +55,12 @@ class FunctionDefinitionDB extends DataTypeDB implements FunctionDefinition {
 		return record.getLongValue(FunctionDefinitionDBAdapter.FUNCTION_DEF_CAT_ID_COL);
 	}
 
-	private void getParameters() {
+	private void loadParameters() {
 		parameters = new ArrayList<>();
 		try {
-			long[] ids = paramAdapter.getParameterIdsInFunctionDef(key);
-			for (long id : ids) {
-				Record rec = paramAdapter.getRecord(id);
+			Field[] ids = paramAdapter.getParameterIdsInFunctionDef(key);
+			for (Field id : ids) {
+				DBRecord rec = paramAdapter.getRecord(id.getLongValue());
 				parameters.add(new ParameterDefinitionDB(dataMgr, paramAdapter, this, rec));
 			}
 			Collections.sort(parameters);
@@ -72,10 +73,10 @@ class FunctionDefinitionDB extends DataTypeDB implements FunctionDefinition {
 	@Override
 	protected boolean refresh() {
 		try {
-			Record rec = funDefAdapter.getRecord(key);
+			DBRecord rec = funDefAdapter.getRecord(key);
 			if (rec != null) {
 				record = rec;
-				getParameters();
+				loadParameters();
 				return super.refresh();
 			}
 		}
@@ -85,9 +86,6 @@ class FunctionDefinitionDB extends DataTypeDB implements FunctionDefinition {
 		return false;
 	}
 
-	/**
-	 * @see ghidra.program.model.data.DataType#isDynamicallySized()
-	 */
 	@Override
 	public boolean isDynamicallySized() {
 		return false;
@@ -142,9 +140,6 @@ class FunctionDefinitionDB extends DataTypeDB implements FunctionDefinition {
 		}
 	}
 
-	/* (non-Javadoc)
-	 * @see ghidra.program.model.listing.FunctionSignature#getArguments()
-	 */
 	@Override
 	public ParameterDefinition[] getArguments() {
 		lock.acquire();
@@ -157,9 +152,6 @@ class FunctionDefinitionDB extends DataTypeDB implements FunctionDefinition {
 		}
 	}
 
-	/* (non-Javadoc)
-	 * @see ghidra.program.model.listing.FunctionSignature#getReturnType()
-	 */
 	@Override
 	public DataType getReturnType() {
 		lock.acquire();
@@ -168,7 +160,7 @@ class FunctionDefinitionDB extends DataTypeDB implements FunctionDefinition {
 			long dtId = record.getLongValue(FunctionDefinitionDBAdapter.FUNCTION_DEF_RETURN_ID_COL);
 			DataType dt = dataMgr.getDataType(dtId);
 			if (dt == null) {
-				dt = DataType.VOID;
+				dt = DataType.DEFAULT;
 			}
 			return dt;
 		}
@@ -186,13 +178,26 @@ class FunctionDefinitionDB extends DataTypeDB implements FunctionDefinition {
 	}
 
 	private void doReplaceWith(FunctionDefinition functionDefinition) {
-		setArguments(functionDefinition.getArguments());
-		setReturnType(functionDefinition.getReturnType());
+
+		lock.acquire();
+		try {
+			checkDeleted();
+
+			setArguments(functionDefinition.getArguments());
+			try {
+				setReturnType(functionDefinition.getReturnType());
+			}
+			catch (IllegalArgumentException e) {
+				setReturnType(DEFAULT);
+			}
+			setVarArgs(functionDefinition.hasVarArgs());
+			setGenericCallingConvention(functionDefinition.getGenericCallingConvention());
+		}
+		finally {
+			lock.release();
+		}
 	}
 
-	/* (non-Javadoc)
-	 * @see ghidra.program.model.listing.FunctionSignature#getComment()
-	 */
 	@Override
 	public String getComment() {
 		lock.acquire();
@@ -216,49 +221,31 @@ class FunctionDefinitionDB extends DataTypeDB implements FunctionDefinition {
 			getSourceArchive(), getLastChangeTime(), getLastChangeTimeInSourceArchive(), dtm);
 	}
 
-	/* (non-Javadoc)
-	 * @see ghidra.program.model.data.DataType#getMnemonic(ghidra.program.model.data.Settings)
-	 */
 	@Override
 	public String getMnemonic(Settings settings) {
 		return getPrototypeString();
 	}
 
-	/* (non-Javadoc)
-	 * @see ghidra.program.model.data.DataType#getLength()
-	 */
 	@Override
 	public int getLength() {
 		return -1;
 	}
 
-	/* (non-Javadoc)
-	 * @see ghidra.program.model.data.DataType#getDescription()
-	 */
 	@Override
 	public String getDescription() {
 		return "Function Signature Data Type";
 	}
 
-	/* (non-Javadoc)
-	 * @see ghidra.program.model.data.DataType#getValue(ghidra.program.model.mem.MemBuffer, ghidra.program.model.lang.ProcessorContext, ghidra.program.model.data.Settings, int)
-	 */
 	@Override
 	public Object getValue(MemBuffer buf, Settings settings, int length) {
 		return null;
 	}
 
-	/* (non-Javadoc)
-	 * @see ghidra.program.model.data.DataType#getRepresentation(ghidra.program.model.mem.MemBuffer, ghidra.program.model.lang.ProcessorContext, ghidra.program.model.data.Settings, int)
-	 */
 	@Override
 	public String getRepresentation(MemBuffer buf, Settings settings, int length) {
 		return getPrototypeString();
 	}
 
-	/* (non-Javadoc)
-	 * @see ghidra.program.model.data.FunctionDefinition#setArguments(ghidra.program.model.listing.Variable[])
-	 */
 	@Override
 	public void setArguments(ParameterDefinition[] args) {
 		lock.acquire();
@@ -272,17 +259,15 @@ class FunctionDefinitionDB extends DataTypeDB implements FunctionDefinition {
 			}
 			parameters.clear();
 			for (int i = 0; i < args.length; i++) {
-				DataType resolvedDt = resolve(args[i].getDataType());
+				DataType type =
+					ParameterDefinitionImpl.validateDataType(args[i].getDataType(), dataMgr, false);
+				DataType resolvedDt = resolve(type);
 				paramAdapter.createRecord(dataMgr.getID(resolvedDt), key, i, args[i].getName(),
 					args[i].getComment(), args[i].getLength());
+				resolvedDt.addParent(this);
 			}
-			getParameters();
-			it = parameters.iterator();
-			while (it.hasNext()) {
-				ParameterDefinitionDB param = it.next();
-				param.getDataType().addParent(this);
-			}
-			funDefAdapter.updateRecord(record, true);
+			loadParameters();
+			funDefAdapter.updateRecord(record, true); // update last change time
 			dataMgr.dataTypeChanged(this);
 		}
 		catch (IOException e) {
@@ -293,24 +278,22 @@ class FunctionDefinitionDB extends DataTypeDB implements FunctionDefinition {
 		}
 	}
 
-	/* (non-Javadoc)
-	 * @see ghidra.program.model.data.FunctionDefinition#setReturnType(ghidra.program.model.data.DataType)
-	 */
 	@Override
 	public void setReturnType(DataType type) {
+		type = ParameterDefinitionImpl.validateDataType(type, dataMgr, true);
 		lock.acquire();
 		try {
 			checkDeleted();
 			getReturnType().removeParent(this);
 			if (type == null) {
-				type = DataType.VOID;
+				type = DataType.DEFAULT;
 			}
 			DataType resolvedDt = resolve(type);
 			record.setLongValue(FunctionDefinitionDBAdapter.FUNCTION_DEF_RETURN_ID_COL,
 				dataMgr.getID(resolvedDt));
 			funDefAdapter.updateRecord(record, true);
-			dataMgr.dataTypeChanged(this);
 			resolvedDt.addParent(this);
+			dataMgr.dataTypeChanged(this);
 		}
 		catch (IOException e) {
 			dataMgr.dbError(e);
@@ -320,9 +303,6 @@ class FunctionDefinitionDB extends DataTypeDB implements FunctionDefinition {
 		}
 	}
 
-	/* (non-Javadoc)
-	 * @see ghidra.program.model.data.FunctionDefinition#setComment(java.lang.String)
-	 */
 	@Override
 	public void setComment(String comment) {
 		lock.acquire();
@@ -340,9 +320,6 @@ class FunctionDefinitionDB extends DataTypeDB implements FunctionDefinition {
 		}
 	}
 
-	/**
-	 * @see ghidra.program.model.data.DataType#dataTypeDeleted(ghidra.program.model.data.DataType)
-	 */
 	@Override
 	public void dataTypeDeleted(DataType dt) {
 		lock.acquire();
@@ -352,13 +329,11 @@ class FunctionDefinitionDB extends DataTypeDB implements FunctionDefinition {
 			for (int i = 0; i < n; i++) {
 				ParameterDefinitionDB param = parameters.get(i);
 				if (param.getDataType() == dt) {
-					dt.removeParent(this);
 					param.setDataType(DataType.DEFAULT);
 				}
 			}
 			if (dt == getReturnType()) {
-				dt.removeParent(this);
-				setReturnType(DataType.VOID);
+				setReturnType(DataType.DEFAULT);
 			}
 		}
 		finally {
@@ -366,26 +341,36 @@ class FunctionDefinitionDB extends DataTypeDB implements FunctionDefinition {
 		}
 	}
 
-	/* (non-Javadoc)
-	 * @see ghidra.program.model.data.DataType#isEquivalent(ghidra.program.model.data.DataType)
-	 */
 	@Override
-	public boolean isEquivalent(DataType dt) {
-		if (dt == this) {
+	public boolean isEquivalent(DataType dataType) {
+
+		if (dataType == this) {
 			return true;
 		}
-		if (!(dt instanceof FunctionDefinition)) {
+		if (!(dataType instanceof FunctionDefinition)) {
 			return false;
 		}
 
 		checkIsValid();
-		if (resolving) {
-			if (dt.getUniversalID().equals(getUniversalID())) {
+		if (resolving) { // actively resolving children
+			if (dataType.getUniversalID().equals(getUniversalID())) {
 				return true;
 			}
-			return DataTypeUtilities.equalsIgnoreConflict(getPathName(), dt.getPathName());
+			return DataTypeUtilities.equalsIgnoreConflict(getPathName(), dataType.getPathName());
 		}
-		return isEquivalentSignature((FunctionSignature) dt);
+
+		Boolean isEquivalent = dataMgr.getCachedEquivalence(this, dataType);
+		if (isEquivalent != null) {
+			return isEquivalent;
+		}
+
+		try {
+			isEquivalent = isEquivalentSignature((FunctionSignature) dataType);
+		}
+		finally {
+			dataMgr.putCachedEquivalence(this, dataType, isEquivalent);
+		}
+		return isEquivalent;
 	}
 
 	@Override
@@ -398,15 +383,15 @@ class FunctionDefinitionDB extends DataTypeDB implements FunctionDefinition {
 		if ((DataTypeUtilities.equalsIgnoreConflict(signature.getName(), getName())) &&
 			((comment == null && myComment == null) ||
 				(comment != null && comment.equals(myComment))) &&
-			(DataTypeUtilities.isSameOrEquivalentDataType(signature.getReturnType(),
-				getReturnType())) &&
+			(DataTypeUtilities.isSameOrEquivalentDataType(getReturnType(),
+				signature.getReturnType())) &&
 			(getGenericCallingConvention() == signature.getGenericCallingConvention()) &&
 			(hasVarArgs() == signature.hasVarArgs())) {
 			ParameterDefinition[] args = signature.getArguments();
 			ParameterDefinition[] thisArgs = this.getArguments();
 			if (args.length == thisArgs.length) {
 				for (int i = 0; i < args.length; i++) {
-					if (!args[i].isEquivalent(thisArgs[i])) {
+					if (!thisArgs[i].isEquivalent(args[i])) {
 						return false;
 					}
 				}
@@ -416,46 +401,50 @@ class FunctionDefinitionDB extends DataTypeDB implements FunctionDefinition {
 		return false;
 	}
 
-	/**
-	 * @see ghidra.program.model.data.DataType#setCategoryPath(ghidra.program.model.data.CategoryPath)
-	 */
 	@Override
 	protected void doSetCategoryPathRecord(long categoryID) throws IOException {
 		record.setLongValue(FunctionDefinitionDBAdapter.FUNCTION_DEF_CAT_ID_COL, categoryID);
 		funDefAdapter.updateRecord(record, false);
 	}
 
-	/**
-	 * @see ghidra.program.model.data.DataType#setName(java.lang.String)
-	 */
 	@Override
 	protected void doSetNameRecord(String name) throws IOException {
 		record.setString(FunctionDefinitionDBAdapter.FUNCTION_DEF_NAME_COL, name);
 		funDefAdapter.updateRecord(record, true);
 	}
 
-	/**
-	 * @see ghidra.program.model.data.DataType#dataTypeReplaced(ghidra.program.model.data.DataType, ghidra.program.model.data.DataType)
-	 */
 	@Override
 	public void dataTypeReplaced(DataType oldDt, DataType newDt) {
 		lock.acquire();
 		try {
 			checkDeleted();
 			if (newDt == this) {
+				// avoid creating circular dependency
 				newDt = DataType.DEFAULT;
 			}
 			DataType retType = getReturnType();
 			if (oldDt == retType) {
-				setReturnType(newDt);
+				try {
+					setReturnType(newDt);
+				}
+				catch (IllegalArgumentException e) {
+					// oldDt replaced with incompatible type - treat as removal
+					dataTypeDeleted(oldDt);
+					return;
+				}
 			}
 			int n = parameters.size();
 			for (int i = 0; i < n; i++) {
 				ParameterDefinitionDB param = parameters.get(i);
 				if (param.getDataType() == oldDt) {
-					oldDt.removeParent(this);
-					param.setDataType(newDt);
-					newDt.addParent(this);
+					try {
+						param.setDataType(newDt);
+					}
+					catch (IllegalArgumentException e) {
+						// oldDt replaced with incompatible type - treat as removal
+						dataTypeDeleted(oldDt);
+						return;
+					}
 				}
 			}
 		}
@@ -467,7 +456,6 @@ class FunctionDefinitionDB extends DataTypeDB implements FunctionDefinition {
 	@Override
 	public void replaceArgument(int ordinal, String name, DataType dt, String comment,
 			SourceType source) {
-//TODO:
 		if (dt.getLength() <= 0) {
 			throw new IllegalArgumentException("Fixed length data type expected");
 		}
@@ -489,7 +477,7 @@ class FunctionDefinitionDB extends DataTypeDB implements FunctionDefinition {
 			rdt.addParent(this);
 			paramAdapter.createRecord(dataMgr.getID(rdt), key, ordinal, name, comment,
 				dt.getLength());
-			getParameters();
+			loadParameters();
 		}
 		catch (IOException e) {
 			dataMgr.dbError(e);
@@ -499,17 +487,11 @@ class FunctionDefinitionDB extends DataTypeDB implements FunctionDefinition {
 		}
 	}
 
-	/**
-	 * @see ghidra.program.model.data.DataType#dataTypeNameChanged(ghidra.program.model.data.DataType, java.lang.String)
-	 */
 	@Override
 	public void dataTypeNameChanged(DataType dt, String oldName) {
 		// don't care
 	}
 
-	/* (non-Javadoc)
-	 * @see ghidra.program.model.listing.FunctionSignature#hasVarArgs()
-	 */
 	@Override
 	public boolean hasVarArgs() {
 		lock.acquire();
@@ -526,9 +508,6 @@ class FunctionDefinitionDB extends DataTypeDB implements FunctionDefinition {
 		}
 	}
 
-	/* (non-Javadoc)
-	 * @see ghidra.program.model.data.FunctionDefinition#setVarArgs(boolean)
-	 */
 	@Override
 	public void setVarArgs(boolean hasVarArgs) {
 		lock.acquire();
@@ -555,9 +534,6 @@ class FunctionDefinitionDB extends DataTypeDB implements FunctionDefinition {
 		}
 	}
 
-	/**
-	 * @see ghidra.program.model.data.FunctionDefinition#setGenericCallingConvention(ghidra.program.model.data.GenericCallingConvention)
-	 */
 	@Override
 	public void setGenericCallingConvention(GenericCallingConvention genericCallingConvention) {
 		lock.acquire();
@@ -587,9 +563,6 @@ class FunctionDefinitionDB extends DataTypeDB implements FunctionDefinition {
 		}
 	}
 
-	/**
-	 * @see ghidra.program.model.listing.FunctionSignature#getGenericCallingConvention()
-	 */
 	@Override
 	public GenericCallingConvention getGenericCallingConvention() {
 		lock.acquire();
@@ -609,17 +582,11 @@ class FunctionDefinitionDB extends DataTypeDB implements FunctionDefinition {
 		}
 	}
 
-	/* (non-Javadoc)
-	 * @see ghidra.program.model.data.DataType#getLastChangeTime()
-	 */
 	@Override
 	public long getLastChangeTime() {
 		return record.getLongValue(FunctionDefinitionDBAdapter.FUNCTION_DEF_LAST_CHANGE_TIME_COL);
 	}
 
-	/* (non-Javadoc)
-	 * @see ghidra.program.model.data.DataType#getSourceSyncTime()
-	 */
 	@Override
 	public long getLastChangeTimeInSourceArchive() {
 		return record.getLongValue(FunctionDefinitionDBAdapter.FUNCTION_DEF_SOURCE_SYNC_TIME_COL);
@@ -707,5 +674,10 @@ class FunctionDefinitionDB extends DataTypeDB implements FunctionDefinition {
 		finally {
 			lock.release();
 		}
+	}
+
+	@Override
+	public String toString() {
+		return getPrototypeString(true);
 	}
 }

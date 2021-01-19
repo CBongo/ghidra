@@ -20,6 +20,7 @@ import java.beans.*;
 import java.util.HashSet;
 import java.util.Set;
 
+import ghidra.framework.Application;
 import ghidra.util.SystemUtilities;
 
 public class EditorState implements PropertyChangeListener {
@@ -27,7 +28,7 @@ public class EditorState implements PropertyChangeListener {
 	private Object originalValue;
 	private Object currentValue;
 	private PropertyEditor editor;
-	private Set<PropertyChangeListener> listeners = new HashSet<PropertyChangeListener>();
+	private Set<PropertyChangeListener> listeners = new HashSet<>();
 	private Options options;
 	private String name;
 
@@ -37,10 +38,12 @@ public class EditorState implements PropertyChangeListener {
 		this.currentValue = options.getObject(name, null);
 		this.originalValue = currentValue;
 		this.editor = options.getPropertyEditor(name);
-		editor.setValue(currentValue);
+		if (editor != null) {
+			editor.setValue(currentValue);
 
-		editor.removePropertyChangeListener(this); // don't repeatedly add editors
-		editor.addPropertyChangeListener(this);
+			editor.removePropertyChangeListener(this); // don't repeatedly add editors
+			editor.addPropertyChangeListener(this);
+		}
 	}
 
 	void addListener(PropertyChangeListener listener) {
@@ -117,10 +120,16 @@ public class EditorState implements PropertyChangeListener {
 	 * directly, as opposed to using the generic framework.
 	 */
 	public boolean supportsCustomOptionsEditor() {
-		return (editor instanceof CustomOptionsEditor);
+		return editor == null || (editor instanceof CustomOptionsEditor);
 	}
 
 	public Component getEditorComponent() {
+		if (editor == null) {
+			// can occur if support has been dropped for custom state/option
+			editor = new ErrorPropertyEditor(
+				"Ghidra does not know how to render state: " + name, null);
+			return editor.getCustomEditor();
+		}
 		if (editor.supportsCustomEditor()) {
 			return editor.getCustomEditor();
 		}
@@ -143,9 +152,10 @@ public class EditorState implements PropertyChangeListener {
 		}
 
 		editor.removePropertyChangeListener(this);
-		editor =
-			new ErrorPropertyEditor("Ghidra does not know how to use PropertyEditor: " +
-				editor.getClass().getName(), null);
+		editor = new ErrorPropertyEditor(
+			Application.getName() + " does not know how to use PropertyEditor: " +
+				editor.getClass().getName(),
+			null);
 		return editor.getCustomEditor();
 	}
 

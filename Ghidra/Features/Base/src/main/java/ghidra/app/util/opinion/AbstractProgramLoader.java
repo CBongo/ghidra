@@ -24,7 +24,6 @@ import ghidra.app.plugin.processors.generic.MemoryBlockDefinition;
 import ghidra.app.util.Option;
 import ghidra.app.util.OptionUtils;
 import ghidra.app.util.bin.ByteProvider;
-import ghidra.app.util.importer.MemoryConflictHandler;
 import ghidra.app.util.importer.MessageLog;
 import ghidra.framework.model.DomainFolder;
 import ghidra.framework.model.DomainObject;
@@ -39,8 +38,7 @@ import ghidra.program.model.symbol.*;
 import ghidra.program.model.util.AddressLabelInfo;
 import ghidra.program.util.DefaultLanguageService;
 import ghidra.program.util.GhidraProgramUtilities;
-import ghidra.util.InvalidNameException;
-import ghidra.util.MD5Utilities;
+import ghidra.util.*;
 import ghidra.util.exception.*;
 import ghidra.util.task.TaskMonitor;
 
@@ -90,14 +88,13 @@ public abstract class AbstractProgramLoader implements Loader {
 	 * @param messageLog The message log.
 	 * @param program The {@link Program} to load into.
 	 * @param monitor A cancelable task monitor.
-	 * @param memoryConflictHandler How to handle memory conflicts that occur during the load.
 	 * @return True if the file was successfully loaded; otherwise, false.
 	 * @throws IOException if there was an IO-related problem loading.
 	 * @throws CancelledException if the user cancelled the load.
 	 */
 	protected abstract boolean loadProgramInto(ByteProvider provider, LoadSpec loadSpec,
-			List<Option> options, MessageLog messageLog, Program program, TaskMonitor monitor,
-			MemoryConflictHandler memoryConflictHandler) throws IOException, CancelledException;
+			List<Option> options, MessageLog messageLog, Program program, TaskMonitor monitor)
+			throws IOException, CancelledException;
 
 	@Override
 	public final List<DomainObject> load(ByteProvider provider, String name, DomainFolder folder,
@@ -111,8 +108,8 @@ public abstract class AbstractProgramLoader implements Loader {
 			return results;
 		}
 
-		List<Program> programs = loadProgram(provider, name, folder, loadSpec, options, messageLog,
-			consumer, monitor);
+		List<Program> programs =
+			loadProgram(provider, name, folder, loadSpec, options, messageLog, consumer, monitor);
 
 		boolean success = false;
 		try {
@@ -158,8 +155,8 @@ public abstract class AbstractProgramLoader implements Loader {
 
 	@Override
 	public final boolean loadInto(ByteProvider provider, LoadSpec loadSpec, List<Option> options,
-			MessageLog messageLog, Program program, TaskMonitor monitor,
-			MemoryConflictHandler memoryConflictHandler) throws IOException, CancelledException {
+			MessageLog messageLog, Program program, TaskMonitor monitor)
+			throws IOException, CancelledException {
 
 		if (!loadSpec.isComplete()) {
 			return false;
@@ -169,8 +166,7 @@ public abstract class AbstractProgramLoader implements Loader {
 		int transactionID = program.startTransaction("Loading - " + getName());
 		boolean success = false;
 		try {
-			success = loadProgramInto(provider, loadSpec, options, messageLog, program, monitor,
-				memoryConflictHandler);
+			success = loadProgramInto(provider, loadSpec, options, messageLog, program, monitor);
 			return success;
 		}
 		finally {
@@ -183,7 +179,8 @@ public abstract class AbstractProgramLoader implements Loader {
 	public List<Option> getDefaultOptions(ByteProvider provider, LoadSpec loadSpec,
 			DomainObject domainObject, boolean isLoadIntoProgram) {
 		ArrayList<Option> list = new ArrayList<>();
-		list.add(new Option(APPLY_LABELS_OPTION_NAME, shouldApplyProcessorLabelsByDefault(),
+		list.add(new Option(APPLY_LABELS_OPTION_NAME,
+			shouldApplyProcessorLabelsByDefault(),
 			Boolean.class, Loader.COMMAND_LINE_ARG_PREFIX + "-applyLabels"));
 		list.add(new Option(ANCHOR_LABELS_OPTION_NAME, true, Boolean.class,
 			Loader.COMMAND_LINE_ARG_PREFIX + "-anchorLabels"));
@@ -192,7 +189,7 @@ public abstract class AbstractProgramLoader implements Loader {
 	}
 
 	@Override
-	public String validateOptions(ByteProvider provider, LoadSpec loadSpec, List<Option> options) {
+	public String validateOptions(ByteProvider provider, LoadSpec loadSpec, List<Option> options, Program program) {
 		if (options != null) {
 			for (Option option : options) {
 				String name = option.getName();
@@ -208,7 +205,7 @@ public abstract class AbstractProgramLoader implements Loader {
 	}
 
 	/**
-	 * This gets called after the given list of {@Program}s is finished loading.  It provides
+	 * This gets called after the given list of {@link Program}s is finished loading.  It provides
 	 * subclasses an opportunity to do follow-on actions to the load.
 	 * 
 	 * @param loadedPrograms The {@link Program}s that got loaded.
@@ -285,6 +282,8 @@ public abstract class AbstractProgramLoader implements Loader {
 			}
 			String md5 = computeBinaryMD5(provider);
 			prog.setExecutableMD5(md5);
+			String sha256 = computeBinarySHA256(provider);
+			prog.setExecutableSHA256(sha256);
 
 			if (shouldSetImageBase(prog, imageBase)) {
 				try {
@@ -406,50 +405,23 @@ public abstract class AbstractProgramLoader implements Loader {
 	private void applyProcessorLabels(List<Option> options, Program program) {
 		int id = program.startTransaction("Finalize load");
 		try {
+			Language lang = program.getLanguage();
+			// always create anchored symbols for memory mapped registers
+			// which may be explicitly referenced by pcode
+			for (Register reg : lang.getRegisters()) {
+				Address addr = reg.getAddress();
+				if (addr.isMemoryAddress()) {
+					AddressLabelInfo info = new AddressLabelInfo(addr, reg.getName(),
+						reg.isBaseRegister(), SourceType.IMPORTED);
+					createSymbol(program, info, true);
+				}
+			}
+			// optionally create default symbols defined by pspec
 			if (shouldApplyProcessorLabels(options)) {
 				boolean anchorSymbols = shouldAnchorSymbols(options);
-				Language lang = program.getLanguage();
-				SymbolTable symTable = program.getSymbolTable();
-
-				List<AddressLabelInfo> labels = lang.getDefaultLabels();
+				List<AddressLabelInfo> labels = lang.getDefaultSymbols();
 				for (AddressLabelInfo info : labels) {
-					Address addr = info.getAddress();
-					Symbol s = symTable.getPrimarySymbol(addr);
-					try {
-						if (s == null || s.getSource() == SourceType.IMPORTED) {
-							Namespace namespace = program.getGlobalNamespace();
-							if (info.getScope() != null) {
-								namespace = info.getScope();
-							}
-							s = symTable.createLabel(addr, info.getLabel(), namespace,
-								info.getSource());
-							if (info.isEntry()) {
-								symTable.addExternalEntryPoint(addr);
-							}
-							if (info.isPrimary()) {
-								s.setPrimary();
-							}
-							if (anchorSymbols) {
-								s.setPinned(true);
-							}
-						}
-						else if (s.getSource() == SourceType.DEFAULT) {
-							String labelName = info.getLabel();
-							if (s.getSymbolType() == SymbolType.FUNCTION) {
-								Function f = (Function) s.getObject();
-								f.setName(labelName, SourceType.IMPORTED);
-							}
-							else {
-								s.setName(labelName, SourceType.IMPORTED);
-							}
-							if (anchorSymbols) {
-								s.setPinned(true);
-							}
-						}
-					}
-					catch (DuplicateNameException | InvalidInputException e) {
-						// Nothing to do
-					}
+					createSymbol(program, info, anchorSymbols);
 				}
 			}
 			GhidraProgramUtilities.removeAnalyzedFlag(program);
@@ -459,9 +431,56 @@ public abstract class AbstractProgramLoader implements Loader {
 		}
 	}
 
+	private void createSymbol(Program program, AddressLabelInfo info, boolean anchorSymbols) {
+		SymbolTable symTable = program.getSymbolTable();
+		Address addr = info.getAddress();
+		Symbol s = symTable.getPrimarySymbol(addr);
+		try {
+			if (s == null || s.getSource() == SourceType.IMPORTED) {
+				Namespace namespace = program.getGlobalNamespace();
+				if (info.getScope() != null) {
+					namespace = info.getScope();
+				}
+				s = symTable.createLabel(addr, info.getLabel(), namespace,
+					info.getSource());
+				if (info.isEntry()) {
+					symTable.addExternalEntryPoint(addr);
+				}
+				if (info.isPrimary()) {
+					s.setPrimary();
+				}
+				if (anchorSymbols) {
+					s.setPinned(true);
+				}
+			}
+			else if (s.getSource() == SourceType.DEFAULT) {
+				String labelName = info.getLabel();
+				if (s.getSymbolType() == SymbolType.FUNCTION) {
+					Function f = (Function) s.getObject();
+					f.setName(labelName, SourceType.IMPORTED);
+				}
+				else {
+					s.setName(labelName, SourceType.IMPORTED);
+				}
+				if (anchorSymbols) {
+					s.setPinned(true);
+				}
+			}
+		}
+		catch (DuplicateNameException | InvalidInputException e) {
+			// Nothing to do
+		}
+	}
+
 	private String computeBinaryMD5(ByteProvider provider) throws IOException {
 		try (InputStream in = provider.getInputStream(0)) {
 			return MD5Utilities.getMD5Hash(in);
+		}
+	}
+
+	private String computeBinarySHA256(ByteProvider provider) throws IOException {
+		try (InputStream in = provider.getInputStream(0)) {
+			return HashUtilities.getHash(HashUtilities.SHA256_ALGORITHM, in);
 		}
 	}
 

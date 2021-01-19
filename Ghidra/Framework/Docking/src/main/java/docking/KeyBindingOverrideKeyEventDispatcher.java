@@ -15,8 +15,7 @@
  */
 package docking;
 
-import static docking.KeyBindingPrecedence.ActionMapLevel;
-import static docking.KeyBindingPrecedence.DefaultLevel;
+import static docking.KeyBindingPrecedence.*;
 
 import java.awt.*;
 import java.awt.event.KeyEvent;
@@ -25,7 +24,8 @@ import java.awt.event.KeyListener;
 import javax.swing.*;
 import javax.swing.text.JTextComponent;
 
-import docking.util.KeyBindingUtils;
+import docking.action.MultipleKeyAction;
+import docking.actions.KeyBindingUtils;
 import ghidra.util.bean.GGlassPane;
 import ghidra.util.exception.AssertException;
 
@@ -34,10 +34,10 @@ import ghidra.util.exception.AssertException;
  * processing.  See {@link #dispatchKeyEvent(KeyEvent)} for a more detailed explanation of how
  * Ghidra processes key events.
  * <p>
- * {@link #install()} must be called in order to install this <tt>Singleton</tt> into Java's 
+ * {@link #install()} must be called in order to install this <code>Singleton</code> into Java's 
  * key event processing system.
  */
-class KeyBindingOverrideKeyEventDispatcher implements KeyEventDispatcher {
+public class KeyBindingOverrideKeyEventDispatcher implements KeyEventDispatcher {
 
 	private static KeyBindingOverrideKeyEventDispatcher instance = null;
 
@@ -66,7 +66,7 @@ class KeyBindingOverrideKeyEventDispatcher implements KeyEventDispatcher {
 	 * Installs this key event dispatcher into Java's key event processing system.  Calling this
 	 * method more than once has no effect.
 	 */
-	public static void install() {
+	static void install() {
 		if (instance == null) {
 			instance = new KeyBindingOverrideKeyEventDispatcher();
 			KeyboardFocusManager kfm = KeyboardFocusManager.getCurrentKeyboardFocusManager();
@@ -88,7 +88,7 @@ class KeyBindingOverrideKeyEventDispatcher implements KeyEventDispatcher {
 	 *     <li><b>Reserved keybinding actions</b>
 	 *     <li>KeyListeners on the focused Component</li>
 	 *     <li>InputMap and ActionMap actions for the Component</li>
-	 *     <b><li>Ghidra tool-level actions</li></b>
+	 *     <li><b>Ghidra tool-level actions</b></li>
 	 *     <li>InputMap and ActionMap actions for the Component's parent, and so on up the
 	 *         Swing hierarchy</li>
 	 * </ol>
@@ -99,9 +99,9 @@ class KeyBindingOverrideKeyEventDispatcher implements KeyEventDispatcher {
 	 * There are some exceptions to this processing chain:
 	 * <ol>
 	 *      <li>We don't do any processing when the focused component is an instance of 
-	 *          <tt>JTextComponent</tt>.</li>
+	 *          <code>JTextComponent</code>.</li>
 	 *      <li>We don't do any processing if the active window is an instance of 
-	 *          <tt>DockingDialog</tt>.</li>
+	 *          <code>DockingDialog</code>.</li>
 	 * </ol>
 	 * 
 	 * @see java.awt.KeyEventDispatcher#dispatchKeyEvent(java.awt.event.KeyEvent)
@@ -128,7 +128,8 @@ class KeyBindingOverrideKeyEventDispatcher implements KeyEventDispatcher {
 		}
 
 		// some known special cases that we don't wish to process
-		if (!isValidContextForKeyStroke(KeyStroke.getKeyStrokeForEvent(event))) {
+		KeyStroke ks = KeyStroke.getKeyStrokeForEvent(event);
+		if (!isValidContextForKeyStroke(ks)) {
 			return false;
 		}
 
@@ -136,7 +137,7 @@ class KeyBindingOverrideKeyEventDispatcher implements KeyEventDispatcher {
 			return false;
 		}
 
-		KeyBindingPrecedence keyBindingPrecedence = action.getKeyBindingPrecedence();
+		KeyBindingPrecedence keyBindingPrecedence = getValidKeyBindingPrecedence(action);
 		if (keyBindingPrecedence == null) {
 			// Odd Code: we use the precedence as a signal to say that, when it is null, there
 			//           are no valid bindings to be processed.  We used to have a isValidContext()
@@ -156,6 +157,15 @@ class KeyBindingOverrideKeyEventDispatcher implements KeyEventDispatcher {
 			   processActionAtPrecedence(DefaultLevel, keyBindingPrecedence, action, event) ||
 			   throwAssertException();
 		// @formatter:on
+	}
+
+	private KeyBindingPrecedence getValidKeyBindingPrecedence(DockingKeyBindingAction action) {
+
+		if (action instanceof MultipleKeyAction) {
+			MultipleKeyAction multiAction = (MultipleKeyAction) action;
+			return multiAction.geValidKeyBindingPrecedence(focusProvider.getFocusOwner());
+		}
+		return action.getKeyBindingPrecedence();
 	}
 
 	/**
@@ -202,7 +212,7 @@ class KeyBindingOverrideKeyEventDispatcher implements KeyEventDispatcher {
 
 			// note: this call has no effect if 'action' is null
 			SwingUtilities.notifyAction(action, keyStroke, event, event.getSource(),
-				event.getModifiers());
+				event.getModifiersEx());
 
 		}
 		return wasInProgress;
@@ -219,17 +229,14 @@ class KeyBindingOverrideKeyEventDispatcher implements KeyEventDispatcher {
 	private boolean isValidContextForKeyStroke(KeyStroke keyStroke) {
 		Window activeWindow = focusProvider.getActiveWindow();
 		if (activeWindow instanceof DockingDialog) {
-			return false; // we don't want to process our key bindings when in DockingDialogs
-		}
 
-		Component focusOwner = focusProvider.getFocusOwner();
-		if (focusOwner instanceof KeyStrokeConsumer) {
-			KeyStrokeConsumer keyStrokeConsumer = (KeyStrokeConsumer) focusOwner;
-			if (keyStrokeConsumer.isKeyConsumed(keyStroke)) {
-				return false;
-			}
+			// The choice to ignore modal dialogs was made long ago.  We cannot remember why the
+			// choice was made, but speculate that odd things can happen when keybindings are 
+			// processed with modal dialogs open.  For now, do not let key bindings get processed 
+			// for modal dialogs.  This can be changed in the future if needed.   
+			DockingDialog dialog = (DockingDialog) activeWindow;
+			return !dialog.isModal();
 		}
-
 		return true; // default case; allow it through
 	}
 
@@ -254,8 +261,30 @@ class KeyBindingOverrideKeyEventDispatcher implements KeyEventDispatcher {
 		// }
 
 		// We've made the executive decision to allow all keys to go through to the text component
-		// unless they are modified with the 'Alt' key
-		return !event.isAltDown();
+		// unless they are modified with the 'Alt'/'Ctrl'/etc keys, unless they directly used 
+		// by the text component
+		if (!isModified(event)) {
+			return true; // unmodified keys will be given to the text component
+		}
+
+		// the key is modified; let it through if the component has a mapping for the key
+		return hasRegisteredKeyBinding((JTextComponent) destination, event);
+	}
+
+	/**
+	 * A test to see if the given event is modified in such a way as a text component would not
+	 * handle the event
+	 * @param e the event
+	 * @return true if modified
+	 */
+	private boolean isModified(KeyEvent e) {
+		return e.isAltDown() || e.isAltGraphDown() || e.isMetaDown() || e.isControlDown();
+	}
+
+	private boolean hasRegisteredKeyBinding(JComponent c, KeyEvent event) {
+		KeyStroke keyStroke = KeyStroke.getKeyStrokeForEvent(event);
+		Action action = getJavaActionForComponent(c, keyStroke);
+		return action != null;
 	}
 
 	/**
@@ -371,7 +400,7 @@ class KeyBindingOverrideKeyEventDispatcher implements KeyEventDispatcher {
 		Action action = getJavaActionForComponent(jComponent, keyStroke);
 		if (action != null) {
 			return SwingUtilities.notifyAction(action, keyStroke, keyEvent, keyEvent.getSource(),
-				keyEvent.getModifiers());
+				keyEvent.getModifiersEx());
 		}
 		return false;
 	}
@@ -386,8 +415,9 @@ class KeyBindingOverrideKeyEventDispatcher implements KeyEventDispatcher {
 
 		// ...next see if there is a key binding for when the component is the child of the focus
 		// owner
-		return KeyBindingUtils.getAction(jComponent, keyStroke,
+		action = KeyBindingUtils.getAction(jComponent, keyStroke,
 			JComponent.WHEN_ANCESTOR_OF_FOCUSED_COMPONENT);
+		return action;
 	}
 
 	/**
@@ -403,7 +433,9 @@ class KeyBindingOverrideKeyEventDispatcher implements KeyEventDispatcher {
 		}
 
 		KeyStroke keyStroke = KeyStroke.getKeyStrokeForEvent(event);
-		return (DockingKeyBindingAction) activeManager.getActionForKeyStroke(keyStroke);
+		DockingKeyBindingAction bindingAction =
+			(DockingKeyBindingAction) activeManager.getActionForKeyStroke(keyStroke);
+		return bindingAction;
 	}
 
 	private DockingWindowManager getActiveDockingWindowManager() {

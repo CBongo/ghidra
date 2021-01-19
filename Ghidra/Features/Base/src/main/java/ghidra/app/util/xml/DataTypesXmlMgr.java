@@ -546,6 +546,7 @@ public class DataTypesXmlMgr {
 		writeRegularComment(writer, enuum.getDescription());
 
 		String[] names = enuum.getNames();
+		Arrays.sort(names);
 		for (String name : names) {
 			attrs = new XmlAttributes();
 			attrs.addAttribute("NAME", name);
@@ -648,6 +649,7 @@ public class DataTypesXmlMgr {
 
 	private void writerMember(XmlWriter writer, DataTypeComponent member) {
 		XmlAttributes attrs = new XmlAttributes();
+		// TODO: how should we output bitfields (aligned/unaligned) and flex array
 		attrs.addAttribute("OFFSET", member.getOffset(), true);
 		attrs.addAttribute("DATATYPE", member.getDataType().getDisplayName());
 		attrs.addAttribute("DATATYPE_NAMESPACE", member.getDataType().getCategoryPath().getPath());

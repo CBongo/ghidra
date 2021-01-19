@@ -35,7 +35,7 @@ import ghidra.program.model.listing.Program;
 import ghidra.program.util.ProgramLocation;
 import ghidra.util.HelpLocation;
 import ghidra.util.Msg;
-import ghidra.util.table.DeleteTableRowAction;
+import ghidra.util.table.actions.DeleteTableRowAction;
 
 /**
  * Plugin to show a list of references to the item represented by the location of the cursor.
@@ -74,6 +74,7 @@ public class LocationReferencesPlugin extends Plugin
 	@Override
 	protected void init() {
 		initOptions();
+		LocationReferencesHighlighter.registerHighlighterOptions(this);
 	}
 
 	private void initOptions() {
@@ -102,7 +103,7 @@ public class LocationReferencesPlugin extends Plugin
 		//               providers are created, as they would only appear in the options at 
 		//               that point.
 		//
-		DeleteTableRowAction.registerDummy(tool);
+		DeleteTableRowAction.registerDummy(tool, getName());
 	}
 
 	void displayProvider(ListingActionContext context) {
@@ -124,7 +125,8 @@ public class LocationReferencesPlugin extends Plugin
 	private void displayProviderForLocation(ProgramLocation location, Navigatable navigatable) {
 		LocationDescriptor locationDescriptor = getLocationDescriptor(location);
 		if (locationDescriptor == null) {
-			throw new IllegalArgumentException("Unable to display provider - unknown location");
+			throw new IllegalArgumentException(
+				"Unable to display provider - unknown location: " + location);
 		}
 
 		LocationReferencesProvider provider = findProvider(locationDescriptor, navigatable);

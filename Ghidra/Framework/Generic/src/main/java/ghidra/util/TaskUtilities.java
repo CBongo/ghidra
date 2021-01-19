@@ -15,8 +15,10 @@
  */
 package ghidra.util;
 
-import java.util.*;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 import ghidra.util.task.Task;
 import ghidra.util.task.TaskMonitor;
@@ -24,7 +26,7 @@ import ghidra.util.task.TaskMonitor;
 public class TaskUtilities {
 
 	private static Map<Task, TaskMonitor> runningTasks = new ConcurrentHashMap<>();
-	private static List<TrackedTaskListener> listeners = new ArrayList<>();
+	private static List<TrackedTaskListener> listeners = new CopyOnWriteArrayList<>();
 
 	/**
 	 * Adds a listener that will be notified when tasks are tracked (when they are added and
@@ -37,7 +39,7 @@ public class TaskUtilities {
 	}
 
 	/**
-	 * Removes the given listener added via {@link #addTrackedTask(Task)}.
+	 * Removes the given listener added via {@link #addTrackedTask(Task,TaskMonitor)}.
 	 * @param listener The listener that needs to be removed.
 	 */
 	public static void removeTrackedTaskListener(TrackedTaskListener listener) {

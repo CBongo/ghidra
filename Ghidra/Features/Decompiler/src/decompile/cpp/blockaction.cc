@@ -729,7 +729,7 @@ TraceDAG::BlockTrace *TraceDAG::selectBadEdge(void)
     if ((*aiter)->isTerminal()) continue;
     if (((*aiter)->top->top == (FlowBlock *)0)&&((*aiter)->bottom==(FlowBlock *)0))
       continue;	// Never remove virtual edges
-    badedgelist.push_back(BadEdgeScore());
+    badedgelist.emplace_back();
     BadEdgeScore &score( badedgelist.back() );
     score.trace = *aiter;
     score.exitproto = score.trace->destnode;
@@ -1125,7 +1125,7 @@ void CollapseStructure::labelLoops(vector<LoopBody *> &looporder)
     for(int4 j=0;j<sizein;++j) {
       if (bl->isBackEdgeIn(j)) { // back-edge coming in must be from the bottom of a loop
 	FlowBlock *loopbottom = bl->getIn(j);
-	loopbody.push_back(LoopBody(bl));
+	loopbody.emplace_back(bl);
 	LoopBody &curbody( loopbody.back() );
 	curbody.addTail(loopbottom);
 	looporder.push_back( & curbody );
@@ -1636,7 +1636,10 @@ bool CollapseStructure::ruleBlockSwitch(FlowBlock *bl)
   // Find "obvious" exitblock,  is sizeIn>1 or sizeOut>1
   for(int4 i=0;i<sizeout;++i) {
     FlowBlock *curbl = bl->getOut(i);
-    if (curbl == bl) return false; // Cannot exit to itself (this can happen as a goto)
+    if (curbl == bl) {
+      exitblock = curbl;	// Exit back to top of switch (loop)
+      break;
+    }
     if (curbl->sizeOut() > 1) {
       exitblock = curbl;
       break;
@@ -1673,7 +1676,6 @@ bool CollapseStructure::ruleBlockSwitch(FlowBlock *bl)
       if (exitblock->isGotoOut(i)) return false;
     for(int4 i=0;i<sizeout;++i) {
       FlowBlock *curbl = bl->getOut(i);
-      if (curbl == bl) return false;
       if (curbl == exitblock) continue;	// The switch can go straight to the exit block
       if (curbl->sizeIn() > 1) return false; // A case can only have the switch fall into it
       if (curbl->isGotoIn(0)) return false; // In cannot be a goto
@@ -1696,7 +1698,7 @@ bool CollapseStructure::ruleBlockSwitch(FlowBlock *bl)
     if (curbl == exitblock) continue; // Don't include exit as a case
     cases.push_back(curbl);
   }
-  graph.newBlockSwitch(cases);
+  graph.newBlockSwitch(cases,(exitblock != (FlowBlock *)0));
   return true;
 }
 
@@ -2093,6 +2095,13 @@ void ConditionalJoin::clear(void)
   mergeneed.clear();
 }
 
+int4 ActionStructureTransform::apply(Funcdata &data)
+
+{
+  data.getStructure().finalTransform(data);
+  return 0;
+}
+
 int4 ActionNormalizeBranches::apply(Funcdata &data)
 
 {
@@ -2168,7 +2177,7 @@ int4 ActionFinalStructure::apply(Funcdata &data)
   BlockGraph &graph(data.getStructure());
 
   graph.orderBlocks();
-  graph.orderSwitchCases();
+  graph.finalizePrinting(data);
   graph.scopeBreak(-1,-1);	// Put in \e break statements
   graph.markUnstructured();	// Put in \e gotos
   graph.markLabelBumpUp(false); // Fix up labeling

@@ -24,36 +24,13 @@ import javax.swing.JLabel;
 
 import org.junit.Test;
 
+import docking.widgets.label.GDLabel;
 import generic.test.AbstractGenericTest;
 
 public class PlaceholderSetTest extends AbstractGenericTest {
 
 	public PlaceholderSetTest() {
 		super();
-	}
-
-	@Test
-	public void testDedupingRestoredPlaceholders_FirstShowing_SecondHidden() {
-
-		PlaceholderSet set = new PlaceholderSet(new PlaceholderManager(new DummyInstaller()));
-		set.addRestoredPlaceholder(createPlaceholder("A", "1", true));
-		set.addRestoredPlaceholder(createPlaceholder("A", "2", false));
-
-		Set<ComponentPlaceholder> placeholders = set.getUnusedPlaceholders();
-		assertEquals(1, placeholders.size());
-		assertTrue(contains(placeholders, "A", "1"));
-	}
-
-	@Test
-	public void testDedupingRestoredPlaceholders_FirstHidden_SecondShowing() {
-
-		PlaceholderSet set = new PlaceholderSet(new PlaceholderManager(new DummyInstaller()));
-		set.addRestoredPlaceholder(createPlaceholder("A", "1", false));
-		set.addRestoredPlaceholder(createPlaceholder("A", "2", true));
-
-		Set<ComponentPlaceholder> placeholders = set.getUnusedPlaceholders();
-		assertEquals(1, placeholders.size());
-		assertTrue(contains(placeholders, "A", "2"));
 	}
 
 	@Test
@@ -64,28 +41,6 @@ public class PlaceholderSetTest extends AbstractGenericTest {
 		Set<ComponentPlaceholder> placeholders = set.getUnusedPlaceholders();
 		assertEquals(1, placeholders.size());
 		assertTrue(contains(placeholders, "A", "1"));
-	}
-
-	@Test
-	public void testDedupingRestoredPlaceholders_TwoShowing() {
-
-		PlaceholderSet set = new PlaceholderSet(new PlaceholderManager(new DummyInstaller()));
-		set.addRestoredPlaceholder(createPlaceholder("A", "1", true));
-		set.addRestoredPlaceholder(createPlaceholder("A", "2", true));
-
-		Set<ComponentPlaceholder> placeholders = set.getUnusedPlaceholders();
-		assertEquals(1, placeholders.size());
-	}
-
-	@Test
-	public void testDedupingRestoredPlaceholders_TwoHidden() {
-
-		PlaceholderSet set = new PlaceholderSet(new PlaceholderManager(new DummyInstaller()));
-		set.addRestoredPlaceholder(createPlaceholder("A", "1", false));
-		set.addRestoredPlaceholder(createPlaceholder("A", "2", false));
-
-		Set<ComponentPlaceholder> placeholders = set.getUnusedPlaceholders();
-		assertEquals(1, placeholders.size());
 	}
 
 	@Test
@@ -160,7 +115,7 @@ public class PlaceholderSetTest extends AbstractGenericTest {
 	}
 
 	private class TestProvider extends ComponentProvider {
-		JLabel label = new JLabel();
+		JLabel label = new GDLabel();
 
 		public TestProvider() {
 			super(null, null, null);

@@ -195,9 +195,7 @@ public class FollowFlowProgramBuilder extends ProgramBuilder {
 
 	private void setupProgram() throws Exception {
 
-		dataConverter =
-			(getProgram().getMemory().isBigEndian()) ? new BigEndianDataConverter()
-					: new LittleEndianDataConverter();
+		dataConverter = DataConverter.getInstance(getProgram().getMemory().isBigEndian());
 
 		createMemory(".text", "0x0", 0x1000);
 		createMemory(".data", "0x5000", 0x1000);
@@ -439,7 +437,7 @@ public class FollowFlowProgramBuilder extends ProgramBuilder {
 		startTransaction();
 		ProgramDB program = getProgram();
 		Listing listing = program.getListing();
-		Structure struct = new StructureDataType(name, thisStructureSize, program.getDataManager());
+		Structure struct = new StructureDataType(name, thisStructureSize, program.getDataTypeManager());
 		struct.replaceAtOffset(0, new FloatDataType(), 4, null, null);
 		struct.replaceAtOffset(pointerOffset, new Pointer32DataType(), 4, null, null);
 		listing.createData(addr(startOfStruct), struct);
@@ -473,7 +471,7 @@ public class FollowFlowProgramBuilder extends ProgramBuilder {
 		startTransaction();
 		ProgramDB program = getProgram();
 		Listing listing = program.getListing();
-		Structure struct = new StructureDataType(name, thisStructureSize, program.getDataManager());
+		Structure struct = new StructureDataType(name, thisStructureSize, program.getDataTypeManager());
 		struct.replaceAtOffset(0, new FloatDataType(), 4, null, null);
 		struct.replaceAtOffset(pointerOffset, new Pointer32DataType(), 4, null, null);
 		struct.replaceAtOffset(pointerOffset + pointerSize, new Pointer32DataType(), 4, null, null);

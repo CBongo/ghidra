@@ -15,13 +15,12 @@
  */
 package docking.menu;
 
-import ghidra.util.StringUtilities;
-
 import java.awt.event.*;
 import java.beans.PropertyChangeEvent;
 import java.beans.PropertyChangeListener;
 
-import javax.swing.*;
+import javax.swing.JButton;
+import javax.swing.SwingUtilities;
 
 import docking.*;
 import docking.action.*;
@@ -31,9 +30,6 @@ import docking.action.*;
  */
 public class ToolBarItemManager implements PropertyChangeListener, ActionListener, MouseListener {
 
-	private static final String START_KEYBINDING_TEXT = "<BR><HR><CENTER>(";
-	private static final String END_KEYBINDNIG_TEXT = ")</CENTER>";
-
 	private DockingActionIf toolBarAction;
 	private JButton toolBarButton;
 	private final DockingWindowManager windowManager;
@@ -41,8 +37,7 @@ public class ToolBarItemManager implements PropertyChangeListener, ActionListene
 	/**
 	 * Constructs a new ToolBarItemManager
 	 * @param action the action to be managed on the toolbar.
-	 * @param iconSize the iconSize to scale to.
-	 * @param buttonListener listener for button state changes.
+	 * @param windowManager the window manager.
 	 */
 	public ToolBarItemManager(DockingActionIf action, DockingWindowManager windowManager) {
 		this.toolBarAction = action;
@@ -50,15 +45,13 @@ public class ToolBarItemManager implements PropertyChangeListener, ActionListene
 		action.addPropertyChangeListener(this);
 	}
 
-	/**
-	 * Returns the group for this item.
-	 */
 	String getGroup() {
 		return toolBarAction.getToolBarData().getToolBarGroup();
 	}
 
 	/**
-	 * Returns a button for this items action.
+	 * Returns a button for this items action
+	 * @return the button
 	 */
 	public JButton getButton() {
 		if (toolBarButton == null) {
@@ -73,77 +66,13 @@ public class ToolBarItemManager implements PropertyChangeListener, ActionListene
 		button.addActionListener(this);
 		button.addMouseListener(this);
 		button.setName(action.getName());
-		setToolTipText(button, action, getToolTipText(action));
+		DockingToolBarUtils.setToolTipText(button, action);
 		return button;
 	}
 
-	private void setToolTipText(JButton button, DockingActionIf action, String toolTipText) {
-		String keyBindingText = getKeyBindingAcceleratorText(action.getKeyBinding());
-		if (keyBindingText != null) {
-			button.setToolTipText(combingToolTipTextWithKeyBinding(toolTipText, keyBindingText));
-		}
-		else {
-			button.setToolTipText(toolTipText);
-		}
-		javax.swing.ToolTipManager instance = javax.swing.ToolTipManager.sharedInstance();
-//        instance.unregisterComponent( button );        
-	}
-
-	private String combingToolTipTextWithKeyBinding(String toolTipText, String keyBindingText) {
-		StringBuilder buffy = new StringBuilder(toolTipText);
-		if (StringUtilities.startsWithIgnoreCase(toolTipText, "<HTML>")) {
-			String endHTMLTag = "</HTML>";
-			int closeTagIndex = StringUtilities.indexOfIgnoreCase(toolTipText, endHTMLTag);
-			if (closeTagIndex < 0) {
-				// no closing tag, which is acceptable
-				buffy.append(START_KEYBINDING_TEXT).append(keyBindingText).append(
-					END_KEYBINDNIG_TEXT);
-			}
-			else {
-				// remove the closing tag, put on our text, and then put the tag back on
-				buffy.delete(closeTagIndex, closeTagIndex + endHTMLTag.length() + 1);
-				buffy.append(START_KEYBINDING_TEXT).append(keyBindingText).append(
-					END_KEYBINDNIG_TEXT).append(endHTMLTag);
-			}
-			return buffy.toString();
-		}
-
-		// plain text (not HTML)
-		return toolTipText + " (" + keyBindingText + ")";
-	}
-
-	private String getToolTipText(DockingActionIf action) {
-		String description = action.getDescription();
-		if (description != null && description.trim().length() > 0) {
-			return description;
-		}
-		return action.getName();
-	}
-
-	private String getKeyBindingAcceleratorText(KeyStroke keyStroke) {
-		if (keyStroke == null) {
-			return null;
-		}
-
-		// This code is based on that of BasicMenuItemUI
-		StringBuilder builder = new StringBuilder();
-		int modifiers = keyStroke.getModifiers();
-		if (modifiers > 0) {
-			builder.append(KeyEvent.getKeyModifiersText(modifiers));
-			builder.append('+');
-		}
-		int keyCode = keyStroke.getKeyCode();
-		if (keyCode != 0) {
-			builder.append(KeyEvent.getKeyText(keyCode));
-		}
-		else {
-			builder.append(keyStroke.getKeyChar());
-		}
-		return builder.toString();
-	}
-
 	/**
-	 * Returns the action being managed.
+	 * Returns the action being managed
+	 * @return the action
 	 */
 	public DockingActionIf getAction() {
 		return toolBarAction;
@@ -167,7 +96,7 @@ public class ToolBarItemManager implements PropertyChangeListener, ActionListene
 			toolBarButton.setEnabled(((Boolean) e.getNewValue()).booleanValue());
 		}
 		else if (name.equals(DockingActionIf.DESCRIPTION_PROPERTY)) {
-			setToolTipText(toolBarButton, toolBarAction, (String) e.getNewValue());
+			DockingToolBarUtils.setToolTipText(toolBarButton, toolBarAction);
 		}
 		else if (name.equals(DockingActionIf.TOOLBAR_DATA_PROPERTY)) {
 			ToolBarData toolBarData = (ToolBarData) e.getNewValue();
@@ -177,57 +106,45 @@ public class ToolBarItemManager implements PropertyChangeListener, ActionListene
 			toolBarButton.setSelected((Boolean) e.getNewValue());
 		}
 		else if (name.equals(DockingActionIf.KEYBINDING_DATA_PROPERTY)) {
-			setToolTipText(toolBarButton, toolBarAction, getToolTipText(toolBarAction));
+			DockingToolBarUtils.setToolTipText(toolBarButton, toolBarAction);
 		}
 	}
 
 	@Override
 	public void actionPerformed(ActionEvent event) {
 		DockingWindowManager.clearMouseOverHelp();
-		ActionContext localContext = getActionContext();
-		ActionContext globalContext = null;
-		if (windowManager != null) {
-			globalContext = windowManager.getGlobalContext();
-		}
+		ActionContext context = getActionContext();
 
-		ActionContext tempContext = null;
-		if (toolBarAction.isValidContext(localContext)) {
-			tempContext = localContext; // we prefer the local over the global context if valid
-		}
-		else if (toolBarAction.isValidGlobalContext(globalContext)) {
-			tempContext = globalContext;
-		}
-		else {
-			return;  // context is not valid, nothing to do
-		}
-		tempContext.setSource(event.getSource());
-		final ActionContext finalContext = tempContext;
+		context.setSourceObject(event.getSource());
 
 		// this gives the UI some time to repaint before executing the action
-		SwingUtilities.invokeLater(new Runnable() {
-			@Override
-			public void run() {
-				if (toolBarAction.isEnabledForContext(finalContext)) {
-					if (toolBarAction instanceof ToggleDockingActionIf) {
-						ToggleDockingActionIf toggleAction = (ToggleDockingActionIf) toolBarAction;
-						toggleAction.setSelected(!toggleAction.isSelected());
-					}
-					toolBarAction.actionPerformed(finalContext);
+		SwingUtilities.invokeLater(() -> {
+			if (toolBarAction.isValidContext(context) &&
+				toolBarAction.isEnabledForContext(context)) {
+				if (toolBarAction instanceof ToggleDockingActionIf) {
+					ToggleDockingActionIf toggleAction = (ToggleDockingActionIf) toolBarAction;
+					toggleAction.setSelected(!toggleAction.isSelected());
 				}
+				toolBarAction.actionPerformed(context);
 			}
 		});
+	}
+
+	private ActionContext getActionContext() {
+		if (windowManager != null) {
+			return windowManager.getActionContext(toolBarAction);
+		}
+
+		ComponentProvider provider = getComponentProvider();
+		ActionContext context = provider == null ? null : provider.getActionContext(null);
+		final ActionContext actionContext =
+			context == null ? new ActionContext(provider, null) : context;
+		return actionContext;
 	}
 
 	@Override
 	public String toString() {
 		return toolBarAction.getName();
-	}
-
-	private ActionContext getActionContext() {
-		ComponentProvider provider = getComponentProvider();
-		ActionContext context = provider == null ? null : provider.getActionContext(null);
-		final ActionContext actionContext = context == null ? new ActionContext() : context;
-		return actionContext;
 	}
 
 	private ComponentProvider getComponentProvider() {

@@ -23,6 +23,7 @@ import javax.swing.border.Border;
 
 import docking.help.Help;
 import docking.help.HelpService;
+import docking.widgets.label.GDLabel;
 import ghidra.app.util.viewer.field.FieldFactory;
 import ghidra.util.HelpLocation;
 
@@ -62,8 +63,8 @@ public class FieldHeaderComp extends JPanel {
 
 	/**
 	 * Constructs a new FieldHeader for the given model.
-	 * @param formatMgr the format manager
 	 * @param headerPanel the headerPanel containing this component.
+	 * @param modelNumber the model number for this component.
 	 */
 	public FieldHeaderComp(FieldHeader headerPanel, int modelNumber) {
 		FormatManager formatMgr = headerPanel.getFormatManager();
@@ -72,7 +73,7 @@ public class FieldHeaderComp extends JPanel {
 		Border border1 = BorderFactory.createRaisedBevelBorder();
 		Border border2 = BorderFactory.createEmptyBorder(0, 0, 1, 1);
 
-		label = new JLabel("Test");
+		label = new GDLabel("Test");
 		label.setOpaque(true);
 		label.setHorizontalAlignment(SwingConstants.CENTER);
 		buttonColor = label.getBackground();

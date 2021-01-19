@@ -38,7 +38,9 @@ import docking.action.DockingAction;
 import docking.action.MenuData;
 import docking.help.Help;
 import docking.help.HelpService;
+import docking.tool.ToolConstants;
 import docking.util.AnimationUtils;
+import docking.util.image.ToolIconURL;
 import docking.widgets.OptionDialog;
 import generic.jar.ResourceFile;
 import generic.util.WindowUtilities;
@@ -62,7 +64,8 @@ import ghidra.framework.plugintool.Plugin;
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.framework.plugintool.util.*;
 import ghidra.framework.preferences.Preferences;
-import ghidra.framework.project.tool.*;
+import ghidra.framework.project.tool.GhidraTool;
+import ghidra.framework.project.tool.GhidraToolTemplate;
 import ghidra.util.*;
 import ghidra.util.bean.GGlassPane;
 import ghidra.util.classfinder.ClassSearcher;
@@ -106,6 +109,7 @@ public class FrontEndTool extends PluginTool implements OptionsChangeListener {
 
 	private static final String FRONT_END_TOOL_XML_NAME = "FRONTEND";
 	private static final String FRONT_END_FILE_NAME = "FrontEndTool.xml";
+	private static final String CONFIGURE_GROUP = "Configure";
 
 	private WeakSet<ProjectListener> listeners;
 	private FrontEndPlugin plugin;
@@ -225,8 +229,8 @@ public class FrontEndTool extends PluginTool implements OptionsChangeListener {
 	}
 
 	private void initFrontEndOptions() {
-		ToolOptions options = getOptions("Tool");
-		HelpLocation help = new HelpLocation("Tool", "Save_Tool");
+		ToolOptions options = getOptions(ToolConstants.TOOL_OPTIONS);
+		HelpLocation help = new HelpLocation(ToolConstants.TOOL_HELP_TOPIC, "Save_Tool");
 
 		options.registerOption(AUTOMATICALLY_SAVE_TOOLS, true, help,
 			"When enabled tools will be saved " + "when they are closed");
@@ -247,16 +251,6 @@ public class FrontEndTool extends PluginTool implements OptionsChangeListener {
 		DataBuffer.enableCompressedSerializationOutput(compressDataBuffers);
 
 		options.addOptionsChangeListener(this);
-	}
-
-	// a place to clear options that are specific to the FrontEndTool and should be reset between
-	// opening projects
-	private void clearFrontEndOptions() {
-		// TODO: just for the record, it seems odd to me that you would want to the FrontEndTool
-		// to have the 'auto save' setting be different for different projects--no sir, I don' like it
-		ToolOptions options = getOptions("Tool");
-		options.removeOptionsChangeListener(this);
-		options.removeOption(AUTOMATICALLY_SAVE_TOOLS);
 	}
 
 	@Override
@@ -295,7 +289,9 @@ public class FrontEndTool extends PluginTool implements OptionsChangeListener {
 			return;
 		}
 
-		clearFrontEndOptions();
+		ToolOptions options = getOptions(ToolConstants.TOOL_OPTIONS);
+		options.removeOptionsChangeListener(this);
+
 		configureToolAction.setEnabled(true);
 		setProject(project);
 		AppInfo.setActiveProject(project);
@@ -322,8 +318,9 @@ public class FrontEndTool extends PluginTool implements OptionsChangeListener {
 	}
 
 	/**
-	 * NOTE: do not call this from a non-Swing thread.
+	 * NOTE: do not call this from a non-Swing thread
 	 * 
+	 * @param tool the tool
 	 * @return true if the repository is null or is connected.
 	 */
 	boolean checkRepositoryConnected(PluginTool tool) {
@@ -359,12 +356,11 @@ public class FrontEndTool extends PluginTool implements OptionsChangeListener {
 	 * 
 	 * @param tool tool that has the domain file opened
 	 * @param domainFile domain file to check in
-	 * @param taskListener listener that is notified when task completes
 	 */
-	public void checkIn(PluginTool tool, DomainFile domainFile, TaskListener taskListener) {
+	public void checkIn(PluginTool tool, DomainFile domainFile) {
 		ArrayList<DomainFile> list = new ArrayList<>();
 		list.add(domainFile);
-		checkIn(tool, list, taskListener, tool.getToolFrame());
+		checkIn(tool, list, tool.getToolFrame());
 	}
 
 	/**
@@ -372,11 +368,9 @@ public class FrontEndTool extends PluginTool implements OptionsChangeListener {
 	 * 
 	 * @param tool tool that has the domain files opened
 	 * @param fileList list of DomainFile objects
-	 * @param taskListener listener that is notified when task completes
 	 * @param parent parent of dialog if an error occurs during checkin
 	 */
-	public void checkIn(PluginTool tool, List<DomainFile> fileList, TaskListener taskListener,
-			Component parent) {
+	public void checkIn(PluginTool tool, List<DomainFile> fileList, Component parent) {
 
 		if (!checkRepositoryConnected(tool)) {
 			return;
@@ -517,6 +511,7 @@ public class FrontEndTool extends PluginTool implements OptionsChangeListener {
 	}
 
 	private void addManageExtensionsAction() {
+
 		DockingAction installExtensionsAction = new DockingAction("Extensions", "Project Window") {
 			@Override
 			public void actionPerformed(ActionContext context) {
@@ -530,8 +525,11 @@ public class FrontEndTool extends PluginTool implements OptionsChangeListener {
 				return isConfigurable();
 			}
 		};
-		installExtensionsAction.setMenuBarData(new MenuData(
-			new String[] { ToolConstants.MENU_FILE, "Install Extensions..." }, null, "Extensions"));
+		MenuData menuData =
+			new MenuData(new String[] { ToolConstants.MENU_FILE, "Install Extensions..." }, null,
+				CONFIGURE_GROUP);
+		menuData.setMenuSubGroup(CONFIGURE_GROUP + 2);
+		installExtensionsAction.setMenuBarData(menuData);
 
 		installExtensionsAction.setHelpLocation(
 			new HelpLocation(GenericHelpTopics.FRONT_END, "Extensions"));
@@ -554,8 +552,11 @@ public class FrontEndTool extends PluginTool implements OptionsChangeListener {
 				return isConfigurable();
 			}
 		};
-		configureToolAction.setMenuBarData(new MenuData(
-			new String[] { ToolConstants.MENU_FILE, "Configure..." }, null, "Configure"));
+
+		MenuData menuData = new MenuData(new String[] { ToolConstants.MENU_FILE, "Configure..." },
+			null, CONFIGURE_GROUP);
+		menuData.setMenuSubGroup(CONFIGURE_GROUP + 1);
+		configureToolAction.setMenuBarData(menuData);
 
 		configureToolAction.setHelpLocation(
 			new HelpLocation(GenericHelpTopics.FRONT_END, "Configure"));
@@ -664,7 +665,7 @@ public class FrontEndTool extends PluginTool implements OptionsChangeListener {
 		addHelpActions();
 
 		// our log file action
-		DockingAction action = new DockingAction("Show Log", "Tool") {
+		DockingAction action = new DockingAction("Show Log", ToolConstants.TOOL_OWNER) {
 			@Override
 			public void actionPerformed(ActionContext context) {
 				showGhidraUserLogFile();
@@ -691,7 +692,7 @@ public class FrontEndTool extends PluginTool implements OptionsChangeListener {
 	/**
 	 * Get the int value for the given string.
 	 * 
-	 * @param value
+	 * @param value the string value to parse
 	 * @param defaultValue return this value if a NumberFormatException is
 	 *            thrown during the parseInt() method
 	 */
@@ -744,8 +745,8 @@ public class FrontEndTool extends PluginTool implements OptionsChangeListener {
 
 	@Override
 	public boolean canCloseDomainFile(DomainFile df) {
-		Tool[] tools = getProject().getToolManager().getRunningTools();
-		for (Tool tool : tools) {
+		PluginTool[] tools = getProject().getToolManager().getRunningTools();
+		for (PluginTool tool : tools) {
 			DomainFile[] files = tool.getDomainFiles();
 			for (DomainFile domainFile : files) {
 				if (df == domainFile) {
@@ -764,7 +765,7 @@ public class FrontEndTool extends PluginTool implements OptionsChangeListener {
 
 		if (logProvider == null) {
 			logProvider = new LogComponentProvider(this, logFile);
-			showDialog(logProvider, getToolFrame());
+			showDialog(logProvider);
 			return;
 		}
 
@@ -909,7 +910,11 @@ public class FrontEndTool extends PluginTool implements OptionsChangeListener {
 
 		private void notifyTaskListener() {
 
-			SystemUtilities.runSwingNow(() -> {
+			if (taskListener == null) {
+				return;
+			}
+
+			Swing.runNow(() -> {
 				if (wasCanceled) {
 					taskListener.taskCancelled(MergeTask.this);
 				}

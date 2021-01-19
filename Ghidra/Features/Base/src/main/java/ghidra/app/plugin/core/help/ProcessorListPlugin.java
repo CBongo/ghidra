@@ -27,6 +27,7 @@ import docking.action.DockingAction;
 import docking.action.MenuData;
 import docking.dnd.GClipboard;
 import docking.dnd.StringTransferable;
+import docking.tool.ToolConstants;
 import docking.widgets.table.AbstractSortedTableModel;
 import docking.widgets.table.GTable;
 import ghidra.app.CorePluginPackage;
@@ -34,7 +35,7 @@ import ghidra.app.plugin.PluginCategoryNames;
 import ghidra.app.util.HelpTopics;
 import ghidra.framework.main.FrontEndable;
 import ghidra.framework.plugintool.*;
-import ghidra.framework.plugintool.util.*;
+import ghidra.framework.plugintool.util.PluginStatus;
 import ghidra.program.model.lang.*;
 import ghidra.program.util.DefaultLanguageService;
 import ghidra.util.HelpLocation;
@@ -101,7 +102,7 @@ public class ProcessorListPlugin extends Plugin implements FrontEndable {
 		if (dialogProvider == null) {
 			dialogProvider = new ProcessorListDialogProvider();
 		}
-		tool.showDialog(dialogProvider, tool.getToolFrame());
+		tool.showDialog(dialogProvider);
 	}
 
 	private void copy(boolean asHtml) {

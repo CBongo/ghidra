@@ -72,6 +72,10 @@ public class WindowActionManager {
 		}
 	}
 
+	public DockingActionIf getToolbarAction(String actionName) {
+		return toolBarMgr.getAction(actionName);
+	}
+
 	public void update() {
 		JMenuBar menuBar = menuBarMgr.getMenuBar();
 		if (menuBar.getMenuCount() > 0) {
@@ -92,15 +96,19 @@ public class WindowActionManager {
 		toolBarMgr.dispose();
 	}
 
-	/**
-	 * Notifies the window manager that an action context update is needed.
-	 */
 	synchronized void contextChanged(ComponentPlaceholder placeHolder) {
+
+		if (!node.isVisible()) {
+			return;
+		}
+
 		placeHolderForScheduledActionUpdate = placeHolder;
 
-		// Buffer the events, as they tend to come in 3s.  That might not sound like alot, but 
-		// when you have hundreds of actions, it adds up.
-		updateManager.updateLater();
+		// Typically, when we get one contextChanged, we get a flurry of contextChanged calls.
+		// In order to make the action updating be as responsive as possible and still be complete,
+		// we have chosen a policy that will reduce a flurry of contextChanged call into two
+		// actual calls - one that occurs immediately and one when the flurry times out.
+		updateManager.update();
 	}
 
 	private synchronized void processContextChanged() {
@@ -112,13 +120,8 @@ public class WindowActionManager {
 			return;
 		}
 
-		ComponentProvider provider = placeHolderForScheduledActionUpdate == null ? null
-				: placeHolderForScheduledActionUpdate.getProvider();
-		ActionContext localContext = provider == null ? null : provider.getActionContext(null);
-		ActionContext globalContext = winMgr.getGlobalContext();
-		if (localContext == null) {
-			localContext = new ActionContext();
-		}
+		ActionContext localContext = getContext();
+		ActionContext globalContext = winMgr.getDefaultToolContext();
 
 		// Update actions - make a copy so that we don't get concurrent modification exceptions
 		List<DockingActionIf> list = new ArrayList<>(actionToProxyMap.values());
@@ -126,7 +129,7 @@ public class WindowActionManager {
 			if (action.isValidContext(localContext)) {
 				action.setEnabled(action.isEnabledForContext(localContext));
 			}
-			else if (action.isValidGlobalContext(globalContext)) {
+			else if (isValidDefaultToolContext(action, globalContext)) {
 				action.setEnabled(action.isEnabledForContext(globalContext));
 			}
 			else {
@@ -135,5 +138,22 @@ public class WindowActionManager {
 		}
 		// Notify listeners if the context provider is the focused provider
 		winMgr.notifyContextListeners(placeHolderForScheduledActionUpdate, localContext);
+	}
+
+	private boolean isValidDefaultToolContext(DockingActionIf action, ActionContext toolContext) {
+		return action.supportsDefaultToolContext() &&
+			action.isValidContext(toolContext);
+	}
+
+	private ActionContext getContext() {
+		ComponentProvider provider = placeHolderForScheduledActionUpdate == null ? null
+				: placeHolderForScheduledActionUpdate.getProvider();
+
+		ActionContext context = provider == null ? null : provider.getActionContext(null);
+
+		if (context == null) {
+			context = new ActionContext();
+		}
+		return context;
 	}
 }

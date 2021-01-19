@@ -15,10 +15,7 @@
  */
 package ghidra.framework.data;
 
-import ghidra.util.Issue;
 import ghidra.util.SystemUtilities;
-import ghidra.util.datastruct.WeakDataStructureFactory;
-import ghidra.util.datastruct.WeakSet;
 import ghidra.util.exception.CancelledException;
 import ghidra.util.task.*;
 
@@ -35,15 +32,15 @@ class LockingTaskMonitor implements TaskMonitor {
 	private boolean showProgressValue = true;
 	private String msg;
 	private MyTaskDialog taskDialog;
-	private WeakSet<IssueListener> issueListeners;
 
 	/**
-	 * Constructs a locking task handler for a locked dobj.  The setCompleted() method must be
-	 * invoked to dispose this object and release the lock.  This should
-	 * be done in a try/finally block to avoid accidentally locking the
+	 * Constructs a locking task handler for a locked domain object.  The
+	 * {@link #releaseLock()} method must be invoked to dispose this object and release the
+	 * lock.  This should be done in a try/finally block to avoid accidentally locking the
 	 * domain object indefinitely.
+	 *
 	 * @param dobj domain object
-	 * @param hasProgress
+	 * @param hasProgress true if this monitor has progress
 	 * @param title task title
 	 */
 	LockingTaskMonitor(DomainObjectAdapterDB dobj, boolean hasProgress, String title) {
@@ -88,9 +85,6 @@ class LockingTaskMonitor implements TaskMonitor {
 		}
 	}
 
-	/*
-	 * @see ghidra.util.task.TaskMonitor#isCancelled()
-	 */
 	@Override
 	public synchronized boolean isCancelled() {
 		return taskDialog != null ? taskDialog.isCancelled() : isCanceled;
@@ -112,9 +106,6 @@ class LockingTaskMonitor implements TaskMonitor {
 		notifyAll();
 	}
 
-	/*
-	 * @see ghidra.util.task.TaskMonitor#setMessage(java.lang.String)
-	 */
 	@Override
 	public synchronized void setMessage(String msg) {
 		this.msg = msg;
@@ -123,9 +114,11 @@ class LockingTaskMonitor implements TaskMonitor {
 		}
 	}
 
-	/*
-	 * @see ghidra.util.task.TaskMonitor#setProgress(int)
-	 */
+	@Override
+	public synchronized String getMessage() {
+		return msg;
+	}
+
 	@Override
 	public synchronized void setProgress(long value) {
 		this.curProgress = value;
@@ -169,9 +162,11 @@ class LockingTaskMonitor implements TaskMonitor {
 		}
 	}
 
-	/*
-	 * @see ghidra.util.task.TaskMonitor#setCancelEnabled(boolean)
-	 */
+	@Override
+	public boolean isIndeterminate() {
+		return indeterminate;
+	}
+
 	@Override
 	public synchronized void setCancelEnabled(boolean enable) {
 		this.cancelEnabled = enable;
@@ -180,17 +175,11 @@ class LockingTaskMonitor implements TaskMonitor {
 		}
 	}
 
-	/**
-	 * @see ghidra.util.task.TaskMonitor#isCancelEnabled()
-	 */
 	@Override
 	public synchronized boolean isCancelEnabled() {
 		return taskDialog != null ? taskDialog.isCancelEnabled() : cancelEnabled;
 	}
 
-	/*
-	 * @see ghidra.util.task.TaskMonitor#cancel()
-	 */
 	@Override
 	public synchronized void cancel() {
 		this.isCanceled = true;
@@ -199,9 +188,6 @@ class LockingTaskMonitor implements TaskMonitor {
 		}
 	}
 
-	/*
-	 * @see ghidra.util.task.TaskMonitor#clearCanceled()
-	 */
 	@Override
 	public void clearCanceled() {
 		this.isCanceled = false;
@@ -210,9 +196,6 @@ class LockingTaskMonitor implements TaskMonitor {
 		}
 	}
 
-	/*
-	 * @see ghidra.util.task.TaskMonitor#checkCanceled()
-	 */
 	@Override
 	public void checkCanceled() throws CancelledException {
 		if (isCancelled()) {
@@ -220,17 +203,11 @@ class LockingTaskMonitor implements TaskMonitor {
 		}
 	}
 
-	/**
-	 * @see ghidra.util.task.TaskMonitor#incrementProgress(int)
-	 */
 	@Override
 	public void incrementProgress(long incrementAmount) {
 		setProgress(curProgress + incrementAmount);
 	}
 
-	/**
-	 * @see ghidra.util.task.TaskMonitor#getProgress()
-	 */
 	@Override
 	public long getProgress() {
 		return curProgress;
@@ -262,29 +239,5 @@ class LockingTaskMonitor implements TaskMonitor {
 	@Override
 	public void removeCancelledListener(CancelledListener listener) {
 		throw new UnsupportedOperationException();
-	}
-
-	@Override
-	public void addIssueListener(IssueListener listener) {
-		if (issueListeners == null) {
-			issueListeners = WeakDataStructureFactory.createCopyOnWriteWeakSet();
-		}
-	}
-
-	@Override
-	public void removeIssueListener(IssueListener listener) {
-		if (issueListeners != null) {
-			issueListeners.remove(listener);
-		}
-
-	}
-
-	@Override
-	public void reportIssue(Issue issue) {
-		if (issueListeners != null) {
-			for (IssueListener listener : issueListeners) {
-				listener.issueReported(issue);
-			}
-		}
 	}
 }

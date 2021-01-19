@@ -15,8 +15,7 @@
  */
 package help.screenshot;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.*;
 
 import java.awt.*;
 import java.math.BigInteger;
@@ -25,8 +24,7 @@ import java.util.List;
 import javax.swing.*;
 import javax.swing.border.TitledBorder;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.*;
 
 import docking.widgets.indexedscrollpane.IndexedScrollPane;
 import generic.test.TestUtils;
@@ -34,7 +32,6 @@ import ghidra.app.cmd.function.AddRegisterParameterCommand;
 import ghidra.app.merge.*;
 import ghidra.app.merge.listing.*;
 import ghidra.app.merge.tool.ListingMergePanel;
-import ghidra.app.plugin.core.datamgr.archive.SourceArchive;
 import ghidra.app.util.viewer.listingpanel.ListingPanel;
 import ghidra.app.util.viewer.util.TitledPanel;
 import ghidra.framework.main.FrontEndTool;
@@ -69,7 +66,7 @@ public class RepositoryScreenShots extends AbstractListingMergeManagerTest {
 		super();
 	}
 
-	// FIXME: JUnit4 ??
+	@Before
 	@Override
 	public void setUp() throws Exception {
 		super.setUp();
@@ -78,7 +75,7 @@ public class RepositoryScreenShots extends AbstractListingMergeManagerTest {
 		env = mtf.getTestEnvironment();
 	}
 
-	// FIXME: JUnit4 ??
+	@After
 	@Override
 	public void tearDown() throws Exception {
 		mtfGenerator.showResults();
@@ -117,9 +114,6 @@ public class RepositoryScreenShots extends AbstractListingMergeManagerTest {
 					blocks[1].setName("LatestText");
 					commit = true;
 				}
-				catch (DuplicateNameException e) {
-					Assert.fail();
-				}
 				catch (LockException e) {
 					Assert.fail();
 				}
@@ -135,9 +129,6 @@ public class RepositoryScreenShots extends AbstractListingMergeManagerTest {
 				int transactionID = program.startTransaction("Modify My Program");
 				try {
 					blocks[1].setName("MY_Text");
-				}
-				catch (DuplicateNameException e) {
-					Assert.fail();
 				}
 				catch (LockException e) {
 					Assert.fail();

@@ -35,8 +35,8 @@ import ghidra.util.task.TaskMonitor;
 /**
  * Class for managing data types in a project archive
  */
-public class ProjectDataTypeManager extends DataTypeManagerDB implements
-		ProjectArchiveBasedDataTypeManager {
+public class ProjectDataTypeManager extends DataTypeManagerDB
+		implements ProjectArchiveBasedDataTypeManager {
 
 //	private static final String DT_ARCHIVE_FILENAMES = "DataTypeArchiveFilenames";
 //	private static final String FILENAME_SEPARATOR = ";";
@@ -57,9 +57,8 @@ public class ProjectDataTypeManager extends DataTypeManagerDB implements
 	 * @throws VersionException if the database does not match the expected version.
 	 * @throws IOException if a database I/O error occurs.
 	 */
-	public ProjectDataTypeManager(DBHandle handle, int openMode, ErrorHandler errHandler,
-			Lock lock, TaskMonitor monitor) throws CancelledException, VersionException,
-			IOException {
+	public ProjectDataTypeManager(DBHandle handle, int openMode, ErrorHandler errHandler, Lock lock,
+			TaskMonitor monitor) throws CancelledException, VersionException, IOException {
 		super(handle, null, openMode, errHandler, lock, monitor);
 	}
 
@@ -197,9 +196,6 @@ public class ProjectDataTypeManager extends DataTypeManagerDB implements
 		// TODO
 	}
 
-	/**
-	 * @see ghidra.program.model.data.DataTypeManager#startTransaction(java.lang.String)
-	 */
 	@Override
 	public int startTransaction(String description) {
 		return dataTypeArchive.startTransaction(description);
@@ -210,26 +206,11 @@ public class ProjectDataTypeManager extends DataTypeManagerDB implements
 		dataTypeArchive.flushEvents();
 	}
 
-	/**
-	 * @see ghidra.program.model.data.DataTypeManager#endTransaction(int, boolean)
-	 */
 	@Override
 	public void endTransaction(int transactionID, boolean commit) {
 		dataTypeArchive.endTransaction(transactionID, commit);
-
 	}
 
-	/**
-	 * @see ghidra.program.model.data.DataTypeManager#close()
-	 */
-	@Override
-	public void close() {
-		// do nothing
-	}
-
-	/* (non-Javadoc)
-	 * @see ghidra.program.model.data.DomainFileBasedDataTypeManager#getDomainFile()
-	 */
 	@Override
 	public DomainFile getDomainFile() {
 		return dataTypeArchive.getDomainFile();
@@ -252,20 +233,16 @@ public class ProjectDataTypeManager extends DataTypeManagerDB implements
 		return ArchiveType.PROJECT;
 	}
 
-	@Override
-	public DataOrganization getDataOrganization() {
-		if (dataOrganization == null) {
-			dataOrganization = DataOrganizationImpl.getDefaultOrganization();
-		}
-		return dataOrganization;
-//		// For now project data type archive will use the default data organization.
-//		return DataOrganization.getDefaultOrganization();
-	}
-
 	public void archiveReady(int openMode, TaskMonitor monitor) throws CancelledException {
 		if (openMode == DBConstants.UPGRADE) {
 			doSourceArchiveUpdates(null, monitor);
 		}
+	}
+
+	@Override
+	public void close() {
+		// do nothing - cannot close a project data type manager
+		// dispose should be invoked by the owner of the instance
 	}
 
 }

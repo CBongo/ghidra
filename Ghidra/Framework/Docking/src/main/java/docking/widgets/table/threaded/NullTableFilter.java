@@ -19,7 +19,7 @@ import docking.widgets.table.TableFilter;
 
 /**
  * A table filter that represents the state of having no filter.  This allows us to not have to
- * use <tt>null</tt> to have multiple meanings.
+ * use <code>null</code> to have multiple meanings.
  *
  * @param <ROW_OBJECT> the type of the row of the table model using this filter
  */
@@ -37,5 +37,29 @@ public class NullTableFilter<ROW_OBJECT> implements TableFilter<ROW_OBJECT> {
 		// if this returns true, then any other filters can be used as the source of the data
 		// to filter, which doesn't make sense if this is meant to only be used by itself.
 		return false;
+	}
+
+	@Override
+	public boolean isEmpty() {
+		return true;
+	}
+
+	@Override
+	public boolean equals(Object obj) {
+		if (this == obj) {
+			return true;
+		}
+		if (obj == null) {
+			return false;
+		}
+		if (getClass() != obj.getClass()) {
+			return false;
+		}
+		return true;
+	}
+
+	@Override
+	public int hashCode() {
+		return getClass().hashCode();
 	}
 }

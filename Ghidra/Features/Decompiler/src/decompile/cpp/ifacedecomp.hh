@@ -54,6 +54,7 @@ public:
 #endif
   IfaceDecompData(void);
   virtual ~IfaceDecompData(void);
+  void allocateCallGraph(void);
   void abortFunction(ostream &s);
   void clearArchitecture(void);
 };
@@ -531,12 +532,22 @@ public:
   virtual void execute(istream &s);
 };
 
+class IfcReadonly : public IfaceDecompCommand {
+public:
+  virtual void execute(istream &s);
+};
+
 class IfcPreferSplit : public IfaceDecompCommand {
 public:
   virtual void execute(istream &s);
 };
 
 class IfcStructureBlocks : public IfaceDecompCommand {
+public:
+  virtual void execute(istream &s);
+};
+
+class IfcAnalyzeRange : public IfaceDecompCommand {
 public:
   virtual void execute(istream &s);
 };

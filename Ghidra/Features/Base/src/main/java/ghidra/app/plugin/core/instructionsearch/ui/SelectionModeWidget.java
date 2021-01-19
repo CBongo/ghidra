@@ -22,7 +22,9 @@ import java.util.List;
 
 import javax.swing.*;
 
+import docking.widgets.button.GRadioButton;
 import ghidra.app.plugin.core.instructionsearch.util.InstructionSearchUtils;
+import ghidra.util.Msg;
 
 /**
  * Allows the user to specify whether the input mode is BINARY or HEX for the {@link InsertBytesWidget}.
@@ -59,8 +61,8 @@ public class SelectionModeWidget extends ControlPanelWidget {
 	@Override
 	protected JPanel createContent() {
 		JPanel rbPanel = new JPanel();
-		hexRB = new JRadioButton("hex");
-		binaryRB = new JRadioButton("binary");
+		hexRB = new GRadioButton("hex");
+		binaryRB = new GRadioButton("binary");
 		ButtonGroup inputGroup = new ButtonGroup();
 		inputGroup.add(hexRB);
 		inputGroup.add(binaryRB);
@@ -77,31 +79,27 @@ public class SelectionModeWidget extends ControlPanelWidget {
 			@Override
 			public void actionPerformed(ActionEvent e) {
 
-				// If input is invalid, just exit.
-				if (!parent.validateInput()) {
-					return;
-				}
-
 				// If we're already in hex, do nothing.
 				if (inputMode == InputMode.HEX) {
 					return;
 				}
-
 				inputMode = InputMode.HEX;
 
 				// CONVERSION
 				// 1. Get the whitespace map so we can restore it after conversion.
 				// 2. Get the group map so we can group bytes just as in the hex display.
 				// 3. Convert and display.
-				List<String> whitespaces = InstructionSearchUtils.getWhitespace(parent.getInputString().trim());
+				List<String> whitespaces =
+					InstructionSearchUtils.getWhitespace(parent.getInputString().trim());
 
 				List<Integer> groups;
 				try {
-					groups =
-						InstructionSearchUtils.getGroupSizes(parent.getInputString().trim(), InputMode.BINARY);
+					groups = InstructionSearchUtils.getGroupSizes(parent.getInputString().trim(),
+						InputMode.BINARY);
 
-					// Now convert whatever is in the input box to binary.				
-					String hexStr = InstructionSearchUtils.toHex(parent.getInputString().trim(), true);
+					// Now convert whatever is in the input box to hex.				
+					String hexStr =
+						InstructionSearchUtils.toHex(parent.getInputString().trim(), true);
 
 					// Restore grouping.
 					hexStr =
@@ -111,8 +109,11 @@ public class SelectionModeWidget extends ControlPanelWidget {
 					parent.setInputString(hexStr);
 					parent.validateInput();
 				}
+				catch (NumberFormatException e2) {
+					parent.setInputInvalid();
+				}
 				catch (Exception e1) {
-					e1.printStackTrace();
+					Msg.error(this, e1.getMessage());
 				}
 			}
 
@@ -122,11 +123,6 @@ public class SelectionModeWidget extends ControlPanelWidget {
 
 			@Override
 			public void actionPerformed(ActionEvent e) {
-
-				// If input is invalid, just exit.
-				if (!parent.validateInput()) {
-					return;
-				}
 
 				// If we're already in binary, do nothing.
 				if (inputMode == InputMode.BINARY) {
@@ -139,15 +135,17 @@ public class SelectionModeWidget extends ControlPanelWidget {
 				// 1. Get the whitespace map so we can restore it after conversion.
 				// 2. Get the group map so we can group bytes just as in the hex display.
 				// 3. Convert and display.
-				List<String> whitespaces = InstructionSearchUtils.getWhitespace(parent.getInputString().trim());
+				List<String> whitespaces =
+					InstructionSearchUtils.getWhitespace(parent.getInputString().trim());
 
 				List<Integer> groups;
 				try {
-					groups =
-						InstructionSearchUtils.getGroupSizes(parent.getInputString().trim(), InputMode.HEX);
+					groups = InstructionSearchUtils.getGroupSizes(parent.getInputString().trim(),
+						InputMode.HEX);
 
 					// Now convert whatever is in the input box to binary.				
-					String binaryStr = InstructionSearchUtils.toBinary(parent.getInputString().trim());
+					String binaryStr =
+						InstructionSearchUtils.toBinary(parent.getInputString().trim());
 
 					// Restore grouping.
 					binaryStr = restoreGroupingAndWhitespace(binaryStr, groups, whitespaces,
@@ -156,8 +154,11 @@ public class SelectionModeWidget extends ControlPanelWidget {
 					parent.setInputString(binaryStr);
 					parent.validateInput();
 				}
+				catch (NumberFormatException e2) {
+					parent.setInputInvalid();
+				}
 				catch (Exception e1) {
-					e1.printStackTrace();
+					Msg.error(this, e1.getMessage());
 				}
 
 			}
@@ -176,9 +177,9 @@ public class SelectionModeWidget extends ControlPanelWidget {
 			inputMode = InputMode.HEX;
 		}
 		else if (binaryRB.isSelected()) {
-			inputMode = InputMode.BINARY; 
+			inputMode = InputMode.BINARY;
 		}
-		
+
 		return inputMode;
 	}
 

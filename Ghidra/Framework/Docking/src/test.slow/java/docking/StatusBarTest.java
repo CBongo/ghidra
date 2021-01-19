@@ -15,7 +15,7 @@
  */
 package docking;
 
-import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.*;
 
 import javax.swing.JFrame;
 import javax.swing.JLabel;
@@ -23,6 +23,8 @@ import javax.swing.JLabel;
 import org.junit.*;
 
 import docking.test.AbstractDockingTest;
+import docking.widgets.label.GDLabel;
+import docking.widgets.label.GLabel;
 import ghidra.util.bean.GGlassPane;
 
 /**
@@ -35,15 +37,6 @@ public class StatusBarTest extends AbstractDockingTest {
 
 	private StatusBar statusBar;
 	private JFrame testFrame;
-
-	/**
-	 * Constructor to run the test passed as a parameter.
-	 * 
-	 * @param testName The name of the test to run
-	 */
-	public StatusBarTest() {
-		super();
-	}
 
 	@Before
 	public void setUp() throws Exception {
@@ -107,82 +100,54 @@ public class StatusBarTest extends AbstractDockingTest {
 	}
 
 	private void addAndRemoveStatusItems() {
-		final JLabel label1 = new JLabel("Test Label 1");
-		final JLabel label2 = new JLabel("Test Label 2");
+		final JLabel label1 = new GDLabel("Test Label 1");
+		final JLabel label2 = new GDLabel("Test Label 2");
 
 		// normal add/remove operations
-		runSwing(new Runnable() {
-			@Override
-			public void run() {
-				statusBar.addStatusItem(label1, true, true);
-				statusBar.addStatusItem(label2, true, true);
-			}
+		runSwing(() -> {
+			statusBar.addStatusItem(label1, true, true);
+			statusBar.addStatusItem(label2, true, true);
 		});
 
-		runSwing(new Runnable() {
-			@Override
-			public void run() {
-				statusBar.removeStatusItem(label1);
-				statusBar.removeStatusItem(label2);
-			}
+		runSwing(() -> {
+			statusBar.removeStatusItem(label1);
+			statusBar.removeStatusItem(label2);
 		});
 
 		// method call variations
-		runSwing(new Runnable() {
-			@Override
-			public void run() {
-				statusBar.addStatusItem(label1, false, true);
-				statusBar.addStatusItem(label2, true, false);
-			}
+		runSwing(() -> {
+			statusBar.addStatusItem(label1, false, true);
+			statusBar.addStatusItem(label2, true, false);
 		});
 
-		runSwing(new Runnable() {
-			@Override
-			public void run() {
-				statusBar.removeStatusItem(label1);
-				statusBar.removeStatusItem(label2);
-			}
+		runSwing(() -> {
+			statusBar.removeStatusItem(label1);
+			statusBar.removeStatusItem(label2);
 		});
 
 		// repeat adding
-		runSwing(new Runnable() {
-			@Override
-			public void run() {
-				statusBar.addStatusItem(label1, true, true);
-				statusBar.addStatusItem(label1, true, true);
-			}
+		runSwing(() -> {
+			statusBar.addStatusItem(label1, true, true);
+			statusBar.addStatusItem(label1, true, true);
 		});
 
 		// removing non-existent elements        
-		runSwing(new Runnable() {
-			@Override
-			public void run() {
-				statusBar.removeStatusItem(label2);
+		runSwing(() -> statusBar.removeStatusItem(label2));
+
+		runSwing(() -> {
+			try {
+				statusBar.removeStatusItem(new GLabel("Test Label 3"));
+
+				Assert.fail("Did not receive an expected NullPointerException.");
 			}
-		});
-
-		runSwing(new Runnable() {
-			@Override
-			public void run() {
-				try {
-					statusBar.removeStatusItem(new JLabel("Test Label 3"));
-
-					Assert.fail("Did not receive an expected NullPointerException.");
-				}
-				catch (NullPointerException npe) {
-					// expected, caused by a null parent
-				}
+			catch (NullPointerException npe) {
+				// expected, caused by a null parent
 			}
 		});
 	}
 
 	private void setStatusText(final String text) {
-		runSwing(new Runnable() {
-			@Override
-			public void run() {
-				statusBar.setStatusText(text, true);
-			}
-		});
-		waitForPostedSwingRunnables();
+		runSwing(() -> statusBar.setStatusText(text));
+		waitForSwing();
 	}
 }

@@ -46,7 +46,8 @@ import generic.test.AbstractGTest;
 import generic.util.WindowUtilities;
 import generic.util.image.ImageUtils;
 import ghidra.app.plugin.core.datamgr.DataTypeManagerPlugin;
-import ghidra.app.plugin.core.datamgr.archive.*;
+import ghidra.app.plugin.core.datamgr.archive.Archive;
+import ghidra.app.plugin.core.datamgr.archive.DataTypeManagerHandler;
 import ghidra.app.plugin.core.datamgr.tree.DataTypeArchiveGTree;
 import ghidra.app.plugin.core.datamgr.tree.DataTypeNode;
 import ghidra.app.plugin.core.datamgr.util.DataTypeChooserDialog;
@@ -188,7 +189,7 @@ public class DataTypeSelectionDialogTest extends AbstractGhidraHeadedIntegration
 		assertTrue("Did not find the data type chooser tree",
 			(provider instanceof DataTypeChooserDialog));
 		GTree gTree = (GTree) getInstanceField("tree", provider);
-		GTreeNode rootNode = gTree.getRootNode();
+		GTreeNode rootNode = gTree.getModelRoot();
 		waitForTree(gTree);
 		final GTreeNode builtInNode = rootNode.getChild("BuiltInTypes");
 		final DataTypeNode doubleNode = (DataTypeNode) builtInNode.getChild("double");
@@ -441,13 +442,8 @@ public class DataTypeSelectionDialogTest extends AbstractGhidraHeadedIntegration
 		// Check that more than 2 non-equivalent data types trigger the dialog to appear. 
 		//
 		Category secondCategory = rootCategory.createCategory("testCategory2");
-		dataType = new CustomDataType(secondCategory.getCategoryPath(), crazyName, 2) {
-			@Override
-			public DataTypeManager getDataTypeManager() {
-				return getProgramDataTypeManager(dataTypeManagers);
-			}
-
-		};
+		dataType = new CustomDataType(secondCategory.getCategoryPath(), crazyName, 2,
+			getProgramDataTypeManager(dataTypeManagers));
 		addDataType(secondCategory, dataType);
 
 		showDialogWithoutBlocking(tool, dialog);
@@ -748,7 +744,7 @@ public class DataTypeSelectionDialogTest extends AbstractGhidraHeadedIntegration
 
 	private void pickSingleDataType(DataTypeChooserDialog chooserDialog) {
 		GTree gTree = (GTree) getInstanceField("tree", chooserDialog);
-		GTreeNode rootNode = gTree.getRootNode();
+		GTreeNode rootNode = gTree.getViewRoot();
 		waitForTree(gTree);
 		List<GTreeNode> children = rootNode.getChildren();
 		assertEquals(1, children.size());// one archive
@@ -769,7 +765,7 @@ public class DataTypeSelectionDialogTest extends AbstractGhidraHeadedIntegration
 
 	private void pickFromMultipleDataTypes(DataTypeChooserDialog chooserDialog) {
 		GTree gTree = (GTree) getInstanceField("tree", chooserDialog);
-		GTreeNode rootNode = gTree.getRootNode();
+		GTreeNode rootNode = gTree.getViewRoot();
 		waitForTree(gTree);
 		List<GTreeNode> children = rootNode.getChildren();
 		assertEquals(2, children.size());// two archives
@@ -1099,6 +1095,10 @@ public class DataTypeSelectionDialogTest extends AbstractGhidraHeadedIntegration
 	}
 
 	private class CustomDataType extends StructureDataType {
+		public CustomDataType(CategoryPath path, String name, int length, DataTypeManager dtm) {
+			super(path, name, length, dtm);
+		}
+
 		public CustomDataType(CategoryPath path, String name, int length) {
 			super(path, name, length);
 		}
@@ -1176,7 +1176,7 @@ public class DataTypeSelectionDialogTest extends AbstractGhidraHeadedIntegration
 
 		JPanel editorPanel = new JPanel(new BorderLayout());
 		DataTypeSelectionEditor editor =
-			new DataTypeSelectionEditor(tool, -1, AllowedDataTypes.ALL);
+			new DataTypeSelectionEditor(tool, AllowedDataTypes.ALL);
 		editor.setPreferredDataTypeManager(program.getDataTypeManager());
 
 		editorPanel.add(panelUpdateField, BorderLayout.SOUTH);

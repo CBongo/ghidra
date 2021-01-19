@@ -59,11 +59,11 @@ void LanguageDescription::restoreXml(const Element *el)
     if (subel->getName() == "description")
       description = subel->getContent();
     else if (subel->getName() == "compiler") {
-      compilers.push_back(CompilerTag());
+      compilers.emplace_back();
       compilers.back().restoreXml(subel);
     }
     else if (subel->getName() == "truncate_space") {
-      truncations.push_back(TruncationTag());
+      truncations.emplace_back();
       truncations.back().restoreXml(subel);
     }
   }
@@ -113,7 +113,7 @@ void SleighArchitecture::loadLanguageDescription(const string &specfile,ostream 
   List::const_iterator iter;
   for(iter=list.begin();iter!=list.end();++iter) {
     if ((*iter)->getName() != "language") continue;
-    description.push_back(LanguageDescription());
+    description.emplace_back();
     description.back().restoreXml( *iter );
   }
   delete doc;
@@ -123,6 +123,12 @@ SleighArchitecture::~SleighArchitecture(void)
 
 {
   translate = (const Translate *)0;
+}
+
+string SleighArchitecture::getDescription(void) const
+
+{
+  return description[languageindex].getDescription();
 }
 
 /// If the current \b languageindex matches the \b last_languageindex,
@@ -198,8 +204,6 @@ void SleighArchitecture::buildSpecFile(DocumentStorage &store)
 { // Given a specific language, make sure relevant spec files are loaded
   bool language_reuse = isTranslateReused();
   const LanguageDescription &language(description[languageindex]);
-  Architecture::description = language.getDescription();
-  version = language.getVersion();
   string compiler = archid.substr(archid.rfind(':')+1);
   const CompilerTag &compilertag( language.getCompiler(compiler));
   

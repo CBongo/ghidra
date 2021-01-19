@@ -19,6 +19,7 @@ import ghidra.app.util.datatype.EmptyCompositeException;
 import ghidra.program.model.data.*;
 import ghidra.util.InvalidNameException;
 import ghidra.util.exception.*;
+import ghidra.util.task.TaskMonitor;
 
 public interface EditorModel {
 
@@ -86,6 +87,11 @@ public interface EditorModel {
 	 * Returns whether or not the selection is allowed to be changed into an array.
 	 */
 	public boolean isArrayAllowed();
+
+	/**
+	 * Returns whether or not a bitfield is allowed at the current location.
+	 */
+	public boolean isBitFieldAllowed();
 
 	/**
 	 * Returns whether or not clearing the selected components is allowed.
@@ -325,9 +331,10 @@ public interface EditorModel {
 	/**
 	 *  Delete the selected components.
 	 *
+	 * @param monitor the task monitor
 	 * @throws UsrException if the data type isn't allowed to be deleted.
 	 */
-	public void deleteSelectedComponents() throws UsrException;
+	public void deleteSelectedComponents(TaskMonitor monitor) throws UsrException;
 
 	/**
 	 * Creates multiple duplicates of the indicated component.
@@ -335,9 +342,11 @@ public interface EditorModel {
 	 * indicated component.
 	 * @param rowIndex the index of the row whose component is to be duplicated.
 	 * @param multiple the number of duplicates to create.
+	 * @param monitor the task monitor
 	 * @throws UsrException if component can't be duplicated the indicated number of times.
 	 */
-	public void duplicateMultiple(int rowIndex, int multiple) throws UsrException;
+	public void duplicateMultiple(int rowIndex, int multiple, TaskMonitor monitor)
+			throws UsrException;
 
 	/**
 	 * 
@@ -414,14 +423,6 @@ public interface EditorModel {
 	 * @throws UsrException
 	 */
 	public DataTypeComponent replace(int rowIndex, DataType dt, int dtLength) throws UsrException;
-
-	/**
-	 * Replace the component at the indicated index with its subcomponents.
-	 * The component data type must be a composite data type to be unpackaged.
-	 * @param rowIndex index of the row whose component is to be unpackaged in the editor's composite data type.
-	 * @throws UsrException if the component can't be unpackaged.
-	 */
-	public void unpackage(int rowIndex) throws UsrException;
 
 	/**
 	 * Gets the maximum number of bytes available for a data type that is added at the indicated

@@ -23,12 +23,13 @@ import java.io.IOException;
 import java.util.*;
 import java.util.Map.Entry;
 
-import javax.swing.ImageIcon;
 import javax.swing.SwingUtilities;
 import javax.swing.tree.TreePath;
 
 import docking.ActionContext;
+import docking.Tool;
 import docking.action.*;
+import docking.actions.PopupActionProvider;
 import docking.widgets.tree.GTreeNode;
 import generic.jar.ResourceFile;
 import generic.util.Path;
@@ -48,7 +49,8 @@ import ghidra.framework.Application;
 import ghidra.framework.main.OpenVersionedFileDialog;
 import ghidra.framework.model.*;
 import ghidra.framework.options.SaveState;
-import ghidra.framework.plugintool.*;
+import ghidra.framework.plugintool.PluginInfo;
+import ghidra.framework.plugintool.PluginTool;
 import ghidra.framework.plugintool.util.PluginStatus;
 import ghidra.program.database.DataTypeArchiveContentHandler;
 import ghidra.program.database.data.ProgramDataTypeManager;
@@ -60,7 +62,6 @@ import ghidra.util.HelpLocation;
 import ghidra.util.Msg;
 import ghidra.util.datastruct.LRUMap;
 import ghidra.util.task.TaskLauncher;
-import resources.ResourceManager;
 
 /**
  * Plugin to pop up the dialog to manage data types in the program
@@ -80,16 +81,14 @@ import resources.ResourceManager;
 )
 //@formatter:on
 public class DataTypeManagerPlugin extends ProgramPlugin
-		implements DomainObjectListener, DataTypeManagerService, PopupListener {
+		implements DomainObjectListener, DataTypeManagerService, PopupActionProvider {
 
-	final static String DATA_TYPES_ICON = "images/dataTypes.png";
 	private static final String SEACH_PROVIDER_NAME = "Search DataTypes Provider";
 	private static final int RECENTLY_USED_CACHE_SIZE = 10;
 
 	private static final String STANDARD_ARCHIVE_MENU = "Standard Archive";
 	private static final String RECENTLY_OPENED_MENU = "Recently Opened Archive";
 
-	private DockingAction manageDataAction;
 	private DataTypeManagerHandler dataTypeManagerHandler;
 	private DataTypesProvider provider;
 	private OpenVersionedFileDialog openDialog;
@@ -106,7 +105,7 @@ public class DataTypeManagerPlugin extends ProgramPlugin
 
 	@Override
 	protected void init() {
-		recentlyOpenedArchiveMap = new LRUMap<String, DockingAction>(RECENTLY_USED_CACHE_SIZE) {
+		recentlyOpenedArchiveMap = new LRUMap<>(RECENTLY_USED_CACHE_SIZE) {
 			@Override
 			protected void eldestEntryRemoved(Entry<String, DockingAction> eldest) {
 				DockingAction action = eldest.getValue();
@@ -126,12 +125,9 @@ public class DataTypeManagerPlugin extends ProgramPlugin
 			@Override
 			public void archiveClosed(Archive archive) {
 				if (archive instanceof ProjectArchive) {
-					((ProjectArchive) archive).getDomainObject().removeListener(
-						DataTypeManagerPlugin.this);
+					ProjectArchive projectArchive = (ProjectArchive) archive;
+					projectArchive.getDomainObject().removeListener(DataTypeManagerPlugin.this);
 				}
-				// Program is handled by deactivation.
-
-				// Otherwise, don't care.
 			}
 
 			@Override
@@ -140,11 +136,10 @@ public class DataTypeManagerPlugin extends ProgramPlugin
 					addRecentlyOpenedArchiveFile(((FileArchive) archive).getFile());
 				}
 				else if (archive instanceof ProjectArchive) {
-					((ProjectArchive) archive).getDomainObject().addListener(
-						DataTypeManagerPlugin.this);
+					ProjectArchive projectArchive = (ProjectArchive) archive;
+					projectArchive.getDomainObject().addListener(DataTypeManagerPlugin.this);
 					addRecentlyOpenedProjectArchive((ProjectArchive) archive);
 				}
-				// Program is handled by activation.
 			}
 
 			@Override
@@ -160,11 +155,7 @@ public class DataTypeManagerPlugin extends ProgramPlugin
 
 		editorManager = new DataTypeEditorManager(this);
 
-		CodeViewerService codeViewerService = tool.getService(CodeViewerService.class);
-		if (codeViewerService != null) {
-			codeViewerService.addProgramDropProvider(new DataDropOnBrowserHandler(this));
-		}
-		tool.addPopupListener(this);
+		tool.addPopupActionProvider(this);
 		tool.setMenuGroup(new String[] { SyncRefreshAction.MENU_NAME }, "SYNC");
 		tool.setMenuGroup(new String[] { UpdateAction.MENU_NAME }, "SYNC");
 		tool.setMenuGroup(new String[] { CommitAction.MENU_NAME }, "SYNC");
@@ -172,12 +163,8 @@ public class DataTypeManagerPlugin extends ProgramPlugin
 		tool.setMenuGroup(new String[] { DisassociateAction.MENU_NAME }, "SYNC");
 		tool.setMenuGroup(new String[] { RECENTLY_OPENED_MENU }, "Recent");
 		tool.setMenuGroup(new String[] { STANDARD_ARCHIVE_MENU }, "Recent");
-
 	}
 
-	/**
-	 * @see ghidra.framework.plugintool.Plugin#serviceAdded(java.lang.Class, java.lang.Object)
-	 */
 	@Override
 	public void serviceAdded(Class<?> interfaceClass, Object service) {
 		if (interfaceClass == CodeViewerService.class) {
@@ -208,9 +195,9 @@ public class DataTypeManagerPlugin extends ProgramPlugin
 	}
 
 	/**
-	 * Add project pathname to recently opened list.
-	 * @param projectName
-	 * @param pathname
+	 * Add project archive name to recently opened list
+	 * @param projectName the project name
+	 * @param pathname the pathname 
 	 */
 	public void addRecentlyOpenedProjectArchive(String projectName, String pathname) {
 		String projectPathname = DataTypeManagerHandler.getProjectPathname(projectName, pathname);
@@ -242,8 +229,8 @@ public class DataTypeManagerPlugin extends ProgramPlugin
 
 	/**
 	 * Get a project archive file by project name and pathname
-	 * @param projectName
-	 * @param pathname
+	 * @param projectName the project name
+	 * @param pathname the project pathname
 	 * @return project archive domain file or null if it does not exist
 	 * or can not be found (e.g., projectName is not the active project)
 	 */
@@ -269,16 +256,11 @@ public class DataTypeManagerPlugin extends ProgramPlugin
 
 	@Override
 	public void dispose() {
-		tool.removePopupListener(this);
-		provider.dispose();
-		close();
+		tool.removePopupActionProvider(this);
+		dataTypeManagerHandler.closeAllArchives();
 		dataTypeManagerHandler.dispose();
 	}
 
-	/**
-	 * Tells the Plugin to read its data-independant (preferences)
-	 * properties from the input stream.
-	 */
 	@Override
 	public void readConfigState(SaveState saveState) {
 		dataTypeManagerHandler.restore(saveState);
@@ -314,10 +296,6 @@ public class DataTypeManagerPlugin extends ProgramPlugin
 		dataTypePropertyManager.programClosed(program);
 	}
 
-	/**
-	 * Program was opened.
-	 * @param program
-	 */
 	@Override
 	protected void programActivated(Program program) {
 		program.addListener(this);
@@ -358,7 +336,7 @@ public class DataTypeManagerPlugin extends ProgramPlugin
 
 	@Override
 	protected void close() {
-		dataTypeManagerHandler.closeAllArchives();
+		provider.dispose();
 	}
 
 	public DataTypeManagerHandler getDataTypeManagerHandler() {
@@ -467,21 +445,6 @@ public class DataTypeManagerPlugin extends ProgramPlugin
 	 * Create the actions for the menu on the tool.
 	 */
 	private void createActions() {
-		// create action
-		manageDataAction = new DockingAction("Data Type Manager", getName()) {
-			@Override
-			public void actionPerformed(ActionContext context) {
-				tool.showComponentProvider(provider, true);
-			}
-		};
-		ImageIcon dtIcon = ResourceManager.loadImage(DATA_TYPES_ICON);
-		manageDataAction.setToolBarData(new ToolBarData(dtIcon, "View"));
-
-		manageDataAction.setDescription("Display Data Types");
-		manageDataAction.setHelpLocation(provider.getHelpLocation());
-
-		tool.addAction(manageDataAction);
-
 		createStandardArchivesMenu();
 	}
 
@@ -592,7 +555,6 @@ public class DataTypeManagerPlugin extends ProgramPlugin
 			openDialog.addOkActionListener(listener);
 		}
 		tool.showDialog(openDialog);
-//        updateActions();
 	}
 
 	@Override
@@ -646,10 +608,6 @@ public class DataTypeManagerPlugin extends ProgramPlugin
 		return new Class[] { DataTypeArchive.class };
 	}
 
-	/**
-	 * Method called if the plugin supports this domain file.
-	 * @param data the data to be used by the running tool
-	 */
 	@Override
 	public boolean acceptData(DomainFile[] data) {
 		if (data == null || data.length == 0) {
@@ -719,32 +677,8 @@ public class DataTypeManagerPlugin extends ProgramPlugin
 		return currentSelection;
 	}
 
-//	public DataOrganization promptToChangeDataOrganization(DataTypeManager dataTypeManagerToCheck)
-//			throws CancelledException {
-//		DataOrganization dataOrganization = promptUserForDataOrganization(dataTypeManagerToCheck);
-//		dataTypeManagerToCheck.setDataOrganization(dataOrganization);
-//		return dataOrganization;
-//	}
-
-//	public DataOrganization promptUserForDataOrganization(DataTypeManager dataTypeManagerToAlign)
-//			throws CancelledException {
-//		DataOrganization currentDataOrganization = dataTypeManagerToAlign.getDataOrganization();
-//		if (currentDataOrganization == null) {
-//			currentDataOrganization = DataOrganizationImpl.getDefaultOrganization();
-//		}
-//		DataOrganizationDialog dataOrgDialog =
-//			new DataOrganizationDialog(dataTypeManagerToAlign, currentDataOrganization);
-//		dataOrgDialog.setHelpLocation(new HelpLocation(this.getName(),
-//			"Align_Data_Types_In_Archive"));
-//		tool.showDialog(dataOrgDialog);
-//		if (dataOrgDialog.userCanceled()) {
-//			throw new CancelledException();
-//		}
-//		return dataOrgDialog.getDataOrganization();
-//	}
-
 	@Override
-	public List<DockingActionIf> getPopupActions(ActionContext context) {
+	public List<DockingActionIf> getPopupActions(Tool dockingTool, ActionContext context) {
 		if (!(context instanceof DataTypesActionContext)) {
 			return null;
 		}
@@ -834,6 +768,14 @@ public class DataTypeManagerPlugin extends ProgramPlugin
 		return true;
 	}
 
+	public DataTypeConflictHandler getConflictHandler() {
+		return provider.getConflictHandler();
+	}
+
+	void setStatus(String message) {
+		tool.setStatusInfo(message);
+	}
+
 	public static boolean isValidTypeDefBaseType(Component parent, DataType dataType) {
 		if (dataType instanceof FactoryDataType) {
 			Msg.showError(DataTypeManagerPlugin.class, parent, "TypeDef not allowed",
@@ -851,13 +793,5 @@ public class DataTypeManagerPlugin extends ProgramPlugin
 			return false;
 		}
 		return true;
-	}
-
-	public DataTypeConflictHandler getConflictHandler() {
-		return provider.getConflictHandler();
-	}
-
-	void setStatus(String message) {
-		tool.setStatusInfo(message);
 	}
 }

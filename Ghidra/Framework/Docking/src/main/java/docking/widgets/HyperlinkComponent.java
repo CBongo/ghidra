@@ -75,14 +75,22 @@ public class HyperlinkComponent extends JPanel {
 
 		add(textPane, BorderLayout.NORTH);
 
+		// Hack alert! For some reason this text pane will sometimes be 
+		// initialized with a height of zero. This prevents anything from 
+		// being rendered. To avoid this, just set the preferred size to 
+		// the value of the parent.
+		// Note: This is related to the comment in setText() regarding the
+		// getPreferredSize() calls.
+		textPane.setPreferredSize(getPreferredSize());
+
 		hyperlinkListeners = new HashMap<String, List<HyperlinkListener>>();
 	}
 
 	/**
 	 * Add a listener that will be called whenever hyperlink updates happen (hover, activate, etc).
 	 * 
-	 * @param anchorName The value in the <tt>href</tt> attribute of the anchor tag.
-	 * @param listener The listener to be called when the anchor(s) with a matching <tt>href</tt> is
+	 * @param anchorName The value in the <code>href</code> attribute of the anchor tag.
+	 * @param listener The listener to be called when the anchor(s) with a matching <code>href</code> is
 	 *        manipulated by the user.
 	 */
 	public void addHyperlinkListener(String anchorName, HyperlinkListener listener) {
@@ -114,6 +122,7 @@ public class HyperlinkComponent extends JPanel {
 		//              Also, if we call getPreferredSize(), then it will work.
 		//
 		textPane.getPreferredSize();
+		getPreferredSize();
 	}
 
 	public String getText() {

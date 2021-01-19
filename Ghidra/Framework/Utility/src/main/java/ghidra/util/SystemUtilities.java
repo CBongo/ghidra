@@ -17,12 +17,10 @@ package ghidra.util;
 
 import java.awt.Font;
 import java.io.*;
-import java.lang.reflect.InvocationTargetException;
 import java.net.URL;
 import java.net.URLDecoder;
-import java.text.SimpleDateFormat;
-import java.util.*;
-import java.util.concurrent.atomic.AtomicReference;
+import java.util.Objects;
+import java.util.StringTokenizer;
 import java.util.function.Supplier;
 
 import javax.swing.SwingUtilities;
@@ -36,11 +34,6 @@ import utilities.util.reflection.ReflectionUtilities;
  * static.
  */
 public class SystemUtilities {
-
-	private static final String SWING_RUN_ERROR_MSG =
-		"Unexpected exception running a task in the Swing Thread:  ";
-
-	private final static String DATE_TIME_FORMAT = "MMM d yyyy HH:mm:ss";
 
 	private static String userName;
 
@@ -159,7 +152,7 @@ public class SystemUtilities {
 	/**
 	 * Checks to see if the font size override setting is enabled and adjusts
 	 * the given font as necessary to match the override setting. If the setting
-	 * is not enabled, then <tt>font</tt> is returned.
+	 * is not enabled, then <code>font</code> is returned.
 	 *
 	 * @param font
 	 *            The current font to adjust, if necessary.
@@ -171,32 +164,6 @@ public class SystemUtilities {
 		}
 
 		return font.deriveFont((float) FONT_SIZE_OVERRIDE_VALUE.intValue());
-	}
-
-	/**
-	 * returns the current date/time using default DATE/TIME format
-	 * @return the current date/time using default DATE/TIME format
-	 */
-	public static String getDateTime() {
-		return getDateTime(DATE_TIME_FORMAT);
-	}
-
-	public static String currentTimeStamp() {
-		SimpleDateFormat formatter = new SimpleDateFormat("dd.MMM.yyyy_HH.mm.ss");
-		return formatter.format(new Date());
-	}
-
-	/**
-	 * returns the current date/time using specified DATE/TIME format
-	 * 
-	 * @param dateTimeFormat the format for the time
-	 * @return the formatted date 
-	 */
-	public static String getDateTime(String dateTimeFormat) {
-		SimpleDateFormat formatter = new SimpleDateFormat(dateTimeFormat, Locale.getDefault());
-		formatter.setTimeZone(TimeZone.getDefault());
-
-		return formatter.format(new Date());
 	}
 
 	/**
@@ -236,18 +203,16 @@ public class SystemUtilities {
 	 * {@link SwingUtilities#invokeAndWait(Runnable)}.  Use this method when you need to get
 	 * a value while being on the Swing thread.
 	 *
-	 * <pre>
+	 * <pre>{@literal
 	 * 		String value = runSwingNow(() -> label.getText());
-	 * </pre>
+	 * }</pre>
 	 *
 	 * @param s the supplier that will be called on the Swing thread
 	 * @return the result of the supplier
 	 * @see #runSwingNow(Runnable)
 	 */
 	public static <T> T runSwingNow(Supplier<T> s) {
-		AtomicReference<T> ref = new AtomicReference<>();
-		runSwingNow(() -> ref.set(s.get()));
-		return ref.get();
+		return Swing.runNow(s);
 	}
 
 	/**
@@ -257,7 +222,7 @@ public class SystemUtilities {
 	 * @see #runSwingNow(Supplier) if you need to return a value from the Swing thread.
 	 */
 	public static void runSwingNow(Runnable r) {
-		runSwing(r, true, SWING_RUN_ERROR_MSG);
+		Swing.runNow(r);
 	}
 
 	/**
@@ -267,48 +232,11 @@ public class SystemUtilities {
 	 * @param r the runnable
 	 */
 	public static void runSwingLater(Runnable r) {
-		runSwing(r, false, SWING_RUN_ERROR_MSG);
+		Swing.runLater(r);
 	}
 
 	public static void runIfSwingOrPostSwingLater(Runnable r) {
-		if (isInHeadlessMode()) {
-			r.run();
-			return;
-		}
-
-		if (SwingUtilities.isEventDispatchThread()) {
-			r.run();
-		}
-		else {
-			SwingUtilities.invokeLater(r);
-		}
-	}
-
-	private static void runSwing(Runnable r, boolean wait, String errorMessage) {
-		if (isInHeadlessMode()) {
-			r.run();
-			return;
-		}
-
-		if (wait) {
-			if (SwingUtilities.isEventDispatchThread()) {
-				r.run();
-				return;
-			}
-			try {
-				SwingUtilities.invokeAndWait(r);
-			}
-			catch (InterruptedException e) {
-				// we sometimes interrupt our tasks intentionally, so don't report it
-			}
-			catch (InvocationTargetException e) {
-				Msg.error(SystemUtilities.class,
-					errorMessage + "\nException Message: " + e.getMessage(), e);
-			}
-		}
-		else {
-			SwingUtilities.invokeLater(r);
-		}
+		Swing.runIfSwingOrRunLater(r);
 	}
 
 	/**
@@ -339,23 +267,6 @@ public class SystemUtilities {
 	 */
 	public static boolean isEqual(Object o1, Object o2) {
 		return Objects.equals(o1, o2);
-	}
-
-	/**
-	 * Returns true if the given element is equals to one of the provided elements.
-	 *
-	 * @param o the element to test
-	 * @param others the potential matches
-	 * @return true if the given element is equals to one of the provided elements.
-	 */
-	@SafeVarargs // we are not using the provided type, so there is no pollution
-	public static <T> boolean isOneOf(T o, T... others) {
-		for (T t : others) {
-			if (o.equals(t)) {
-				return true;
-			}
-		}
-		return false;
 	}
 
 	public static <T extends Comparable<T>> int compareTo(T c1, T c2) {
@@ -483,25 +394,7 @@ public class SystemUtilities {
 	 * @return  true if this is the event dispatch thread -OR- is in headless mode.
 	 */
 	public static boolean isEventDispatchThread() {
-		if (isInHeadlessMode()) {
-			return true;
-		}
-
-		// Note: just calling this method may trigger the AWT thread to get created
-		return SwingUtilities.isEventDispatchThread();
-	}
-
-	/**
-	 * Wait until AWT event queue (Swing) has been flushed and no more (to a point) events
-	 * are pending.
-	 */
-	public static void allowSwingToProcessEvents() {
-		Runnable r = () -> {
-			// do nothing...this is just a placeholder runnable that gets put onto the stack
-		};
-		runSwingNow(r);
-		runSwingNow(r);
-		runSwingNow(r);
+		return Swing.isSwingThread();
 	}
 
 	/**
@@ -515,7 +408,7 @@ public class SystemUtilities {
 	 * This method is useful to print values of code that you cannot edit while debugging.
 	 * <p>
 	 * Example, inside of your conditional breakpoint for a method on a Sun Java file you
-	 * can put something like: <tt>printString("Value of first arg: " + arg0, System.err)</tt>
+	 * can put something like: <code>printString("Value of first arg: " + arg0, System.err)</code>
 	 * <p>
 	 * Note: Don't remove this method simply because no code is referencing it, as it is used
 	 * by conditional breakpoints.

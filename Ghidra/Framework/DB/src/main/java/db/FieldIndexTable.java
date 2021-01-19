@@ -1,6 +1,5 @@
 /* ###
  * IP: GHIDRA
- * REVIEWED: YES
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,69 +19,73 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.NoSuchElementException;
 
+/**
+ * <code>FieldIndexTable</code> provides a simplified index table whoose key is
+ * a fixed or variable length {@link IndexField} which consists of a concatenation of 
+ * the index field value and associated primary table key.
+ */
 public class FieldIndexTable extends IndexTable {
 
-	private static final Class<?>[] fieldClasses = {
-	};
-	
-	private static final String[] fieldNames = {
-	};
-		
-	private final Schema indexSchema;
-	private final int indexColumn;
-	
+	private static final Field[] fields = {};
+
+	private static final String[] fieldNames = {};
+
+	private final IndexField indexKeyType;
+
 	/**
-	 * Construct a new secondary index which is based upon a specific field within the
-	 * primary table specified by name.
-	 * @param db database handle
-	 * @param primaryTable primary table.
-	 * @param colIndex identifies the indexed column within the primary table.
-	 * @throws IOException
+	 * Construct a new secondary index which is based upon a specific field column within the
+	 * primary table.
+	 * @param primaryTable primary table
+	 * @param colIndex field column index
+	 * @throws IOException thrown if IO error occurs
 	 */
 	FieldIndexTable(Table primaryTable, int colIndex) throws IOException {
-		this(primaryTable,  
-			primaryTable.getDBHandle().getMasterTable().createTableRecord(
-				primaryTable.getName(),
-				getIndexTableSchema(primaryTable, colIndex), 
-				colIndex)
-		);
+		this(primaryTable, primaryTable.getDBHandle().getMasterTable().createTableRecord(
+			primaryTable.getName(), getIndexTableSchema(primaryTable, colIndex), colIndex));
 	}
-	
+
 	/**
 	 * Construct a new or existing secondary index. An existing index must have
-	 * its' root ID specified within the tableRecord.
-	 * @param db database handle
-	 * @param bufferMgr database buffer manager
+	 * its root ID specified within the tableRecord.
+	 * @param primaryTable primary table.
 	 * @param indexTableRecord specifies the index parameters.
+	 * @throws IOException thrown if an IO error occurs 
 	 */
-	FieldIndexTable(Table primaryTable, TableRecord indexTableRecord) {
+	FieldIndexTable(Table primaryTable, TableRecord indexTableRecord) throws IOException {
 		super(primaryTable, indexTableRecord);
-		this.indexSchema = indexTable.getSchema();
-		this.indexColumn = indexTableRecord.getIndexedColumn();
+		indexKeyType = (IndexField) indexTable.getSchema().getKeyFieldType();
 	}
-	
-	private static Schema getIndexTableSchema(Table primaryTable, int colIndex) {
-		byte fieldType = primaryTable.getSchema().getField(colIndex).getFieldType();
-		IndexField indexKeyField = IndexField.getIndexField(fieldType);
-		return new Schema(0, indexKeyField.getClass(), "IndexKey", fieldClasses, fieldNames);
-	}
-	
-	/*
-	 * @see ghidra.framework.store.db.IndexTable#findPrimaryKeys(ghidra.framework.store.db.Field)
+
+	/**
+	 * Generate index table schema for specified primaryTable and index column
+	 * @param primaryTable primary table
+	 * @param colIndex index column
+	 * @return index table schema
 	 */
+	private static Schema getIndexTableSchema(Table primaryTable, int colIndex) {
+		Schema primarySchema = primaryTable.getSchema();
+		Field indexedField = primarySchema.getField(colIndex);
+		Field primaryKeyType = primarySchema.getKeyFieldType();
+		IndexField indexKeyField = new IndexField(indexedField, primaryKeyType);
+		return new Schema(0, indexKeyField, "IndexKey", fields, fieldNames);
+	}
+
 	@Override
-    long[] findPrimaryKeys(Field indexValue) throws IOException {
-		IndexField indexField = IndexField.getIndexField(indexValue, Long.MIN_VALUE);
+	Field[] findPrimaryKeys(Field indexValue) throws IOException {
+
+		IndexField indexField =
+			indexKeyType.newIndexField(indexValue, getPrimaryTableKeyType().getMinValue());
+
 		DBFieldIterator iter = indexTable.fieldKeyIterator(indexField);
-		ArrayList<IndexField> list = new ArrayList<IndexField>(20);
+		ArrayList<IndexField> list = new ArrayList<>(20);
 		while (iter.hasNext()) {
-			IndexField f = (IndexField)iter.next();	
-			if (!f.hasSameIndex(indexField)) {
+			IndexField f = (IndexField) iter.next();
+			if (!f.hasSameIndexValue(indexField)) {
 				break;
 			}
 			if (indexField.usesTruncatedFieldValue()) {
 				// Must check actual record if index value was truncated
-				Record rec = primaryTable.getRecord(f.getPrimaryKey());
+				DBRecord rec = primaryTable.getRecord(f.getPrimaryKey());
 				Field val = rec.getField(indexColumn);
 				if (!indexValue.equals(val)) {
 					continue;
@@ -90,7 +93,7 @@ public class FieldIndexTable extends IndexTable {
 			}
 			list.add(f);
 		}
-		long[] keys = new long[list.size()];
+		Field[] keys = new Field[list.size()];
 		for (int i = 0; i < keys.length; i++) {
 			IndexField f = list.get(i);
 			keys[i] = f.getPrimaryKey();
@@ -98,66 +101,55 @@ public class FieldIndexTable extends IndexTable {
 		return keys;
 	}
 
-	/*
-	 * @see ghidra.framework.store.db.IndexTable#getKeyCount(ghidra.framework.store.db.Field)
-	 */
 	@Override
-    int getKeyCount(Field indexValue) throws IOException {
+	int getKeyCount(Field indexValue) throws IOException {
 		return findPrimaryKeys(indexValue).length;
 	}
 
-	/*
-	 * @see ghidra.framework.store.db.IndexTable#addEntry(ghidra.framework.store.db.Record)
-	 */
 	@Override
-    void addEntry(Record record) throws IOException {
-		Field indexedField = record.getField(colIndex);
-		IndexField f = IndexField.getIndexField(indexedField, record.getKey());
-		Record rec = indexSchema.createRecord(f);
+	void addEntry(DBRecord record) throws IOException {
+		Field indexedField = record.getField(indexColumn);
+		if (isSparseIndex && indexedField.isNull()) {
+			return;
+		}
+		IndexField f = indexKeyType.newIndexField(indexedField, record.getKeyField());
+		DBRecord rec = indexTable.getSchema().createRecord(f);
 		indexTable.putRecord(rec);
 	}
 
-	/*
-	 * @see ghidra.framework.store.db.IndexTable#deleteEntry(ghidra.framework.store.db.Record)
-	 */
 	@Override
-    void deleteEntry(Record record) throws IOException {
-		Field indexedField = record.getField(colIndex);
-		IndexField f = IndexField.getIndexField(indexedField, record.getKey());
+	void deleteEntry(DBRecord record) throws IOException {
+		Field indexedField = record.getField(indexColumn);
+		if (isSparseIndex && indexedField.isNull()) {
+			return;
+		}
+		IndexField f = indexKeyType.newIndexField(indexedField, record.getKeyField());
 		indexTable.deleteRecord(f);
 	}
 
-	/*
-	 * @see ghidra.framework.store.db.IndexTable#indexIterator()
-	 */
 	@Override
-    DBFieldIterator indexIterator() throws IOException {
+	DBFieldIterator indexIterator() throws IOException {
 		return new IndexFieldIterator();
 	}
 
-	/*
-	 * @see ghidra.framework.store.db.IndexTable#indexIterator(ghidra.framework.store.db.Field, ghidra.framework.store.db.Field, boolean)
-	 */
 	@Override
-    DBFieldIterator indexIterator(Field minField, Field maxField, boolean atMin)
-		throws IOException {
-		return new IndexFieldIterator(minField, maxField, atMin);
+	DBFieldIterator indexIterator(Field minField, Field maxField, boolean before)
+			throws IOException {
+		return new IndexFieldIterator(minField, maxField, before);
 	}
 
-	/*
-	 * @see db.IndexTable#indexIterator(db.Field, db.Field, db.Field, boolean)
-	 */
 	@Override
-    DBFieldIterator indexIterator(Field minField, Field maxField, Field startField, boolean before) throws IOException {
+	DBFieldIterator indexIterator(Field minField, Field maxField, Field startField, boolean before)
+			throws IOException {
 		return new IndexFieldIterator(minField, maxField, startField, before);
 	}
-	
+
 	/**
 	 * Iterates over index field values within a specified range.
 	 * NOTE: Index fields which have been truncated may be returned out of order.
 	 */
 	class IndexFieldIterator implements DBFieldIterator {
-		
+
 		private IndexField min;
 		private IndexField max;
 		private IndexField lastKey;
@@ -165,149 +157,176 @@ public class FieldIndexTable extends IndexTable {
 		private DBFieldIterator indexIterator;
 		private boolean hasNext = false;
 		private boolean hasPrev = false;
-		
+
 		/**
 		 * Construct an index field iterator starting with the minimum index value.
+		 * @throws IOException an IO error occurred
 		 */
 		IndexFieldIterator() throws IOException {
 			this(null, null, true);
 		}
-		
+
+		/**
+		 * Construct an index field iterator. 
+		 * @param minValue minimum index value or null if no minimum
+		 * @param maxValue maximum index value or null if no maximum
+		 * @param before if true initial position is before minValue, else position
+		 * after maxValue
+		 * @throws IOException an IO error occurred
+		 */
+		IndexFieldIterator(Field minValue, Field maxValue, boolean before) throws IOException {
+
+			if (primaryTable.getSchema().getField(indexColumn).isVariableLength()) {
+				throw new UnsupportedOperationException(
+					"Due to potential truncation issues, operation not permitted on variable length fields");
+			}
+
+			Field primaryKeyType = getPrimaryTableKeyType();
+			min = minValue != null
+					? indexKeyType.newIndexField(minValue, primaryKeyType.getMinValue())
+					: null;
+			max = maxValue != null
+					? indexKeyType.newIndexField(maxValue, primaryKeyType.getMaxValue())
+					: null;
+
+			IndexField start = null;
+			if (before && minValue != null) {
+				start = min;
+			}
+			else if (!before && maxValue != null) {
+				start = max;
+			}
+
+			if (start != null) {
+				indexIterator = indexTable.fieldKeyIterator(min, max, start);
+			}
+			else {
+				indexIterator = indexTable.fieldKeyIterator(min, max, before);
+			}
+
+			if (indexIterator.hasNext()) {
+				indexIterator.next();
+				if (before) {
+					indexIterator.previous();
+				}
+			}
+		}
+
 		/**
 		 * Construct an index field iterator.  The iterator is positioned at index 
 		 * value identified by startValue.
 		 * @param minValue minimum index value or null if no minimum
 		 * @param maxValue maximum index value or null if no maximum
-		 * @param atMin if true initial position is before minValue, else position
+		 * @param startValue initial index value position
+		 * @param before if true initial position is before minValue, else position
 		 * after maxValue
-		 * @throws IOException
+		 * @throws IOException an IO error occurred
 		 */
-		IndexFieldIterator(Field minValue, Field maxValue, boolean atMin) throws IOException {
-			
+		IndexFieldIterator(Field minValue, Field maxValue, Field startValue, boolean before)
+				throws IOException {
+
 			if (primaryTable.getSchema().getField(indexColumn).isVariableLength()) {
-				throw new UnsupportedOperationException("Due to potential truncation issues, operation not permitted on variable length fields");
+				throw new UnsupportedOperationException(
+					"Due to potential truncation issues, operation not permitted on variable length fields");
 			}
-			
-			min = minValue != null ? 
-				IndexField.getIndexField(minValue, Long.MIN_VALUE) : null;
-			max = maxValue != null ? 
-				IndexField.getIndexField(maxValue, Long.MAX_VALUE) : null;
-			
-			IndexField start = null;
-			if (atMin && minValue != null) {
-				start = min;
-			}
-			else if (!atMin && maxValue != null){
-				start = max;
-			}
-			
-			indexIterator = indexTable.fieldKeyIterator(min, max, start);
-			
-			if (indexIterator.hasNext()) {
-				indexIterator.next();
-				if (atMin) {
-					indexIterator.previous();
-				}
-			}
-		}
-		
-		/**
-		 * @param minField
-		 * @param maxField
-		 * @param startField
-		 * @param before
-		 * @throws IOException
-		 */
-		public IndexFieldIterator(Field minValue, Field maxValue, Field startValue, boolean before) throws IOException {
-			
-			if (primaryTable.getSchema().getField(indexColumn).isVariableLength()) {
-				throw new UnsupportedOperationException("Due to potential truncation issues, operation not permitted on variable length fields");
-			}
-			
+
 			if (startValue == null) {
 				throw new IllegalArgumentException("starting index value required");
 			}
-			min = minValue != null ? 
-				IndexField.getIndexField(minValue, Long.MIN_VALUE) : null;
-			max = maxValue != null ? 
-				IndexField.getIndexField(maxValue, Long.MAX_VALUE) : null;
-				
-			IndexField start = IndexField.getIndexField(startValue, before ? Long.MIN_VALUE : Long.MAX_VALUE);
+
+			Field primaryKeyType = getPrimaryTableKeyType();
+			min = minValue != null
+					? indexKeyType.newIndexField(minValue, primaryKeyType.getMinValue())
+					: null;
+			max = maxValue != null
+					? indexKeyType.newIndexField(maxValue, primaryKeyType.getMaxValue())
+					: null;
+
+			IndexField start = indexKeyType.newIndexField(startValue,
+				before ? primaryKeyType.getMinValue() : primaryKeyType.getMaxValue());
 
 			indexIterator = indexTable.fieldKeyIterator(min, max, start);
-			
+
 			if (indexIterator.hasNext()) {
-				IndexField f = (IndexField)indexIterator.next();
-				if (before || !f.getIndexField().equals(startValue)) {
+				IndexField f = (IndexField) indexIterator.next();
+				if (before || !f.getIndexedField().equals(startValue)) {
 					indexIterator.previous();
 				}
 			}
 		}
 
+		@Override
 		public boolean hasNext() throws IOException {
-			if (hasNext)
+			if (hasNext) {
 				return true;
+			}
 			hasPrev = false;  // TODO ???
 			indexKey = (IndexField) indexIterator.next();
 			int skipCnt = 0;
-			while (indexKey != null && indexKey.hasSameIndex(lastKey)) {
+			while (indexKey != null && indexKey.hasSameIndexValue(lastKey)) {
 				if (++skipCnt > 10) {
 					// Reinit iterator to skip large number of same index value
-					indexIterator = indexTable.fieldKeyIterator(min, max, 
-						IndexField.getIndexField(indexKey.getIndexField(), Long.MAX_VALUE));
+					indexIterator =
+						indexTable.fieldKeyIterator(min, max, indexKeyType.newIndexField(
+							indexKey.getIndexedField(), getPrimaryTableKeyType().getMaxValue()));
 					skipCnt = 0;
 				}
 				indexKey = (IndexField) indexIterator.next();
 			}
 
-			if (indexKey == null)
+			if (indexKey == null) {
 				return false;
+			}
 
 			hasNext = true;
 			return true;
 		}
 
+		@Override
 		public boolean hasPrevious() throws IOException {
-			if (hasPrev)
+			if (hasPrev) {
 				return true;
+			}
 			hasNext = false;  // TODO ???
 			indexKey = (IndexField) indexIterator.previous();
 			int skipCnt = 0;
-			while (indexKey != null && indexKey.hasSameIndex(lastKey)) {
+			while (indexKey != null && indexKey.hasSameIndexValue(lastKey)) {
 				if (++skipCnt > 10) {
 					// Reinit iterator to skip large number of same index value
-					indexIterator = indexTable.fieldKeyIterator(min, max, 
-						IndexField.getIndexField(indexKey.getIndexField(), Long.MIN_VALUE));
+					indexIterator =
+						indexTable.fieldKeyIterator(min, max, indexKeyType.newIndexField(
+							indexKey.getIndexedField(), getPrimaryTableKeyType().getMinValue()));
 					skipCnt = 0;
 				}
 				indexKey = (IndexField) indexIterator.previous();
 			}
 
-			if (indexKey == null)
+			if (indexKey == null) {
 				return false;
+			}
 
 			hasPrev = true;
 			return true;
 		}
 
+		@Override
 		public Field next() throws IOException {
 			if (hasNext || hasNext()) {
 				hasNext = false;
 				hasPrev = true;
 				lastKey = indexKey;
-				Field f = indexKey.getIndexField();
-				return f.newField(f);
+				return indexKey.getIndexedField();
 			}
 			return null;
 		}
-		
+
+		@Override
 		public Field previous() throws IOException {
 			if (hasPrev || hasPrevious()) {
 				hasNext = true;
 				hasPrev = false;
 				lastKey = indexKey;
-				Field f = indexKey.getIndexField();
-				return f.newField(f);
+				return indexKey.getIndexedField();
 			}
 			return null;
 		}
@@ -317,13 +336,15 @@ public class FieldIndexTable extends IndexTable {
 		 * index value (lastKey).
 		 * @see db.DBFieldIterator#delete()
 		 */
+		@Override
 		public boolean delete() throws IOException {
-			if (lastKey == null)
+			if (lastKey == null) {
 				return false;
+			}
 			synchronized (db) {
-				long[] keys = findPrimaryKeys(lastKey.getIndexField());
-				for (int i = 0; i < keys.length; i++) {
-					primaryTable.deleteRecord(keys[i]);
+				Field[] keys = findPrimaryKeys(lastKey.getIndexedField());
+				for (Field key : keys) {
+					primaryTable.deleteRecord(key);
 				}
 				lastKey = null;
 				return true;
@@ -331,21 +352,19 @@ public class FieldIndexTable extends IndexTable {
 		}
 	}
 
-	/* (non-Javadoc)
-	 * @see ghidra.framework.store.db.IndexTable#hasRecord(ghidra.framework.store.db.Field)
-	 */
 	@Override
-    boolean hasRecord(Field field) throws IOException {
-		IndexField indexField = IndexField.getIndexField(field, Long.MIN_VALUE);
+	boolean hasRecord(Field field) throws IOException {
+		IndexField indexField =
+			indexKeyType.newIndexField(field, getPrimaryTableKeyType().getMinValue());
 		DBFieldIterator iter = indexTable.fieldKeyIterator(indexField);
 		while (iter.hasNext()) {
 			IndexField f = (IndexField) iter.next();
-			if (!f.hasSameIndex(indexField)) {
+			if (!f.hasSameIndexValue(indexField)) {
 				return false;
 			}
 			if (indexField.usesTruncatedFieldValue()) {
 				// Must check actual record if index value was truncated
-				Record rec = primaryTable.getRecord(f.getPrimaryKey());
+				DBRecord rec = primaryTable.getRecord(f.getPrimaryKey());
 				Field val = rec.getField(indexColumn);
 				if (!field.equals(val)) {
 					continue; // skip
@@ -356,167 +375,129 @@ public class FieldIndexTable extends IndexTable {
 		return false;
 	}
 
-	/**
-	 * Iterate over all primary keys sorted based upon the associated index key.
-	 * @return primary key iterator
-	 * @throws IOException thrown if IO error occurs
-	 */
 	@Override
-    DBLongIterator keyIterator() throws IOException {
-		return new PrimaryKeyIterator();	
+	DBFieldIterator keyIterator() throws IOException {
+		return new PrimaryKeyIterator();
 	}
-	
-	/**
-	 * Iterate over all primary keys sorted based upon the associated index key.
-	 * The iterator is initially positioned before the first index buffer whose index key 
-	 * is greater than or equal to the specified startField value.
-	 * @param startField index key value which determines initial position of iterator
-	 * @return primary key iterator
-	 * @throws IOException thrown if IO error occurs
-	 */
+
 	@Override
-    DBLongIterator keyIteratorBefore(Field startField) throws IOException {
-		return new PrimaryKeyIterator(startField, false);	
+	DBFieldIterator keyIteratorBefore(Field startField) throws IOException {
+		return new PrimaryKeyIterator(startField, false);
 	}
-	
-	/**
-	 * Iterate over all primary keys sorted based upon the associated index key.
-	 * The iterator is initially positioned after the index buffer whose index key 
-	 * is equal to the specified startField value or immediately before the first 
-	 * index buffer whose index key is greater than the specified startField value.
-	 * @param startField index key value which determines initial position of iterator
-	 * @return primary key iterator
-	 * @throws IOException thrown if IO error occurs
-	 */
+
 	@Override
-    DBLongIterator keyIteratorAfter(Field startField) throws IOException {
-		return new PrimaryKeyIterator(startField, true);	
+	DBFieldIterator keyIteratorAfter(Field startField) throws IOException {
+		return new PrimaryKeyIterator(startField, true);
 	}
-	
-	/**
-	 * Iterate over all primary keys sorted based upon the associated index key.
-	 * The iterator is initially positioned before the primaryKey within the index buffer 
-	 * whose index key is equal to the specified startField value or immediately before the first 
-	 * index buffer whose index key is greater than the specified startField value.
-	 * @param startField index key value which determines initial position of iterator
-	 * @param primaryKey initial position within index buffer if index key matches startField value.
-	 * @return primary key iterator
-	 * @throws IOException thrown if IO error occurs
-	 */
+
 	@Override
-    DBLongIterator keyIteratorBefore(Field startField, long primaryKey) throws IOException {
-		return new PrimaryKeyIterator(null, null, startField, primaryKey, false);	
+	DBFieldIterator keyIteratorBefore(Field startField, Field primaryKey) throws IOException {
+		return new PrimaryKeyIterator(null, null, startField, primaryKey, false);
 	}
-	
-	/**
-	 * Iterate over all primary keys sorted based upon the associated index key.
-	 * The iterator is initially positioned after the primaryKey within the index buffer 
-	 * whose index key is equal to the specified startField value or immediately before the first 
-	 * index buffer whose index key is greater than the specified startField value.
-	 * @param startField index key value which determines initial position of iterator
-	 * @param primaryKey initial position within index buffer if index key matches startField value.
-	 * @return primary key iterator
-	 * @throws IOException thrown if IO error occurs
-	 */
+
 	@Override
-    DBLongIterator keyIteratorAfter(Field startField, long primaryKey) throws IOException {
-		return new PrimaryKeyIterator(null, null, startField, primaryKey, true);	
+	DBFieldIterator keyIteratorAfter(Field startField, Field primaryKey) throws IOException {
+		return new PrimaryKeyIterator(null, null, startField, primaryKey, true);
 	}
-	
-	/**
-	 * Iterate over all primary keys sorted based upon the associated index key.
-	 * The iterator is limited to range of index keys of startField through endField, inclusive.
-	 * If atStart is true, the iterator is initially positioned before the first index 
-	 * buffer whose index key is greater than or equal to the specified startField value. 
-	 * If atStart is false, the iterator is initially positioned after the first index 
-	 * buffer whose index key is less than or equal to the specified endField value. 
-	 * @param startField minimum index key value
-	 * @param endField maximum index key value
-	 * @param atStart if true, position iterator before start value. 
-	 * Otherwise, position iterator after end value.
-	 * @return primary key iterator
-	 * @throws IOException thrown if IO error occurs
-	 */
+
 	@Override
-    DBLongIterator keyIterator(Field startField, Field endField, boolean atStart) throws IOException {
-		return new PrimaryKeyIterator(startField, endField, atStart ? startField : endField, 
-									  atStart ? Long.MIN_VALUE : Long.MAX_VALUE, !atStart);	
+	DBFieldIterator keyIterator(Field startField, Field endField, boolean atStart)
+			throws IOException {
+		return new PrimaryKeyIterator(startField, endField, atStart ? startField : endField,
+			atStart ? getPrimaryTableKeyType().getMinValue()
+					: getPrimaryTableKeyType().getMaxValue(),
+			!atStart);
 	}
-	
-	/**
-	 * @see db.IndexTable#keyIterator(db.Field, db.Field, db.Field, boolean)
-	 */
+
 	@Override
-    DBLongIterator keyIterator(Field minField, Field maxField, Field startField, boolean before) throws IOException {
-		return new PrimaryKeyIterator(minField, maxField, startField, 
-				  before ? Long.MIN_VALUE : Long.MAX_VALUE, !before);	
+	DBFieldIterator keyIterator(Field minField, Field maxField, Field startField, boolean before)
+			throws IOException {
+		return new PrimaryKeyIterator(minField, maxField, startField,
+			before ? getPrimaryTableKeyType().getMinValue()
+					: getPrimaryTableKeyType().getMaxValue(),
+			!before);
 	}
-	
+
 	/**
 	 * Iterates over primary keys which correspond to index field values within a specified range.
 	 * NOTE: Primary keys corresponding to index fields which have been truncated may be returned out of order.
 	 */
-	private class PrimaryKeyIterator implements DBLongIterator {
+	private class PrimaryKeyIterator implements DBFieldIterator {
 
 		private IndexField min;
 		private IndexField max;
 		private DBFieldIterator indexIterator;
-		
+
 		private boolean hasNext = false;
 		private boolean hasPrev = false;
 		private IndexField key;
 		private IndexField lastKey;
-		
+
 		/**
 		 * Construct a key iterator starting with the minimum secondary key.
+		 * @throws IOException thrown if IO error occurs
 		 */
 		PrimaryKeyIterator() throws IOException {
 			indexIterator = indexTable.fieldKeyIterator();
 		}
-		
+
 		/**
 		 * Construct a key iterator.  The iterator is positioned immediately before 
 		 * the key associated with the first occurance of the startValue.
 		 * @param startValue indexed field value.
 		 * @param after if true the iterator is positioned immediately after
 		 * the last occurance of the specified startValue position.
+		 * @throws IOException thrown if IO error occurs
 		 */
 		PrimaryKeyIterator(Field startValue, boolean after) throws IOException {
-			this(null, null, startValue, after ? Long.MAX_VALUE : Long.MIN_VALUE, after);
+			this(null, null, startValue, after ? getPrimaryTableKeyType().getMaxValue()
+					: getPrimaryTableKeyType().getMinValue(),
+				after);
 		}
-		
+
 		/**
 		 * Construct a key iterator.  The iterator is positioned immediately before 
 		 * or after the key associated with the specified startValue/primaryKey.
 		 * @param minValue minimum index value or null if no minimum
 		 * @param maxValue maximum index value or null if no maximum
 		 * @param startValue starting index value.
-		 * @param primaryKey starting primary key value.
+		 * @param primaryKey starting primary key value (ignored if startValue is null).
 		 * @param after if true iterator is positioned immediately after 
 		 * the startValue/primaryKey,
 		 * otherwise immediately before.
-		 * @throws IOException
+		 * @throws IOException thrown if IO error occurs
 		 */
-		PrimaryKeyIterator(Field minValue, Field maxValue, Field startValue, 
-						   long primaryKey, boolean after) throws IOException 
-		{
-			min = minValue != null ?
-				IndexField.getIndexField(minValue, Long.MIN_VALUE) : null;
-			max = maxValue != null ?
-				IndexField.getIndexField(maxValue, Long.MAX_VALUE) : null;
-			IndexField start = startValue != null ?
-				IndexField.getIndexField(startValue, primaryKey) : null;
-		
-			indexIterator = indexTable.fieldKeyIterator(min, max, start);
-			
-			if (indexIterator.hasNext()) {
-				Field f = indexIterator.next();
-				if (!after || !f.equals(start)) {
-					indexIterator.previous();
+		PrimaryKeyIterator(Field minValue, Field maxValue, Field startValue, Field primaryKey,
+				boolean after) throws IOException {
+
+			Field primaryKeyType = getPrimaryTableKeyType();
+			min = minValue != null
+					? indexKeyType.newIndexField(minValue, primaryKeyType.getMinValue())
+					: null;
+			max = maxValue != null
+					? indexKeyType.newIndexField(maxValue, primaryKeyType.getMaxValue())
+					: null;
+
+			IndexField start = null;
+			if (after && startValue == null && maxValue == null) {
+				indexIterator = indexTable.fieldKeyIterator(min, max, !after);
+				if (indexIterator.hasNext()) {
+					indexIterator.next(); // must step beyond max indexed value
+				}
+			}
+			else {
+				start =
+					startValue != null ? indexKeyType.newIndexField(startValue, primaryKey) : null;
+				indexIterator = indexTable.fieldKeyIterator(min, max, start);
+				if (indexIterator.hasNext()) {
+					Field f = indexIterator.next();
+					if (!after || !f.equals(start)) {
+						indexIterator.previous();
+					}
 				}
 			}
 		}
-		
+
 		/**
 		 * If min or max index values was truncated, a comparison of the actual 
 		 * indexed field value (i.e., primary table value) is done with the min and/or max values.
@@ -524,20 +505,20 @@ public class FieldIndexTable extends IndexTable {
 		 * @return true if field value corresponding to f is outside the min/max range.
 		 * It is assumed that the underlying table iterator will not return index values 
 		 * out of range which do not have the same truncated index value.
-		 * @throws IOException
+		 * @throws IOException thrown if IO error occurs
 		 */
 		private boolean indexValueOutOfRange(IndexField f) throws IOException {
 			Field val = null;
-			if (min != null && min.usesTruncatedFieldValue() && min.hasSameIndex(f)) {
-				Record rec = primaryTable.getRecord(f.getPrimaryKey());
+			if (min != null && min.usesTruncatedFieldValue() && min.hasSameIndexValue(f)) {
+				DBRecord rec = primaryTable.getRecord(f.getPrimaryKey());
 				val = rec.getField(indexColumn);
 				if (val.compareTo(min.getNonTruncatedIndexField()) < 0) {
 					return true;
 				}
 			}
-			if (max != null && max.usesTruncatedFieldValue() && max.hasSameIndex(f)) {
+			if (max != null && max.usesTruncatedFieldValue() && max.hasSameIndexValue(f)) {
 				if (val == null) {
-					Record rec = primaryTable.getRecord(f.getPrimaryKey());
+					DBRecord rec = primaryTable.getRecord(f.getPrimaryKey());
 					val = rec.getField(indexColumn);
 				}
 				if (val.compareTo(min.getNonTruncatedIndexField()) > 0) {
@@ -547,9 +528,7 @@ public class FieldIndexTable extends IndexTable {
 			return false;
 		}
 
-		/* (non-Javadoc)
-		 * @see ghidra.framework.store.db.DBLongIterator#hasNext()
-		 */
+		@Override
 		public boolean hasNext() throws IOException {
 			if (hasNext) {
 				return true;
@@ -565,9 +544,7 @@ public class FieldIndexTable extends IndexTable {
 			return hasNext;
 		}
 
-		/* (non-Javadoc)
-		 * @see ghidra.framework.store.db.DBLongIterator#hasPrevious()
-		 */
+		@Override
 		public boolean hasPrevious() throws IOException {
 			if (hasPrev) {
 				return true;
@@ -583,10 +560,8 @@ public class FieldIndexTable extends IndexTable {
 			return hasPrev;
 		}
 
-		/* (non-Javadoc)
-		 * @see ghidra.framework.store.db.DBLongIterator#next()
-		 */
-		public long next() throws IOException {
+		@Override
+		public Field next() throws IOException {
 			if (hasNext()) {
 				lastKey = key;
 				hasNext = false;
@@ -595,10 +570,8 @@ public class FieldIndexTable extends IndexTable {
 			throw new NoSuchElementException();
 		}
 
-		/* (non-Javadoc)
-		 * @see ghidra.framework.store.db.DBLongIterator#previous()
-		 */
-		public long previous() throws IOException {
+		@Override
+		public Field previous() throws IOException {
 			if (hasPrevious()) {
 				lastKey = key;
 				hasPrev = false;
@@ -607,12 +580,10 @@ public class FieldIndexTable extends IndexTable {
 			throw new NoSuchElementException();
 		}
 
-		/* (non-Javadoc)
-		 * @see ghidra.framework.store.db.DBLongIterator#delete()
-		 */
+		@Override
 		public boolean delete() throws IOException {
 			if (lastKey != null) {
-				long primaryKey = lastKey.getPrimaryKey();
+				Field primaryKey = lastKey.getPrimaryKey();
 				lastKey = null;
 				return primaryTable.deleteRecord(primaryKey);
 			}

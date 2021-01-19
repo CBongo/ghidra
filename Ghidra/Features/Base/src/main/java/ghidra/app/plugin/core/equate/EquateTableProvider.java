@@ -21,11 +21,13 @@ import java.awt.event.*;
 import java.util.List;
 
 import javax.swing.*;
-import javax.swing.table.*;
+import javax.swing.table.JTableHeader;
+import javax.swing.table.TableCellEditor;
 
 import docking.ActionContext;
 import docking.action.*;
 import docking.widgets.OptionDialog;
+import docking.widgets.label.GLabel;
 import ghidra.app.context.ProgramActionContext;
 import ghidra.app.services.DataTypeManagerService;
 import ghidra.app.services.GoToService;
@@ -158,8 +160,8 @@ public class EquateTableProvider extends ComponentProviderAdapter {
 			@Override
 			public void keyReleased(KeyEvent e) {
 				if (e.getKeyCode() == KeyEvent.VK_UP || e.getKeyCode() == KeyEvent.VK_DOWN ||
-					e.getKeyCode() == KeyEvent.VK_PAGE_UP ||
-					e.getKeyCode() == KeyEvent.VK_PAGE_DOWN) {
+						e.getKeyCode() == KeyEvent.VK_PAGE_UP ||
+						e.getKeyCode() == KeyEvent.VK_PAGE_DOWN) {
 					handleEquateTableSelection();
 				}
 			}
@@ -177,16 +179,19 @@ public class EquateTableProvider extends ComponentProviderAdapter {
 						GhidraTable table = (GhidraTable) obj;
 						int row = table.rowAtPoint(evt.getPoint());
 						int column = table.columnAtPoint(evt.getPoint());
-						if (column != EquateTableModel.NAME_COL) {
+
+						if (!table.isCellEditable(row, column)) {
 							return;
 						}
+
 						DataTypeManagerService dtms = tool.getService(DataTypeManagerService.class);
 						if (dtms == null) {
 							return;
 						}
 						Equate equate = (Equate) table.getValueAt(row, column);
+
 						UniversalID id =
-							new UniversalID(Long.parseLong(equate.getName().split(":")[1]));
+								new UniversalID(Long.parseLong(equate.getName().split(":")[1]));
 						Enum enoom = (Enum) dtm.findDataTypeForID(id);
 						if (enoom != null) {
 							dtms.edit(enoom);
@@ -215,10 +220,8 @@ public class EquateTableProvider extends ComponentProviderAdapter {
 
 		JScrollPane equatesTablePane = new JScrollPane(equatesTable);
 
-		setEquateTableRenderer();
-
 		JPanel equatesPanel = new JPanel(new BorderLayout());
-		equatesPanel.add(new JLabel("Equates", SwingConstants.CENTER), BorderLayout.NORTH);
+		equatesPanel.add(new GLabel("Equates", SwingConstants.CENTER), BorderLayout.NORTH);
 		equatesPanel.add(equatesTablePane, BorderLayout.CENTER);
 		equatesPanel.add(equatesFilterPanel, BorderLayout.SOUTH);
 
@@ -242,17 +245,16 @@ public class EquateTableProvider extends ComponentProviderAdapter {
 
 		JTableHeader referencesHeader = referencesTable.getTableHeader();
 		referencesHeader.setUpdateTableInRealTime(true);
-		setReferenceTableRenderer();
 
 		JPanel referencesPanel = new JPanel(new BorderLayout());
-		referencesPanel.add(new JLabel("References", SwingConstants.CENTER), "North");
+		referencesPanel.add(new GLabel("References", SwingConstants.CENTER), "North");
 		referencesPanel.add(referencesTablePane, "Center");
 
 		//////////////////////////////////////////////////////////////
 
 		JPanel workPanel = new JPanel(new BorderLayout());
 		JSplitPane splitPane =
-			new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, equatesPanel, referencesPanel);
+				new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, equatesPanel, referencesPanel);
 		splitPane.setResizeWeight(0.5);
 		workPanel.add(splitPane, BorderLayout.CENTER);
 
@@ -263,20 +265,6 @@ public class EquateTableProvider extends ComponentProviderAdapter {
 		Equate equate = equatesFilterPanel.getSelectedItem();
 		referencesTable.clearSelection();
 		referencesModel.setEquate(equate);
-	}
-
-	private void setEquateTableRenderer() {
-		for (int i = 0; i < equatesModel.getColumnCount(); ++i) {
-			TableColumn column = equatesTable.getColumnModel().getColumn(i);
-			column.setCellRenderer(new EquateRenderer(this));
-		}
-	}
-
-	private void setReferenceTableRenderer() {
-		for (int i = 0; i < referencesModel.getColumnCount(); ++i) {
-			TableColumn column = referencesTable.getColumnModel().getColumn(i);
-			column.setCellRenderer(new EquateReferenceRenderer());
-		}
 	}
 
 	private void createAction() {
@@ -303,7 +291,7 @@ public class EquateTableProvider extends ComponentProviderAdapter {
 		deleteAction.setHelpLocation(new HelpLocation("EquatePlugin", "Delete Equate"));
 
 		SelectionNavigationAction selectionNavigationAction =
-			new SelectionNavigationAction(plugin, referencesTable);
+				new SelectionNavigationAction(plugin, referencesTable);
 		selectionNavigationAction.setHelpLocation(
 			new HelpLocation(HelpTopics.SEARCH, "Selection_Navigation"));
 

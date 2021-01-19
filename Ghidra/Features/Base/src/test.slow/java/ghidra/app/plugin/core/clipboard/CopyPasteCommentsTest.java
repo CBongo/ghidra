@@ -48,14 +48,11 @@ import ghidra.program.util.AddressFieldLocation;
 import ghidra.program.util.ProgramSelection;
 import ghidra.test.AbstractProgramBasedTest;
 import ghidra.test.ToyProgramBuilder;
-import ghidra.util.task.TaskMonitorAdapter;
+import ghidra.util.task.TaskMonitor;
 
 /**
- * Test the plugin that deals with cut/paste comments and labels.
- *
- *
+ * Test the plugin that deals with cut/paste comments and labels
  */
-
 public class CopyPasteCommentsTest extends AbstractProgramBasedTest {
 
 	private PluginTool toolOne;
@@ -112,16 +109,13 @@ public class CopyPasteCommentsTest extends AbstractProgramBasedTest {
 		DomainFolder rootFolder = env.getProject().getProjectData().getRootFolder();
 
 		Program sdk = program;
-		final DomainFile df = rootFolder.createFile("sdk1", sdk, TaskMonitorAdapter.DUMMY_MONITOR);
-		programOne =
-			(ProgramDB) df.getDomainObject(this, true, false, TaskMonitorAdapter.DUMMY_MONITOR);
+		final DomainFile df = rootFolder.createFile("sdk1", sdk, TaskMonitor.DUMMY);
+		programOne = (ProgramDB) df.getDomainObject(this, true, false, TaskMonitor.DUMMY);
 		env.release(sdk);
 
 		Program sdk2 = buildProgram("sdk2");
-		final DomainFile df2 =
-			rootFolder.createFile("sdk2", sdk2, TaskMonitorAdapter.DUMMY_MONITOR);
-		programTwo =
-			(ProgramDB) df2.getDomainObject(this, true, false, TaskMonitorAdapter.DUMMY_MONITOR);
+		final DomainFile df2 = rootFolder.createFile("sdk2", sdk2, TaskMonitor.DUMMY);
+		programTwo = (ProgramDB) df2.getDomainObject(this, true, false, TaskMonitor.DUMMY);
 		env.release(sdk2);
 
 		setupProgramOne();
@@ -138,6 +132,7 @@ public class CopyPasteCommentsTest extends AbstractProgramBasedTest {
 			pmTwo.openProgram(df2);
 			programTwo = (ProgramDB) pmTwo.getCurrentProgram();
 		});
+
 	}
 
 	@Test
@@ -151,7 +146,8 @@ public class CopyPasteCommentsTest extends AbstractProgramBasedTest {
 		goTo(toolOne, 0x32a);
 
 		ClipboardPlugin plugin = getPlugin(toolOne, ClipboardPlugin.class);
-		DockingActionIf pasteAction = getAction(plugin, "Paste");
+		ClipboardContentProviderService service = getClipboardService(plugin);
+		DockingActionIf pasteAction = getLocalAction(service, "Paste", plugin);
 		assertEnabled(pasteAction, cb.getProvider());
 	}
 
@@ -200,8 +196,9 @@ public class CopyPasteCommentsTest extends AbstractProgramBasedTest {
 		// in Program One, add MyLabel at 032a
 
 		int transactionID = programOne.startTransaction("test");
-		programOne.getSymbolTable().createLabel(addr(programOne, 0x032a), "MyLabel",
-			SourceType.USER_DEFINED);
+		programOne.getSymbolTable()
+				.createLabel(addr(programOne, 0x032a), "MyLabel",
+					SourceType.USER_DEFINED);
 		programOne.endTransaction(transactionID, true);
 
 		goTo(toolTwo, 0x0326);
@@ -391,8 +388,9 @@ public class CopyPasteCommentsTest extends AbstractProgramBasedTest {
 			programOne.getSymbolTable().getSymbol("LAB_0331", addr(programOne, 0x0331), null);
 		// in Browser(1) change default label at 331 to JUNK
 		int transactionID = programOne.startTransaction("test");
-		programOne.getSymbolTable().createLabel(addr(programOne, 0x0331), "JUNK",
-			SourceType.USER_DEFINED);
+		programOne.getSymbolTable()
+				.createLabel(addr(programOne, 0x0331), "JUNK",
+					SourceType.USER_DEFINED);
 		programOne.endTransaction(transactionID, true);
 		//
 		// in Browser(1) go to 331
@@ -432,8 +430,9 @@ public class CopyPasteCommentsTest extends AbstractProgramBasedTest {
 	public void testPasteAtMultipleLabels() throws Exception {
 		// in program 2, create a second label, JUNK2, at 0331
 		int transactionID = programOne.startTransaction("test");
-		programOne.getSymbolTable().createLabel(addr(programOne, 0x331), "JUNK2",
-			SourceType.USER_DEFINED);
+		programOne.getSymbolTable()
+				.createLabel(addr(programOne, 0x331), "JUNK2",
+					SourceType.USER_DEFINED);
 		programOne.endTransaction(transactionID, true);
 
 		// in Browser(2) select 331 through 334, contains "RSR10"
@@ -480,8 +479,9 @@ public class CopyPasteCommentsTest extends AbstractProgramBasedTest {
 	@Test
 	public void testPasteWhereUserLabelExists() throws Exception {
 		int transactionID = programOne.startTransaction("test");
-		programOne.getSymbolTable().createLabel(addr(programOne, 0x331), "JUNK2",
-			SourceType.USER_DEFINED);
+		programOne.getSymbolTable()
+				.createLabel(addr(programOne, 0x331), "JUNK2",
+					SourceType.USER_DEFINED);
 		programOne.endTransaction(transactionID, true);
 
 		// in Browser(2) select 331 through 334, contains "RSR10"
@@ -592,13 +592,19 @@ public class CopyPasteCommentsTest extends AbstractProgramBasedTest {
 
 		cb.goToField(addr(programOne, 0x0331), LabelFieldFactory.FIELD_NAME, 0, 0);
 		f = (ListingTextField) cb.getCurrentField();
-		assertEquals(programOne.getSymbolTable().getSymbol("LAB_00000331", addr(programOne, 0x0331),
-			null).getName(), f.getText());
+		assertEquals(programOne.getSymbolTable()
+				.getSymbol("LAB_00000331", addr(programOne, 0x0331),
+					null)
+				.getName(),
+			f.getText());
 
 		cb.goToField(addr(programOne, 0x031b), LabelFieldFactory.FIELD_NAME, 0, 0);
 		f = (ListingTextField) cb.getCurrentField();
-		assertEquals(programOne.getSymbolTable().getSymbol("LAB_0000031b", addr(programOne, 0x031b),
-			null).getName(), f.getText());
+		assertEquals(programOne.getSymbolTable()
+				.getSymbol("LAB_0000031b", addr(programOne, 0x031b),
+					null)
+				.getName(),
+			f.getText());
 
 		redo(programOne);
 
@@ -622,8 +628,9 @@ public class CopyPasteCommentsTest extends AbstractProgramBasedTest {
 		// create a function over the range 0x31b through 0x0343.		
 		int transactionID = programOne.startTransaction("test");
 		String name = SymbolUtilities.getDefaultFunctionName(min);
-		programOne.getListing().createFunction(name, min, new AddressSet(min, max),
-			SourceType.USER_DEFINED);
+		programOne.getListing()
+				.createFunction(name, min, new AddressSet(min, max),
+					SourceType.USER_DEFINED);
 		programOne.endTransaction(transactionID, true);
 		programOne.flushEvents();
 		waitForSwing();
@@ -716,19 +723,23 @@ public class CopyPasteCommentsTest extends AbstractProgramBasedTest {
 	private void copyToolTwoLabels() {
 		ClipboardPlugin plugin = getPlugin(toolTwo, ClipboardPlugin.class);
 		ClipboardContentProviderService service =
-			getCodeBrowserClipboardContentProviderService(plugin);
+			getClipboardService(plugin);
 		DockingAction action = getLocalAction(service, "Copy Special", plugin);
 		assertNotNull(action);
 		assertEnabled(action, cb2.getProvider());
 
-		plugin.copySpecial(service, CodeBrowserClipboardProvider.LABELS_COMMENTS_TYPE);
+		runSwing(
+			() -> plugin.copySpecial(service, CodeBrowserClipboardProvider.LABELS_COMMENTS_TYPE));
 	}
 
 	private void pasteToolOne() {
+
 		ClipboardPlugin plugin = getPlugin(toolOne, ClipboardPlugin.class);
-		DockingActionIf pasteAction = getAction(plugin, "Paste");
+		ClipboardContentProviderService service = getClipboardService(plugin);
+		DockingActionIf pasteAction = getLocalAction(service, "Paste", plugin);
 		assertEnabled(pasteAction, cb.getProvider());
 		performAction(pasteAction, true);
+		waitForSwing();
 	}
 
 	private void setupTool(PluginTool tool) throws Exception {
@@ -815,13 +826,13 @@ public class CopyPasteCommentsTest extends AbstractProgramBasedTest {
 		waitForSwing();
 	}
 
-	private ClipboardContentProviderService getCodeBrowserClipboardContentProviderService(
+	private ClipboardContentProviderService getClipboardService(
 			ClipboardPlugin clipboardPlugin) {
 		Map<?, ?> serviceMap = (Map<?, ?>) getInstanceField("serviceActionMap", clipboardPlugin);
 		Set<?> keySet = serviceMap.keySet();
 		for (Object name : keySet) {
 			ClipboardContentProviderService service = (ClipboardContentProviderService) name;
-			if (service instanceof CodeBrowserClipboardProvider) {
+			if (service.getClass().equals(CodeBrowserClipboardProvider.class)) {
 				return service;
 			}
 		}
@@ -831,17 +842,12 @@ public class CopyPasteCommentsTest extends AbstractProgramBasedTest {
 	@SuppressWarnings("unchecked")
 	private DockingAction getLocalAction(ClipboardContentProviderService service, String actionName,
 			ClipboardPlugin clipboardPlugin) {
-		Map<?, ?> serviceMap = (Map<?, ?>) getInstanceField("serviceActionMap", clipboardPlugin);
-		Set<?> keySet = serviceMap.keySet();
-		for (Object name : keySet) {
-			ClipboardContentProviderService currentService = (ClipboardContentProviderService) name;
-			if (currentService == service) {
-				List<DockingAction> actionList = (List<DockingAction>) serviceMap.get(service);
-				for (DockingAction pluginAction : actionList) {
-					if (pluginAction.getName().equals(actionName)) {
-						return pluginAction;
-					}
-				}
+		Map<?, ?> actionsByService =
+			(Map<?, ?>) getInstanceField("serviceActionMap", clipboardPlugin);
+		List<DockingAction> actionList = (List<DockingAction>) actionsByService.get(service);
+		for (DockingAction pluginAction : actionList) {
+			if (pluginAction.getName().equals(actionName)) {
+				return pluginAction;
 			}
 		}
 
@@ -850,7 +856,9 @@ public class CopyPasteCommentsTest extends AbstractProgramBasedTest {
 
 	private void assertEnabled(DockingActionIf action, ComponentProvider provider) {
 		boolean isEnabled =
-			runSwing(() -> action.isEnabledForContext(provider.getActionContext(null)));
-		assertTrue(isEnabled);
+			runSwing(() -> {
+				return action.isEnabledForContext(provider.getActionContext(null));
+			});
+		assertTrue("Action was not enabled when it should be", isEnabled);
 	}
 }

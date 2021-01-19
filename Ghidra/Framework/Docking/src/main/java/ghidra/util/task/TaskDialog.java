@@ -15,58 +15,89 @@
  */
 package ghidra.util.task;
 
-import java.awt.*;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.concurrent.atomic.AtomicInteger;
+import java.awt.BorderLayout;
+import java.awt.Component;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
-import javax.swing.*;
+import javax.swing.JPanel;
 
 import docking.DialogComponentProvider;
 import docking.DockingWindowManager;
-import docking.util.AnimatedIcon;
+import docking.tool.ToolConstants;
 import docking.widgets.OptionDialog;
 import ghidra.util.*;
 import ghidra.util.exception.CancelledException;
 import ghidra.util.timer.GTimer;
-import resources.ResourceManager;
+import ghidra.util.timer.GTimerMonitor;
 
 /**
- * Dialog that is displayed to show activity for a Task that is running outside of the 
+ * Dialog that is displayed to show activity for a Task that is running outside of the
  * Swing Thread.
+ *
+ * <p>Implementation note:
+ * if this class is constructed with a {@code hasProgress} value of {@code false},
+ * then an activity component will be shown, not a progress monitor.   Any calls to update
+ * progress will not affect the display.   However, the display can be converted to use progress
+ * by first calling {@link #setIndeterminate(boolean)} with a {@code false} value and then calling
+ * {@link #initialize(long)}.    Once this has happened, this dialog will no longer use the
+ * activity display--the progress bar is in effect for the duration of this dialog's usage.
+ *
+ * <p>This dialog can be toggled between indeterminate mode and progress mode via calls to
+ * {@link #setIndeterminate(boolean)}.
  */
 public class TaskDialog extends DialogComponentProvider implements TaskMonitor {
 
-	private static final int SLEEPY_TIME = 10;
+	/** Amount of time to wait before showing the monitor dialog */
 	private final static int MAX_DELAY = 200000;
+
 	public final static int DEFAULT_WIDTH = 275;
 
-	private Timer showTimer;
-	private TaskMonitorComponent monitorComponent;
-	private AtomicInteger taskID = new AtomicInteger();
-	private boolean canCancel;
-	private Runnable updateMessage;
-	private Runnable closeDialog;
-	private Runnable enableCancelButton;
-	private String newMessage;
-	private boolean cancelState = true;
-	private Component centerOnComp;
-	private Runnable shouldCancelRunnable;
-	private boolean done;
-	private JPanel mainPanel;
+	private Runnable closeDialog = () -> {
+		close();
+		dispose();
+	};
+	private Runnable verifyCancel = () -> {
+		if (promptToVerifyCancel()) {
+			cancel();
+		}
+	};
 
-	/** Creates new TaskDialog
-	 * @param centerOnComp component to be centered over when shown,
-	 * otherwise center over parent.  If both centerOnComp and parent
-	 * are null, dialog will be centered on screen.
+	private GTimerMonitor showTimer = GTimerMonitor.DUMMY;
+	private CountDownLatch finished = new CountDownLatch(1);
+	private boolean supportsProgress;
+
+	private JPanel mainPanel;
+	private JPanel activityPanel;
+	private TaskMonitorComponent monitorComponent;
+	private Component centerOnComponent;
+
+	/** If not null, then the value of the string has yet to be rendered */
+	private AtomicReference<String> newMessage = new AtomicReference<>();
+	private SwingUpdateManager messageUpdater =
+		new SwingUpdateManager(100, 250, () -> setStatusText(newMessage.getAndSet(null)));
+
+	private AtomicBoolean shown = new AtomicBoolean();
+
+	/**
+	 * Constructor
+	 *
+	 * @param centerOnComp component to be centered over when shown, otherwise center over parent.
+	 * If both centerOnComp and parent are null, dialog will be centered on screen.
 	 * @param task the Task that this dialog will be associated with
+	 * @param finished overrides the latch used by this dialog to know when the task is finished
 	 */
-	public TaskDialog(Component centerOnComp, Task task) {
+	TaskDialog(Component centerOnComp, Task task, CountDownLatch finished) {
 		this(centerOnComp, task.getTaskTitle(), task.isModal(), task.canCancel(),
 			task.hasProgress());
+		this.finished = finished;
 	}
 
-	/** Creates a new TaskDialog.
+	/**
+	 * Constructor
+	 *
 	 * @param task the Task that this dialog will be associated with
 	 */
 	public TaskDialog(Task task) {
@@ -74,19 +105,21 @@ public class TaskDialog extends DialogComponentProvider implements TaskMonitor {
 	}
 
 	/**
-	 * Construct new TaskDialog.
+	 * Constructor
+	 *
 	 * @param title title for the dialog
 	 * @param canCancel true if the task can be canceled
 	 * @param isModal true if the dialog should be modal
 	 * @param hasProgress true if the dialog should show a progress bar
 	 */
 	public TaskDialog(String title, boolean canCancel, boolean isModal, boolean hasProgress) {
-		this(null, title, isModal, canCancel, true /*hasProgress*/);
+		this(null, title, isModal, canCancel, hasProgress);
 	}
 
 	/**
-	 * Construct new TaskDialog.
-	 * @param centerOnComp component to be centered over when shown, otherwise center over 
+	 * Constructor
+	 *
+	 * @param centerOnComp component to be centered over when shown, otherwise center over
 	 *        parent.  If both centerOnComp is null, then the active window will be used
 	 * @param title title for the dialog
 	 * @param isModal true if the dialog should be modal
@@ -96,39 +129,24 @@ public class TaskDialog extends DialogComponentProvider implements TaskMonitor {
 	private TaskDialog(Component centerOnComp, String title, boolean isModal, boolean canCancel,
 			boolean hasProgress) {
 		super(title, isModal, true, canCancel, true);
-		this.centerOnComp = centerOnComp;
-		setup(canCancel, hasProgress);
+		this.centerOnComponent = centerOnComp;
+		this.supportsProgress = hasProgress;
+		setup(canCancel);
 	}
 
-	private void setup(boolean canCancel, boolean hasProgress) {
-		this.canCancel = canCancel;
+	private void setup(boolean canCancel) {
+		monitorComponent = new TaskMonitorComponent(false, false);
+		activityPanel = new ChompingBitsAnimationPanel();
+
+		setCancelEnabled(canCancel);
 		setRememberLocation(false);
 		setRememberSize(false);
 		setTransient(true);
-		closeDialog = () -> {
-			close();
-			dispose();
-		};
-		updateMessage = () -> {
-			setStatusText(newMessage);
-			synchronized (TaskDialog.this) {
-				newMessage = null;
-			}
-		};
-		enableCancelButton = () -> TaskDialog.super.setCancelEnabled(cancelState);
-		shouldCancelRunnable = () -> {
-			int currentTaskID = taskID.get();
 
-			boolean doCancel = promptToVerifyCancel();
-			if (doCancel && currentTaskID == taskID.get()) {
-				cancel();
-			}
-		};
-
-		monitorComponent = new TaskMonitorComponent(false, false);
 		mainPanel = new JPanel(new BorderLayout());
 		addWorkPanel(mainPanel);
-		if (hasProgress) {
+
+		if (supportsProgress) {
 			installProgressMonitor();
 		}
 		else {
@@ -139,200 +157,102 @@ public class TaskDialog extends DialogComponentProvider implements TaskMonitor {
 			addCancelButton();
 		}
 
-		// SPLIT the help for this dialog should not be in the front end plugin.
-		setHelpLocation(new HelpLocation("Tool", "TaskDialog"));
+		setHelpLocation(new HelpLocation(ToolConstants.TOOL_HELP_TOPIC, "TaskDialog"));
 	}
 
-	protected boolean promptToVerifyCancel() {
+	/**
+	 * Shows a dialog asking the user if they really, really want to cancel the task
+	 *
+	 * @return true if the task should be cancelled
+	 */
+	private boolean promptToVerifyCancel() {
 		boolean userSaysYes = OptionDialog.showYesNoDialog(getComponent(), "Cancel?",
 			"Do you really want to cancel \"" + getTitle() + "\"?") == OptionDialog.OPTION_ONE;
-
 		return userSaysYes;
 	}
 
 	/**
-	 * Creates the main work panel for the dialog
+	 * Adds the panel that contains the progress bar to the dialog
 	 */
 	private void installProgressMonitor() {
-		SystemUtilities.runIfSwingOrPostSwingLater(() -> {
+		Swing.runIfSwingOrRunLater(() -> {
 			mainPanel.removeAll();
-
-			JPanel panel = new JPanel(new BorderLayout());
-			panel.setBorder(BorderFactory.createEmptyBorder(20, 10, 5, 10));
-			panel.add(monitorComponent);
-			mainPanel.add(panel, BorderLayout.NORTH);
-
+			mainPanel.add(monitorComponent, BorderLayout.CENTER);
 			repack();
 		});
-	}
-
-	private void installActivityDisplay() {
-		SystemUtilities.runIfSwingOrPostSwingLater(() -> {
-			mainPanel.removeAll();
-
-			List<Icon> iconList = new ArrayList<>();
-			iconList.add(ResourceManager.loadImage("images/eatbits1.png"));
-			iconList.add(ResourceManager.loadImage("images/eatbits2.png"));
-			iconList.add(ResourceManager.loadImage("images/eatbits3.png"));
-			iconList.add(ResourceManager.loadImage("images/eatbits4.png"));
-			iconList.add(ResourceManager.loadImage("images/eatbits5.png"));
-			iconList.add(ResourceManager.loadImage("images/eatbits6.png"));
-			iconList.add(ResourceManager.loadImage("images/eatbits7.png"));
-			AnimatedIcon icon = new AnimatedIcon(iconList, 200, 0);
-			JPanel panel = new JPanel(new BorderLayout());
-			panel.setSize(new Dimension(200, 100));
-			panel.add(new JLabel(icon));
-			mainPanel.add(panel, BorderLayout.CENTER);
-
-			repack();
-		});
-	}
-
-	@Override
-	protected void dialogShown() {
-		// our task may have completed while we were queued up to be shown
-		if (isCompleted()) {
-			close();
-		}
-	}
-
-	@Override
-	protected void dialogClosed() {
-		close();
-	}
-
-	@Override
-	public void setShowProgressValue(boolean showProgressValue) {
-		monitorComponent.setShowProgressValue(showProgressValue);
-	}
-
-	/** Sets the percentage done.
-	 * @param param The percentage of the task completed.
-	 */
-	@Override
-	public void setProgress(long param) {
-		monitorComponent.setProgress(param);
-	}
-
-	@Override
-	public void initialize(long max) {
-		if (monitorComponent.isIndeterminate()) {
-			// don't show the progress bar if we have already been marked as indeterminate (this
-			// allows us to prevent low-level algorithms from changing the display settings).
-			return;
-		}
-
-		if (!monitorComponent.isShowing()) {
-			installProgressMonitor();
-		}
-
-		monitorComponent.initialize(max);
-	}
-
-	@Override
-	public void setMaximum(long max) {
-		monitorComponent.setMaximum(max);
-	}
-
-	@Override
-	public long getMaximum() {
-		return monitorComponent.getMaximum();
 	}
 
 	/**
-	 * Sets the <code>indeterminate</code> property of the progress bar,
-	 * which determines whether the progress bar is in determinate
-	 * or indeterminate mode.
-	 * An indeterminate progress bar continuously displays animation
-	 * indicating that an operation of unknown length is occurring.
-	 * By default, this property is <code>false</code>.
-	 * Some look and feels might not support indeterminate progress bars;
-	 * they will ignore this property.
-	 *
-	 * @see JProgressBar
+	 * Adds the panel that contains the activity panel (e.g., the eating bits animation) to the
+	 * dialog. This should only be called if the dialog has no need to display progress.
 	 */
-	@Override
-	public void setIndeterminate(final boolean indeterminate) {
-		monitorComponent.setIndeterminate(indeterminate);
+	private void installActivityDisplay() {
+		Swing.runIfSwingOrRunLater(() -> {
+			mainPanel.removeAll();
+			mainPanel.add(activityPanel, BorderLayout.CENTER);
+			repack();
+		});
 	}
 
-	/** Called if the user presses the cancel button on
-	 * the dialog
-	 */
 	@Override
 	protected void cancelCallback() {
-		synchronized (this) {
-			if (!monitorComponent.isCancelEnabled() || monitorComponent.isCancelled()) {
-				return;
-			}
-		}
-
-		SwingUtilities.invokeLater(shouldCancelRunnable);
+		Swing.runLater(verifyCancel);
 	}
 
-	/** Sets the message in the TaskDialog dialog
-	 * @param str The message string to be displayed
-	 */
-	@Override
-	synchronized public void setMessage(String str) {
-		boolean invoke = (newMessage == null);
-		newMessage = str;
-		if (invoke) {
-			SwingUtilities.invokeLater(updateMessage);
-		}
-	}
-
-	/**
-	 * Set the enable state of the Cancel button.
-	 * @param enable the state to set the cancel button.
-	 */
 	@Override
 	public void setCancelEnabled(boolean enable) {
-		if (canCancel) {
-			monitorComponent.setCancelEnabled(enable);
-			SwingUtilities.invokeLater(enableCancelButton);
-		}
+		monitorComponent.setCancelEnabled(enable);
+		Swing.runLater(() -> super.setCancelEnabled(enable));
 	}
 
 	@Override
 	public boolean isCancelEnabled() {
-		return canCancel && cancelState;
-	}
-
-	public synchronized void taskProcessed() {
-		done = true;
-		monitorComponent.notifyChangeListeners();
-		SwingUtilities.invokeLater(closeDialog);
-	}
-
-	public synchronized void reset() {
-		done = false;
-		taskID.incrementAndGet();
-	}
-
-	public synchronized boolean isCompleted() {
-		return done;
-	}
-
-	@Override
-	public boolean isCancelled() {
-		return monitorComponent.isCancelled();
+		return monitorComponent.isCancelEnabled();
 	}
 
 	/**
-	 * Shows the dialog window centered on the parent window.
-	 * Dialog display is delayed if delay greater than zero.
+	 * Called after the task has been executed
+	 */
+	public void taskProcessed() {
+		finished.countDown();
+		monitorComponent.notifyChangeListeners();
+		Swing.runLater(closeDialog);
+	}
+
+	/**
+	 * Returns true if this dialog's task has completed normally or been cancelled
+	 * @return true if this dialog's task has completed normally or been cancelled
+	 */
+	public boolean isCompleted() {
+		return finished.getCount() == 0 || isCancelled();
+	}
+
+	/**
+	 * Shows the dialog window centered on the parent window. Dialog display is delayed if delay
+	 * greater than zero.
+	 *
 	 * @param delay number of milliseconds to delay displaying of the task dialog.  If the delay is
 	 * greater than {@link #MAX_DELAY}, then the delay will be {@link #MAX_DELAY};
+	 * @throws IllegalArgumentException if {@code delay} is negative
 	 */
 	public void show(int delay) {
+		if (delay < 0) {
+			throw new IllegalArgumentException("Task Dialog delay cannot be negative");
+		}
 		if (isModal()) {
 			doShowModal(delay);
 		}
 		else {
 			doShowNonModal(delay);
 		}
+	}
 
+	/**
+	 * Returns true if this dialog was ever made visible
+	 * @return true if shown
+	 */
+	public boolean wasShown() {
+		return shown.get();
 	}
 
 	private void doShowModal(int delay) {
@@ -354,8 +274,8 @@ public class TaskDialog extends DialogComponentProvider implements TaskMonitor {
 		// Note: we must not block, as we are not modal.  Clients want control back.  Our job is
 		//       only to show a progress dialog if enough time has elapsed.
 		//
-		GTimer.scheduleRunnable(delay, () -> {
-
+		int waitTime = Math.min(delay, MAX_DELAY);
+		showTimer = GTimer.scheduleRunnable(waitTime, () -> {
 			if (isCompleted()) {
 				return;
 			}
@@ -365,41 +285,100 @@ public class TaskDialog extends DialogComponentProvider implements TaskMonitor {
 	}
 
 	protected void doShow() {
-		SystemUtilities.runIfSwingOrPostSwingLater(() -> {
-			DockingWindowManager.showDialog(centerOnComp, TaskDialog.this);
+
+		Swing.runIfSwingOrRunLater(() -> {
+			if (!isCompleted()) {
+				shown.set(true);
+				DockingWindowManager.showDialog(centerOnComponent, TaskDialog.this);
+			}
 		});
 	}
 
 	private void giveTheTaskThreadAChanceToComplete(int delay) {
 
-		delay = Math.min(delay, MAX_DELAY);
-		int elapsedTime = 0;
-		while (!isCompleted() && elapsedTime < delay) {
-			try {
-				Thread.sleep(SLEEPY_TIME);
-			}
-			catch (InterruptedException e) {
-				// don't care; we will try again
-			}
-			elapsedTime += SLEEPY_TIME;
+		int waitTime = Math.min(delay, MAX_DELAY);
+		try {
+			finished.await(waitTime, TimeUnit.MILLISECONDS);
+		}
+		catch (InterruptedException e) {
+			Msg.debug(this, "Interrupted waiting for task '" + getTitle() + "'", e);
 		}
 	}
 
 	public void dispose() {
+		cancel();
+		showTimer.cancel();
+		messageUpdater.dispose();
+	}
 
-		Runnable disposeTask = () -> {
-			if (showTimer != null) {
-				showTimer.stop();
-				showTimer = null;
-			}
-		};
+//==================================================================================================
+// TaskMonitor Methods
+//==================================================================================================
 
-		SystemUtilities.runSwingNow(disposeTask);
+	@Override
+	public void setMessage(String str) {
+		newMessage.set(str);
+		messageUpdater.update();
+	}
+
+	@Override
+	public String getMessage() {
+		return getStatusText();
+	}
+
+	@Override
+	public void setShowProgressValue(boolean showProgressValue) {
+		monitorComponent.setShowProgressValue(showProgressValue);
+	}
+
+	@Override
+	public void setProgress(long progress) {
+		monitorComponent.setProgress(progress);
+	}
+
+	@Override
+	public void initialize(long max) {
+
+		if (!supportsProgress) {
+			return;
+		}
+
+		if (!monitorComponent.isShowing()) {
+			installProgressMonitor();
+		}
+
+		monitorComponent.initialize(max);
+	}
+
+	@Override
+	public void setMaximum(long max) {
+		monitorComponent.setMaximum(max);
+	}
+
+	@Override
+	public long getMaximum() {
+		return monitorComponent.getMaximum();
+	}
+
+	@Override
+	public void setIndeterminate(boolean indeterminate) {
+		supportsProgress = !indeterminate;
+		monitorComponent.setIndeterminate(indeterminate);
+	}
+
+	@Override
+	public boolean isIndeterminate() {
+		return monitorComponent.isIndeterminate();
+	}
+
+	@Override
+	public boolean isCancelled() {
+		return monitorComponent.isCancelled();
 	}
 
 	@Override
 	public synchronized void cancel() {
-		if (!canCancel || monitorComponent.isCancelled()) {
+		if (monitorComponent.isCancelled()) {
 			return;
 		}
 		// Mark as cancelled, must be detected by task which should terminate
@@ -437,19 +416,7 @@ public class TaskDialog extends DialogComponentProvider implements TaskMonitor {
 		monitorComponent.removeCancelledListener(listener);
 	}
 
-	@Override
-	public void addIssueListener(IssueListener listener) {
-		monitorComponent.addIssueListener(listener);
-	}
-
-	@Override
-	public void removeIssueListener(IssueListener listener) {
-		monitorComponent.removeIssueListener(listener);
-
-	}
-
-	@Override
-	public void reportIssue(Issue issue) {
-		monitorComponent.reportIssue(issue);
-	}
+//==================================================================================================
+// End TaskMonitor Methods
+//==================================================================================================
 }

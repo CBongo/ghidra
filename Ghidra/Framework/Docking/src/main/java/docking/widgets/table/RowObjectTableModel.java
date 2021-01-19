@@ -15,6 +15,7 @@
  */
 package docking.widgets.table;
 
+import java.util.Arrays;
 import java.util.List;
 
 import javax.swing.table.TableModel;
@@ -29,11 +30,7 @@ public interface RowObjectTableModel<T> extends TableModel {
 
 	public static TableModel unwrap(TableModel m) {
 
-		// TODO can we now get rid of the default sorted model usage?
 		TableModel model = m;
-		while (model instanceof DefaultSortedTableModel) {
-			model = ((DefaultSortedTableModel) model).getModel();
-		}
 		while (model instanceof TableModelWrapper) {
 			model = ((TableModelWrapper<?>) model).getWrappedModel();
 		}
@@ -52,6 +49,7 @@ public interface RowObjectTableModel<T> extends TableModel {
 	 * non-filtering models the view and model rows will always be the same.
 	 *
 	 * @param viewRow the row for which to return a row object.
+	 * @return the row object
 	 */
 	public T getRowObject(int viewRow);
 
@@ -61,7 +59,7 @@ public interface RowObjectTableModel<T> extends TableModel {
 	 * <b>Note: the index returned is always the 'view' index.  For non-filtering table models,
 	 * the 'view' and the 'model' index are the same.  However, for filtering table models,
 	 * the 'view' may be a subset of the 'model' index.   Thus, it is possible, if this model
-	 * is a filtering model, that the given <tt>t</tt> may not have a row value for the current
+	 * is a filtering model, that the given <code>t</code> may not have a row value for the current
 	 * state of the model (i.e., when the model is filtered in the view.  If you really need to
 	 * get the model index in such a situation, see {@link RowObjectFilterModel}.
 	 * </b>
@@ -76,8 +74,8 @@ public interface RowObjectTableModel<T> extends TableModel {
 	 * filtering, this will be the filtered version of the data.  Furthermore, the data should be
 	 * the underlying data and not a copy, as this method will potentially sort the given data.
 	 * <p>
-	 * For those subclasses using an array, you may use the <tt>Arrays</tt> class to create
-	 * a list backed by the array ({@link Arrays#asList(Object...)).
+	 * For those subclasses using an array, you may use the <code>Arrays</code> class to create
+	 * a list backed by the array ({@link Arrays#asList(Object...)}).
 	 * @return the model data.
 	 */
 	public List<T> getModelData();

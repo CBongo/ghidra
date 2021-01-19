@@ -1,6 +1,5 @@
 /* ###
  * IP: GHIDRA
- * REVIEWED: YES
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,15 +15,16 @@
  */
 package ghidra.app.plugin.core.script;
 
-import generic.jar.ResourceFile;
-import ghidra.util.table.GhidraTable;
-
 import java.awt.Point;
 import java.awt.datatransfer.Transferable;
 import java.awt.dnd.*;
 import java.util.ArrayList;
 
+import javax.swing.table.TableModel;
+
 import docking.dnd.*;
+import generic.jar.ResourceFile;
+import ghidra.util.table.GhidraTable;
 
 public class DraggableScriptTable extends GhidraTable implements Draggable {
 	private DragSrcAdapter dragSourceAdapter;
@@ -33,15 +33,14 @@ public class DraggableScriptTable extends GhidraTable implements Draggable {
 	private final GhidraScriptComponentProvider provider;
 
 	/**
-	 * Constructs a new DraggableGhidraTable using the specified table model.
-	 * @param scriptModel the table model
+	 * Constructs a new DraggableGhidraTable.
+	 * @param provider the provider, from which getTableModel and getScriptAt are used
+	 * @param model provider's table model
 	 */
-	public DraggableScriptTable(GhidraScriptComponentProvider provider) {
-		super(provider.getTableModel());
+	public DraggableScriptTable(GhidraScriptComponentProvider provider, TableModel model) {
+		super(model);
 		this.provider = provider;
 
-		// we want to render the descriptions with newline characters
-		setHTMLRenderingEnabled(true);
 		initDragNDrop();
 	}
 
@@ -85,7 +84,7 @@ public class DraggableScriptTable extends GhidraTable implements Draggable {
 	 */
 	@Override
 	public Transferable getTransferable(Point p) {
-		ArrayList<ResourceFile> arrayList = new ArrayList<ResourceFile>();
+		ArrayList<ResourceFile> arrayList = new ArrayList<>();
 		int[] selectedRows = getSelectedRows();
 		for (int element : selectedRows) {
 			arrayList.add(provider.getScriptAt(element));
@@ -100,6 +99,7 @@ public class DraggableScriptTable extends GhidraTable implements Draggable {
 	 */
 	@Override
 	public void move() {
+		//
 	}
 
 	/**
@@ -108,6 +108,7 @@ public class DraggableScriptTable extends GhidraTable implements Draggable {
 	 */
 	@Override
 	public void dragCanceled(DragSourceDropEvent event) {
+		//
 	}
 
 }

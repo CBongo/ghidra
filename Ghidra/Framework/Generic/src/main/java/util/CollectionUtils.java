@@ -24,24 +24,18 @@ import org.apache.commons.collections4.IteratorUtils;
 import org.apache.commons.lang3.ObjectUtils;
 import org.apache.commons.lang3.StringUtils;
 
-import com.google.common.collect.*;
-
 /**
  * A collection of utility methods that prevent you from having to do unsafe casts of
  * {@link Collection} classes due to runtime type erasure.
  * 
- * <P>Be sure to check Guava and Apache collection utils before using this class, as they are 
- * standard utilities and often more efficient.
+ * <P>Be sure to check Apache collection utils before using this class, as it's a 
+ * standard utility and often more efficient.
  * 
  * <P>Some examples:
  * <OL>
- * 	<LI>{@link Iterators}</LI>
- *  <LI>{@link Iterables}</LI>
  *  <LI>{@link org.apache.commons.collections4.CollectionUtils}</LI>
  *  <LI>{@link IterableUtils}</LI>
  *  <LI>{@link IteratorUtils}</LI>
- *  <LI>{@link Maps}</LI>
- *  <LI>{@link Sets}</LI>
  *  <LI>{@link StringUtils#join(Iterable, char)} - for pretty printing collections with newlines</LI>
  *  <LI><code>Apache CollectionUtils.collect(Collection, Transformer)</code> - to turn a 
  *      collection in to collection of strings when the default <code>toString()</code> is lacking</LI>
@@ -366,6 +360,27 @@ public class CollectionUtils {
 	}
 
 	/**
+	 * Returns true if the given array is null or has 0 length
+	 * 
+	 * @param c the collection to check
+	 * @return true if blank
+	 */
+	public static <T> boolean isBlank(Collection<T> c) {
+		return c == null || c.isEmpty();
+	}
+
+	/**
+	 * Returns true if the given array is null or has 0 length
+	 * 
+	 * @param t the items to check
+	 * @return true if blank
+	 */
+	@SuppressWarnings("unchecked")
+	public static <T> boolean isBlank(T... t) {
+		return t == null || t.length == 0;
+	}
+
+	/**
 	 * Turns the given item into an iterable
 	 * @param t the object from which to create an iterable
 	 * @return an iterable over the given iterator
@@ -384,18 +399,16 @@ public class CollectionUtils {
 	}
 
 	/**
-	 * Combines all collections passed-in, using {@link Iterables}, into a pass-through 
-	 * (not creating a new collection) Iterable.
-	 * 
-	 * <P>This is just a convenience method for {@link Iterables#concat(Iterable)}
+	 * Combines all collections passed-in into a pass-through not creating a new collection) 
+	 * Iterable.
 	 * 
 	 * @param iterables the iterables to combine
 	 * @return the iterable
 	 */
 	@SafeVarargs
 	public static <T> Iterable<T> asIterable(Iterable<T>... iterables) {
-		Iterable<T> concat = Iterables.concat(iterables);
-		return concat;
+		Stream<T> s = asStream(iterables);
+		return asIterable(s.iterator());
 	}
 
 	/**
@@ -409,16 +422,15 @@ public class CollectionUtils {
 	}
 
 	/**
-	 * Combines all iterables passed-in, using {@link Iterables}, into a pass-through 
-	 * (not creating a new collection) Stream. 
+	 * Combines all iterables passed-in into a pass-through (not creating a new collection) Stream. 
 	 * 
 	 * @param iterables the iterables to combine 
 	 * @return the stream
 	 */
 	@SafeVarargs
 	public static <T> Stream<T> asStream(Iterable<T>... iterables) {
-		Iterable<T> concat = Iterables.concat(iterables);
-		Stream<T> s = StreamSupport.stream(concat.spliterator(), false);
+		Stream<T> s = Stream.of(iterables)
+				.flatMap(e -> StreamSupport.stream(e.spliterator(), false));
 		return s;
 	}
 

@@ -209,8 +209,8 @@ public class DefaultProject implements Project {
 			return null;
 		}
 
-		String projectStr = "Project: " + locator.getLocation() +
-			System.getProperty("file.separator") + locator.getName();
+		String projectStr = "Project: " + HTMLUtilities.escapeHTML(locator.getLocation()) +
+			System.getProperty("file.separator") + HTMLUtilities.escapeHTML(locator.getName());
 		String lockInformation = lock.getExistingLockFileInformation();
 		if (!lock.canForceLock()) {
 			Msg.showInfo(getClass(), null, "Project Locked",
@@ -323,7 +323,7 @@ public class DefaultProject implements Project {
 	/**
 	 * Get the local tool chest for the user logged in.
 	 * 
-	 * @returns the tool chest
+	 * @return the tool chest
 	 */
 	@Override
 	public ToolChest getLocalToolChest() {

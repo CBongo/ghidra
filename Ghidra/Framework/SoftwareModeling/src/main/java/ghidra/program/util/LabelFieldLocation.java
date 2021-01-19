@@ -42,7 +42,7 @@ public class LabelFieldLocation extends CodeUnitLocation {
 	/**
 	 * Construct a new LabelFieldLocation.
 	 *
-	 * @param the program of the location
+	 * @param program the program of the location
 	 * @param addr address of the location; should not be null
 	 * @param componentPath array of indexes for each nested data component; the
 	 * index is the data component's index within its parent; may be null
@@ -107,7 +107,7 @@ public class LabelFieldLocation extends CodeUnitLocation {
 	public LabelFieldLocation(Symbol s, int row, int charOffset) {
 		this(s.getProgram(), s.getAddress(), null, s.getName(), s.getParentNamespace(), row,
 			charOffset);
-		if (s.getSymbolType() != SymbolType.CODE && s.getSymbolType() != SymbolType.FUNCTION) {
+		if (s.getSymbolType() != SymbolType.LABEL && s.getSymbolType() != SymbolType.FUNCTION) {
 			throw new IllegalArgumentException("Code symbol expected");
 		}
 	}

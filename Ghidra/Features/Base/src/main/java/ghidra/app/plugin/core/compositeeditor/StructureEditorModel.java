@@ -30,6 +30,7 @@ import ghidra.program.model.data.*;
 import ghidra.program.model.lang.InsufficientBytesException;
 import ghidra.util.Msg;
 import ghidra.util.exception.*;
+import ghidra.util.task.TaskMonitor;
 
 class StructureEditorModel extends CompEditorModel {
 
@@ -181,7 +182,6 @@ class StructureEditorModel extends CompEditorModel {
 	@Override
 	public DataTypeComponent getComponent(int rowIndex) {
 		int numComponents = getNumComponents();
-
 		if (rowIndex < 0 || rowIndex == numComponents) {
 			return null;
 		}
@@ -285,14 +285,6 @@ class StructureEditorModel extends CompEditorModel {
 		fireTableDataChanged();
 	}
 
-	/**
-	 *  returns whether or not a particular component row and field in this
-	 *  structure is editable.
-	 *  <P>Warning: There shouldn't be a selection when this is called.
-	 *
-	 * @param rowIndex the component index.
-	 * @param columnIndex the index for the field of the component.
-	 */
 	@Override
 	public boolean isCellEditable(int rowIndex, int columnIndex) {
 		if (getNumSelectedRows() != 1) {
@@ -324,13 +316,6 @@ class StructureEditorModel extends CompEditorModel {
 		}
 	}
 
-	/**
-	 *  Clear the selected components.
-	 *
-	 * @return true if cleared.
-	 *
-	 * @throws UsrException if clearing isn't allowed.
-	 */
 	@Override
 	public void clearSelectedComponents() throws UsrException {
 		if (!isClearAllowed()) {
@@ -343,20 +328,11 @@ class StructureEditorModel extends CompEditorModel {
 		clearComponents(getSelectedComponentRows());
 	}
 
-	/* (non-Javadoc)
-	 * @see ghidra.app.plugin.compositeeditor.EditorModel#clearComponent(int)
-	 */
 	@Override
 	public void clearComponent(int ordinal) {
 		((Structure) viewComposite).clearComponent(ordinal);
 	}
 
-	/**
-	 *  Clear the components at the specified indices.
-	 *
-	 * @param indices array of selected component indices.
-	 * @return true if cleared.
-	 */
 	@Override
 	public void clearComponents(int[] indices) {
 		if (isEditingField()) {
@@ -425,36 +401,29 @@ class StructureEditorModel extends CompEditorModel {
 		return definedComponents[rowIndex].getOrdinal();
 	}
 
-	/* (non-Javadoc)
-	 * @see ghidra.app.plugin.compositeeditor.EditorModel#duplicateMultiple(int, int)
-	 */
 	@Override
-	public void duplicateMultiple(int index, int multiple) throws UsrException {
+	public void duplicateMultiple(int index, int multiple, TaskMonitor monitor)
+			throws UsrException {
 		if (isEditingField()) {
 			endFieldEditing();
 		}
 
 		DataTypeComponent originalComp = getComponent(index);
 		if (originalComp == null || originalComp.isFlexibleArrayComponent()) {
-			throw new IllegalArgumentException("invalid component index specified");
+			throw new IllegalArgumentException("Invalid component index specified");
 		}
 		DataType dt = originalComp.getDataType();
 		int dtLen = dt.getLength();
 		checkIsAllowableDataType(dt, true);
 
-		try {
-			int startIndex = index + 1;
-			if (isShowingUndefinedBytes() && (dt != DataType.DEFAULT)) {
-				int endIndex = startIndex + (dtLen * multiple) - 1;
-				if (startIndex < getNumComponents()) {
-					deleteComponentRange(startIndex, endIndex);
-				}
+		int startIndex = index + 1;
+		if (isShowingUndefinedBytes() && (dt != DataType.DEFAULT)) {
+			int endIndex = startIndex + (dtLen * multiple) - 1;
+			if (startIndex < getNumComponents()) {
+				deleteComponentRange(startIndex, endIndex, monitor);
 			}
-			insertComponentMultiple(startIndex, dt, originalComp.getLength(), multiple);
 		}
-		catch (OutOfMemoryError memExc) {
-			throw memExc; // re-throw the exception.
-		}
+		insertComponentMultiple(startIndex, dt, originalComp.getLength(), multiple, monitor);
 
 		// Adjust the selection since we added some
 		componentEdited();
@@ -465,21 +434,31 @@ class StructureEditorModel extends CompEditorModel {
 	 *  Moves the components between the start index (inclusive) and the end
 	 *  index (inclusive) to the new index (relative to the initial component set).
 	 *
-	 * @param startRow row index of the starting component to move.
-	 * @param endRow row index of the ending component to move.
+	 * @param startIndex row index of the starting component to move.
+	 * @param endIndex row index of the ending component to move.
 	 * @return true if components are moved.
 	 */
-	private boolean shiftComponentsUp(int startRow, int endRow) {
+	private boolean shiftComponentsUp(int startIndex, int endIndex) {
 		int numComps = getNumComponents();
-		if ((startRow > endRow) || startRow <= 0 || startRow >= numComps || endRow <= 0 ||
-			endRow >= numComps) {
+		if ((startIndex > endIndex) || startIndex <= 0 || startIndex >= numComps || endIndex <= 0 ||
+			endIndex >= numComps) {
 			return false;
 		}
-		DataTypeComponent comp = getComponent(startRow - 1);
-		deleteComponent(startRow - 1);
+		int len = getLength();
+
+		DataTypeComponent comp = deleteComponentAndResidual(startIndex - 1);
+
 		try {
-			insert(endRow, comp.getDataType(), comp.getLength(), comp.getFieldName(),
+			if (!isAligned() && comp.isBitFieldComponent()) {
+				// insert residual undefined bytes before inserting unaligned bitfield
+				int lenChange = len - getLength();
+				insert(endIndex, DataType.DEFAULT, 1, lenChange, TaskMonitor.DUMMY);
+			}
+			insert(endIndex, comp.getDataType(), comp.getLength(), comp.getFieldName(),
 				comp.getComment());
+		}
+		catch (CancelledException e) {
+			// can't happen while using a dummy monitor
 		}
 		catch (InvalidDataTypeException e) {
 			return false;
@@ -501,11 +480,21 @@ class StructureEditorModel extends CompEditorModel {
 			endIndex < 0 || endIndex >= numComponents - 1) {
 			return false;
 		}
-		DataTypeComponent comp = getComponent(endIndex + 1);
-		deleteComponent(endIndex + 1);
+		int len = getLength();
+
+		DataTypeComponent comp = deleteComponentAndResidual(endIndex + 1);
+
 		try {
+			if (!isAligned() && comp.isBitFieldComponent()) {
+				// insert residual undefined bytes before inserting unaligned bitfield
+				int lenChange = len - getLength();
+				insert(startIndex, DataType.DEFAULT, 1, lenChange, TaskMonitor.DUMMY);
+			}
 			insert(startIndex, comp.getDataType(), comp.getLength(), comp.getFieldName(),
 				comp.getComment());
+		}
+		catch (CancelledException e) {
+			// can't happen while using a dummy monitor
 		}
 		catch (InvalidDataTypeException e) {
 			return false;
@@ -513,9 +502,31 @@ class StructureEditorModel extends CompEditorModel {
 		return true;
 	}
 
-	/* (non-Javadoc)
-	 * @see ghidra.app.plugin.compositeeditor.EditorModel#moveUp()
-	 */
+	private DataTypeComponent deleteComponentAndResidual(int index) {
+
+		DataTypeComponent comp = getComponent(index);
+		deleteComponent(index);
+
+		if (isAligned() || !comp.isBitFieldComponent() || index >= getNumComponents()) {
+			return comp;
+		}
+
+		// Deleting a bitfield component does not remove consumed space.
+		// This operation should remove any residual undefined components
+
+		int startOffset = comp.getOffset();
+
+		for (int i = index + comp.getLength() - 1; i >= index; --i) {
+			DataTypeComponent dtc = getComponent(i);
+			if (dtc != null && dtc.getDataType() == DataType.DEFAULT &&
+				dtc.getOffset() >= startOffset) {
+				deleteComponent(i);
+			}
+		}
+
+		return comp;
+	}
+
 	@Override
 	public boolean moveUp() throws NoSuchElementException {
 		if (selection.getNumRanges() != 1) {
@@ -540,9 +551,6 @@ class StructureEditorModel extends CompEditorModel {
 		return moved;
 	}
 
-	/* (non-Javadoc)
-	 * @see ghidra.app.plugin.compositeeditor.EditorModel#moveDown()
-	 */
 	@Override
 	public boolean moveDown() throws NoSuchElementException {
 		if (selection.getNumRanges() != 1) {
@@ -571,6 +579,11 @@ class StructureEditorModel extends CompEditorModel {
 	// Begin methods for determining if a type of edit action is allowed.
 	// *************************************************************
 
+	@Override
+	public boolean isBitFieldAllowed() {
+		return isSingleRowSelection() && !isFlexibleArraySelection();
+	}
+
 	/**
 	 * Returns whether or not the selection
 	 * is allowed to be changed into an array.
@@ -585,11 +598,8 @@ class StructureEditorModel extends CompEditorModel {
 		FieldRange range = selection.getFieldRange(0);
 
 		DataTypeComponent comp = getComponent(range.getStart().getIndex().intValue());
-		if (comp == null) {
+		if (comp == null || comp.isFlexibleArrayComponent() || comp.isBitFieldComponent()) {
 			return false;
-		}
-		if (comp.isFlexibleArrayComponent()) {
-			return true;
 		}
 
 		DataType dt = comp.getDataType();
@@ -602,23 +612,11 @@ class StructureEditorModel extends CompEditorModel {
 		return allowed;
 	}
 
-	/**
-	 * Returns whether or not clearing the component at the specified index
-	 * is allowed.
-	 *
-	 * @param currentIndex index of the component in the structure
-	 */
 	@Override
 	public boolean isClearAllowed() {
 		return hasComponentSelection() && isShowingUndefinedBytes();
 	}
 
-	/**
-	 * Returns whether or not delete of the component at the selected index
-	 * is allowed.
-	 *
-	 * @param currentIndex index of the component in the structure
-	 */
 	@Override
 	public boolean isDeleteAllowed() {
 		if (!hasSelection()) {
@@ -629,13 +627,14 @@ class StructureEditorModel extends CompEditorModel {
 	}
 
 	@Override
-	public void deleteSelectedComponents() throws UsrException {
+	public void deleteSelectedComponents(TaskMonitor monitor) throws UsrException {
 		if (!isDeleteAllowed()) {
 			throw new UsrException("Deleting is not allowed.");
 		}
 		if (isEditingField()) {
 			endFieldEditing();
 		}
+
 		int rowIndex = selection.getFieldRange(0).getStart().getIndex().intValue();
 		DataTypeComponent dtc = getComponent(rowIndex);
 		if (dtc.isFlexibleArrayComponent()) {
@@ -647,66 +646,48 @@ class StructureEditorModel extends CompEditorModel {
 			selectionChanged();
 			return;
 		}
-		super.deleteSelectedComponents();
+		super.deleteSelectedComponents(monitor);
 	}
 
-	/**
-	 * Returns whether or not the component at the selected index
-	 * is allowed to be duplicated.
-	 *
-	 * @param currentIndex index of the component in the structure
-	 */
 	@Override
 	public boolean isDuplicateAllowed() {
-		boolean dupAllowed = false;
-		if (this.getNumSelectedComponentRows() != 1) {
+
+		if (!isSingleRowSelection() || this.getNumSelectedComponentRows() != 1) {
 			return false;
 		}
 
-		int rowIndex = selection.getFieldRange(0).getStart().getIndex().intValue();
-		// Get the range this index is in, if its in one.
-		FieldRange range = getSelectedRangeContaining(rowIndex);
-		boolean notInMultiLineSelection = true;
-		if ((range != null) &&
-			((range.getEnd().getIndex().intValue() - range.getStart().getIndex().intValue()) > 1)) {
-			notInMultiLineSelection = false;
-		}
-
 		// set actions based on number of items selected
-		if (notInMultiLineSelection && (rowIndex <= getNumComponents())) {
-			DataTypeComponent comp = getComponent(rowIndex);
-			DataType dt = comp.getDataType();
-			if (viewComposite.isInternallyAligned()) {
-				dupAllowed = true;
-			}
-			else {
-				if (dt.equals(DataType.DEFAULT)) {
-					return true; // Insert an undefined and push everything down.
-				}
-				// Can always duplicate at the end.
-				if (isAtEnd(rowIndex) || onlyUndefinedsUntilEnd(rowIndex + 1)) {
-					return true;
-				}
-				// Otherwise can only duplicate if enough room.
-
-				// Get the size of the data type at this index and the number of
-				// undefined bytes following it.
-				int dtSize = dt.getLength();
-				if (dtSize <= 0) {
-					dtSize = comp.getLength();
-				}
-				int undefSize = getNumUndefinedBytesAt(rowIndex + 1);
-				if (dtSize <= undefSize) {
-					dupAllowed = true;
-				}
-			}
+		int rowIndex = getRow();
+		DataTypeComponent comp = getComponent(rowIndex);
+		DataType dt = comp.getDataType();
+		if (viewComposite.isInternallyAligned()) {
+			return true;
 		}
-		return dupAllowed;
+		if (dt.equals(DataType.DEFAULT)) {
+			return true; // Insert an undefined and push everything down.
+		}
+		if (comp.isBitFieldComponent()) {
+			return false; // unable to place unaligned bitfield in a reasonable fashion
+		}
+		// Can always duplicate at the end.
+		if (isAtEnd(rowIndex) || onlyUndefinedsUntilEnd(rowIndex + 1)) {
+			return true;
+		}
+		// Otherwise can only duplicate if enough room.
+
+		// Get the size of the data type at this index and the number of
+		// undefined bytes following it.
+		int dtSize = dt.getLength();
+		if (dtSize <= 0) {
+			dtSize = comp.getLength();
+		}
+		int undefSize = getNumUndefinedBytesAt(rowIndex + 1);
+		if (dtSize <= undefSize) {
+			return true;
+		}
+		return false;
 	}
 
-	/**
-	 * Returns whether the selected component can be unpackaged.
-	 */
 	@Override
 	public boolean isUnpackageAllowed() {
 		// set actions based on number of items selected
@@ -834,9 +815,6 @@ class StructureEditorModel extends CompEditorModel {
 		return true;
 	}
 
-	/* (non-Javadoc)
-	 * @see ghidra.app.plugin.datamanager.editor.CompositeEditorModel#isReplaceAllowed(int, ghidra.program.model.data.DataType)
-	 */
 	@Override
 	public boolean isReplaceAllowed(int rowIndex, DataType dataType) {
 
@@ -966,9 +944,6 @@ class StructureEditorModel extends CompEditorModel {
 		return numBytesInRange;
 	}
 
-	/* (non-Javadoc)
-	 * @see ghidra.app.plugin.datamanager.editor.CompositeEditorModel#insert(int, ghidra.program.model.data.DataType, int, java.lang.String, java.lang.String)
-	 */
 	@Override
 	protected DataTypeComponent insert(int rowIndex, DataType dataType, int length, String name,
 			String comment) throws InvalidDataTypeException {
@@ -981,7 +956,16 @@ class StructureEditorModel extends CompEditorModel {
 					dtc.getComment());
 			}
 			else {
-				dtc = ((Structure) viewComposite).insert(rowIndex, dataType, length, name, comment);
+				if (isAligned() || !(dataType instanceof BitFieldDataType)) {
+					dtc = ((Structure) viewComposite).insert(rowIndex, dataType, length, name,
+						comment);
+				}
+				else {
+					BitFieldDataType bitfield = (BitFieldDataType) dataType;
+					dtc = ((Structure) viewComposite).insertBitField(rowIndex, length,
+						bitfield.getBitOffset(), bitfield.getBaseDataType(),
+						bitfield.getDeclaredBitSize(), name, comment);
+				}
 				if (rowIndex <= row) {
 					row++;
 				}
@@ -997,13 +981,21 @@ class StructureEditorModel extends CompEditorModel {
 	}
 
 	@Override
-	protected void insert(int rowIndex, DataType dataType, int length, String name, String comment,
-			int numCopies) throws InvalidDataTypeException {
+	protected void insert(int rowIndex, DataType dataType, int length, int numCopies,
+			TaskMonitor monitor) throws InvalidDataTypeException, CancelledException {
+
 		checkIsAllowableDataType(dataType, true);
 		int componentOrdinal = convertRowToOrdinal(rowIndex);
+		monitor.initialize(numCopies);
 		try {
-			((Structure) viewComposite).insert(componentOrdinal, dataType, length, name, comment,
-				numCopies);
+
+			for (int i = 0; i < numCopies; i++) {
+				monitor.checkCanceled();
+				monitor.setMessage("Inserting " + (i + 1) + " of " + numCopies);
+				viewComposite.insert(componentOrdinal, dataType, length);
+				monitor.incrementProgress(1);
+			}
+
 			if (rowIndex <= row) {
 				row += numCopies;
 			}
@@ -1026,9 +1018,6 @@ class StructureEditorModel extends CompEditorModel {
 		return struct.setFlexibleArrayComponent(dt, dtc.getFieldName(), dtc.getComment());
 	}
 
-	/* (non-Javadoc)
-	 * @see ghidra.app.plugin.datamanager.editor.CompositeEditorModel#replace(int, ghidra.program.model.data.DataType, int, java.lang.String, java.lang.String)
-	 */
 	@Override
 	protected DataTypeComponent replace(int rowIndex, DataType dataType, int length, String name,
 			String comment) throws InvalidDataTypeException {
@@ -1073,15 +1062,12 @@ class StructureEditorModel extends CompEditorModel {
 		}
 	}
 
-	/**
-	 * @see ghidra.app.plugin.contrib.data.editor.CompositeEditorModel#replaceRange(int, int, ghidra.program.model.data.DataType, int)
-	 */
 	@Override
 	protected boolean replaceRange(int startRowIndex, int endRowIndex, DataType datatype,
-			int length) throws InvalidDataTypeException, InsufficientBytesException {
+			int length, TaskMonitor monitor)
+			throws InvalidDataTypeException, InsufficientBytesException, CancelledException {
 
 		if (startRowIndex > endRowIndex) {
-			// TODO throw exception.
 			return false;
 		}
 
@@ -1109,11 +1095,11 @@ class StructureEditorModel extends CompEditorModel {
 		boolean replacedSelected = (overlap.getNumRanges() > 0);
 
 		// Remove the selected components.
-		deleteComponentRange(startRowIndex, endRowIndex);
+		deleteComponentRange(startRowIndex, endRowIndex, monitor);
 
 		int beginUndefs = startRowIndex + numComps;
 		// Create the new components.
-		insertMultiple(startRowIndex, datatype, length, numComps);
+		insertMultiple(startRowIndex, datatype, length, numComps, monitor);
 		int indexAfterMultiple = startRowIndex + numComps;
 		if (replacedSelected) {
 			selection.addRange(startRowIndex, indexAfterMultiple);
@@ -1121,7 +1107,7 @@ class StructureEditorModel extends CompEditorModel {
 		}
 
 		DataTypeComponent comp = getComponent(startRowIndex);
-		// Set the fieldname and comment the same as before
+		// Set the field name and comment the same as before
 		try {
 			comp.setFieldName(fieldName);
 		}
@@ -1135,7 +1121,7 @@ class StructureEditorModel extends CompEditorModel {
 		if (remainingLength > 0 && isShowingUndefinedBytes()) {
 			try {
 				insertComponentMultiple(beginUndefs, DataType.DEFAULT, DataType.DEFAULT.getLength(),
-					remainingLength);
+					remainingLength, monitor);
 				if (replacedSelected) {
 					selection.addRange(indexAfterMultiple, indexAfterMultiple + remainingLength);
 				}
@@ -1151,9 +1137,6 @@ class StructureEditorModel extends CompEditorModel {
 		return true;
 	}
 
-	/* (non-Javadoc)
-	 * @see ghidra.app.plugin.datamanager.editor.CompositeEditorModel#replaceComponents()
-	 */
 	@Override
 	protected void replaceOriginalComponents() {
 		Structure dt = (Structure) getOriginalComposite();
@@ -1165,25 +1148,6 @@ class StructureEditorModel extends CompEditorModel {
 				getOriginalDataTypeName() + ".");
 		}
 	}
-
-//	/**
-//	 * @see ghidra.app.plugin.data.editor.CompositeEditorModel#dataTypeSizeChanged(ghidra.program.model.data.EditableComposite, ghidra.program.model.data.DataType)
-//	 */
-//	public void dataTypeSizeChanged(Composite composite, DataType dt) {
-//		if (isLocked()) {
-//			composite.dataTypeSizeChanged(dt);
-//		}
-//		else {
-//			DataTypeComponent[] dtc = ((Structure)composite).getDefinedComponents();
-//			for(int i=0; i < dtc.length; i++) {
-//				if ((dtc[i].getDataType() == dt) && (dt.getLength() > 0)) {
-//					((Structure)composite).delete(i);
-//					((Structure)composite).insert(i, dt, dt.getLength(), 
-//								dtc[i].getFieldName(), dtc[i].getComment());
-//				}
-//			}
-//		}
-//	}
 
 	/**
 	 * 
@@ -1223,7 +1187,7 @@ class StructureEditorModel extends CompEditorModel {
 		notifyCompositeChanged();
 	}
 
-	public void adjustAlignment(PluginTool tool, int minAlignment) throws InvalidInputException {
+	public void adjustAlignment(PluginTool tool, int minAlignment) {
 		int currentViewAlignment = viewComposite.getMinimumAlignment();
 		if (currentViewAlignment == minAlignment) {
 			return;
@@ -1231,25 +1195,6 @@ class StructureEditorModel extends CompEditorModel {
 		viewComposite.setMinimumAlignment(minAlignment);
 		notifyCompositeChanged();
 	}
-
-//	public boolean updateAndCheckChangeState() {
-//		if (originalIsChanging) {
-//			return false;
-//		}
-//		boolean compositeChanged = super.updateAndCheckChangeState();
-//		if (compositeChanged) {
-//			return true;
-//		}
-//		Structure oldStructure = (Structure)getOriginalComposite();
-//		if (oldStructure == null) {
-//			hadChanges = false;
-//			return hadChanges;
-//		}
-//		Structure viewStructure = (Structure)viewComposite;
-//		hadChanges = !(viewStructure.getPackingType() == oldStructure.getPackingType()
-//					&& viewStructure.getMinimumAlignment() == oldStructure.getMinimumAlignment());
-//		return hadChanges;
-//	}
 
 	@Override
 	public void setAlignment(int minAlignment) throws InvalidInputException {
@@ -1266,7 +1211,7 @@ class StructureEditorModel extends CompEditorModel {
 		return !viewComposite.isInternallyAligned();
 	}
 
-	public void createInternalStructure()
+	public void createInternalStructure(TaskMonitor monitor)
 			throws InvalidDataTypeException, DataTypeConflictException, UsrException {
 
 		if (selection.getNumRanges() != 1) {
@@ -1286,6 +1231,7 @@ class StructureEditorModel extends CompEditorModel {
 				return;
 			}
 		}
+
 		if (isEditingField()) {
 			endFieldEditing();
 		}
@@ -1312,21 +1258,64 @@ class StructureEditorModel extends CompEditorModel {
 		int length = 0;
 		final StructureDataType structureDataType =
 			new StructureDataType(originalCategoryPath, uniqueName, length, originalDTM);
+
+//		if (isAligned()) {
+//			structureDataType.setPackingValue(getPackingValue());
+//		}
+
 // Get data type components to make into structure.
+		DataTypeComponent firstDtc = null;
+		DataTypeComponent lastDtc = null;
 		for (int rowIndex = minRow; rowIndex < maxRow; rowIndex++) {
 			DataTypeComponent component = getComponent(rowIndex);
+			if (rowIndex == minRow) {
+				firstDtc = component;
+			}
+			if (component == null) {
+				lastDtc = component;
+				continue;
+			}
+
+			DataType dt = component.getDataType();
 			int compLength = component.getLength();
+
 			length += compLength;
-			structureDataType.add(component.getDataType(), compLength, component.getFieldName(),
-				component.getComment());
+
+			if (!structureDataType.isInternallyAligned() && component.isBitFieldComponent()) {
+				BitFieldDataType bitfield = (BitFieldDataType) dt;
+				structureDataType.insertBitFieldAt(component.getOffset() - firstDtc.getOffset(),
+					compLength, bitfield.getBitOffset(), bitfield.getBaseDataType(),
+					bitfield.getDeclaredBitSize(), component.getFieldName(),
+					component.getComment());
+			}
+			else {
+				structureDataType.add(dt, compLength, component.getFieldName(),
+					component.getComment());
+			}
+
+			lastDtc = component;
 		}
 		DataType addedDataType = createDataTypeInOriginalDTM(structureDataType);
 		if (viewComposite.isInternallyAligned()) {
-			deleteSelectedComponents();
+			deleteSelectedComponents(monitor);
 			insert(minRow, addedDataType, addedDataType.getLength());
 		}
 		else {
+			int adjustmentBytes = 0;
+			if (firstDtc != null && firstDtc.isBitFieldComponent() && minRow > 0) {
+				DataTypeComponent dtc = getComponent(minRow - 1);
+				if (dtc.getEndOffset() == firstDtc.getOffset()) {
+					++adjustmentBytes;
+				}
+			}
+			if (lastDtc != null && lastDtc.isBitFieldComponent() && maxRow < getNumComponents()) {
+				DataTypeComponent dtc = getComponent(maxRow);
+				if (dtc.getOffset() == lastDtc.getEndOffset()) {
+					++adjustmentBytes;
+				}
+			}
 			clearSelectedComponents();
+			insertMultiple(minRow, DataType.DEFAULT, 1, adjustmentBytes, monitor);
 			replace(minRow, addedDataType, addedDataType.getLength());
 		}
 	}
@@ -1379,5 +1368,108 @@ class StructureEditorModel extends CompEditorModel {
 		finally {
 			originalDTM.endTransaction(transactionID, commit);
 		}
+	}
+
+	/**
+	 * Unpackage the selected component in the structure or array. This means replace the structure
+	 * with the data types for its component parts. For an array replace the array with the data type 
+	 * for each array element.
+	 * If the component isn't a structure or union then returns false.
+	 * @param rowIndex the row
+	 * @param monitor the task monitor
+	 * @throws UsrException if the component can't be unpackaged.
+	 */
+	public void unpackage(int rowIndex, TaskMonitor monitor) throws UsrException {
+		int componentOrdinal = convertRowToOrdinal(rowIndex);
+		DataTypeComponent currentComp = viewComposite.getComponent(componentOrdinal);
+		if (currentComp == null) {
+			throw new UsrException("Can only unpackage an array or structure.");
+		}
+		DataType currentDataType = currentComp.getDataType();
+		if (!((currentDataType instanceof Array) || (currentDataType instanceof Structure))) {
+			throw new UsrException("Can only unpackage an array or structure.");
+		}
+		if (isEditingField()) {
+			endFieldEditing();
+		}
+
+		Structure viewStruct = (Structure) viewComposite;
+
+		// Get the field name and comment before removing.
+		String fieldName = currentComp.getFieldName();
+		String comment = currentComp.getComment();
+		int numComps = 0;
+		// This component is an array so unpackage it.
+		if (currentDataType instanceof Array) {
+			Array array = (Array) currentDataType;
+			int elementLen = array.getElementLength();
+			numComps = array.getNumElements();
+			// Remove the array.
+			delete(componentOrdinal);
+			if (numComps > 0) {
+				// Add the array's elements
+				try {
+					DataType dt = array.getDataType();
+					insertMultiple(rowIndex, dt, elementLen, numComps, monitor);
+				}
+				catch (InvalidDataTypeException ie) {
+					// Do nothing.
+				}
+				catch (OutOfMemoryError memExc) {
+					throw memExc; // rethrow the exception.
+				}
+			}
+		}
+		// This component is a structure so unpackage it.
+		else if (currentDataType instanceof Structure) {
+			Structure struct = (Structure) currentDataType;
+			numComps = struct.getNumComponents();
+			if (numComps > 0) {
+				// Remove the structure.
+				int currentOffset = currentComp.getOffset();
+				deleteComponent(rowIndex);
+
+				// Add the structure's elements
+				for (int i = 0; i < numComps; i++) {
+					DataTypeComponent dtc = struct.getComponent(i);
+					DataType dt = dtc.getDataType();
+					int compLength = dtc.getLength();
+					if (!isAligned()) {
+						if (dtc.isBitFieldComponent()) {
+							BitFieldDataType bitfield = (BitFieldDataType) dt;
+							viewStruct.insertBitFieldAt(currentOffset + dtc.getOffset(), compLength,
+								bitfield.getBitOffset(), bitfield.getBaseDataType(),
+								bitfield.getDeclaredBitSize(), dtc.getFieldName(),
+								dtc.getComment());
+						}
+						else {
+							viewStruct.insertAtOffset(currentOffset + dtc.getOffset(), dt,
+								compLength, dtc.getFieldName(), dtc.getComment());
+						}
+					}
+					else {
+						insert(rowIndex + i, dt, compLength, dtc.getFieldName(), dtc.getComment());
+					}
+				}
+			}
+		}
+		selection.clear();
+		selection.addRange(rowIndex, rowIndex + numComps);
+
+		DataTypeComponent comp = getComponent(rowIndex);
+		// Set the field name and comment the same as before
+		try {
+			if (comp.getFieldName() == null) {
+				comp.setFieldName(fieldName);
+			}
+		}
+		catch (DuplicateNameException exc) {
+			Msg.showError(this, null, null, null);
+		}
+		comp.setComment(comment);
+
+		fixSelection();
+		componentEdited();
+		selectionChanged();
 	}
 }

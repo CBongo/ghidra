@@ -1,6 +1,5 @@
 /* ###
  * IP: GHIDRA
- * REVIEWED: YES
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,10 +15,10 @@
  */
 package ghidra.framework.plugintool;
 
-import ghidra.framework.model.*;
-
 import java.io.*;
 import java.util.Set;
+
+import ghidra.framework.model.*;
 
 public class ToolServicesAdapter implements ToolServices {
 
@@ -28,23 +27,23 @@ public class ToolServicesAdapter implements ToolServices {
 	}
 
 	@Override
-	public boolean canAutoSave(Tool tool) {
+	public boolean canAutoSave(PluginTool tool) {
 		return true;
 	}
 
 	@Override
-	public void closeTool(Tool tool) {
+	public void closeTool(PluginTool tool) {
 		// override
 	}
 
 	@Override
-	public void displaySimilarTool(Tool tool, DomainFile domainFile, PluginEvent event) {
+	public void displaySimilarTool(PluginTool tool, DomainFile domainFile, PluginEvent event) {
 		// override
 	}
 
 	@Override
-	public void exportTool(File location, Tool tool) throws FileNotFoundException, IOException {
-		// override
+	public File exportTool(ToolTemplate tool) throws FileNotFoundException, IOException {
+		return null;
 	}
 
 	@Override
@@ -63,7 +62,7 @@ public class ToolServicesAdapter implements ToolServices {
 	}
 
 	@Override
-	public Tool[] getRunningTools() {
+	public PluginTool[] getRunningTools() {
 		return null;
 	}
 
@@ -73,12 +72,12 @@ public class ToolServicesAdapter implements ToolServices {
 	}
 
 	@Override
-	public Tool launchDefaultTool(DomainFile domainFile) {
+	public PluginTool launchDefaultTool(DomainFile domainFile) {
 		return null;
 	}
 
 	@Override
-	public Tool launchTool(String toolName, DomainFile domainFile) {
+	public PluginTool launchTool(String toolName, DomainFile domainFile) {
 		return null;
 	}
 
@@ -88,7 +87,7 @@ public class ToolServicesAdapter implements ToolServices {
 	}
 
 	@Override
-	public void saveTool(Tool tool) {
+	public void saveTool(PluginTool tool) {
 		// override
 	}
 

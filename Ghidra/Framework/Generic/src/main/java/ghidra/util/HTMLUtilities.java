@@ -17,7 +17,6 @@ package ghidra.util;
 
 import java.awt.*;
 import java.util.List;
-import java.util.StringTokenizer;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -34,7 +33,7 @@ import utilities.util.reflection.ReflectionUtilities;
  *
  * <P>Many clients use this class to render content as HTML.  Below are a few use cases along
  * with the method that should be used for each.
- * <TABLE BORDER="1">
+ * <TABLE BORDER="1"><caption></caption>
  * 		<TR>
  * 			<TH>Use Case</TH><TH>Function</TH><TH>Description</TH>
  * 		</TR>
@@ -355,14 +354,14 @@ public class HTMLUtilities {
 
 	/**
 	 * Returns the given text wrapped in {@link #LINK_PLACEHOLDER_OPEN} and close tags.
-	 * If <tt>foo</tt> is passed for the HTML text, with a content value of <tt>123456</tt>, then
+	 * If <code>foo</code> is passed for the HTML text, with a content value of <code>123456</code>, then
 	 * the output will look like:
 	 * <pre>
 	 * 	&lt;!-- LINK CONTENT="123456" --&gt;foo&lt;!-- /LINK --&gt;
 	 * </pre>
 	 *
 	 * @param htmlText the HTML text to wrap
-	 * @param content the value that will be put into the <tt>CONTENT</tt> section of the
+	 * @param content the value that will be put into the <code>CONTENT</code> section of the
 	 * 		  generated HTML.  This can later be retrieved by clients transforming this text.
 	 * @return the wrapped text
 	 */
@@ -375,8 +374,8 @@ public class HTMLUtilities {
 
 	/**
 	 * Takes HTML text wrapped by {@link #wrapWithLinkPlaceholder(String, String)} and replaces
-	 * the custom link comment tags with HTML anchor (<tt>A</tt>) tags, where the <tt>HREF</tt>
-	 * value is the value that was in the <tt>CONTENT</tt> attribute.
+	 * the custom link comment tags with HTML anchor (<code>A</code>) tags, where the <code>HREF</code>
+	 * value is the value that was in the <code>CONTENT</code> attribute.
 	 *
 	 * @param text the text for which to replace the markup
 	 * @return the updated text
@@ -428,9 +427,9 @@ public class HTMLUtilities {
 	/**
 	 * Similar to {@link #toHTML(String)} in that it will wrap the given text in
 	 * HTML tags and split the content into multiple lines.  The difference is that this method
-	 * will split lines that pass the given maximum length <b>and</b> on <tt>'\n'</tt>
+	 * will split lines that pass the given maximum length <b>and</b> on <code>'\n'</code>
 	 * characters.  Alternatively, {@link #toHTML(String)} will only split the given
-	 * text on <tt>'\n'</tt> characters.
+	 * text on <code>'\n'</code> characters.
 	 *
 	 * @param text The text to convert
 	 * @param maxLineLength The maximum number of characters that should appear in a line;
@@ -481,25 +480,13 @@ public class HTMLUtilities {
 	}
 
 	/**
-	 * This is just a convenience call to {@link #friendlyEncodeHTML(String, boolean)} with a
-	 * value of <tt>true</tt>.
-	 *
-	 * @param text string to be encoded
-	 * @return the encoded HTML string
-	 * @see #friendlyEncodeHTML(String, boolean)
-	 */
-	public static String friendlyEncodeHTML(String text) {
-		return friendlyEncodeHTML(text, true);
-	}
-
-	/**
 	 * Converts any special or reserved characters in the specified string into HTML-escaped
 	 * entities.  Use this method when you have content containing HTML that you do not want
 	 * interpreted as HTML, such as when displaying text that uses angle brackets around words.
 	 *
 	 * <P>For example, consider the following<br><br>
 	 *
-	 * <table border=1>
+	 * <table border=1><caption></caption>
 	 * 		<tr>
 	 * 			<th>Input</th><th>Output</th><th>Rendered as</th><th>(Without Friendly Encoding)</th>
 	 * 		</tr>
@@ -508,10 +495,10 @@ public class HTMLUtilities {
 	 * 				Hi &lt;b&gt;mom &lt;/b&gt;
 	 * 			</td>
 	 * 			<td>
-	 * 				Hi<font color="green">
-	 *  &#x26;nbsp;<b>&#x26;lt;</b></font>b<font color="green"><b>&#x26;gt;</b></font>mom
-	 *  <font color="green">&#x26;nbsp;<b>&#x26;lt;</b></font>/b<font color="green"><b>&#x26;gt;</b>
-	 *  </font>
+	 * 				Hi<span style="color:green">
+	 *  &#x26;nbsp;<b>&#x26;lt;</b></span>b<span style="color:green"><b>&#x26;gt;</b></span>mom
+	 *  <span style="color:green">&#x26;nbsp;<b>&#x26;lt;</b></span>/b<span style="color:green"><b>&#x26;gt;</b>
+	 *  </span>
 	 * 			</td>
 	 * 			<td>
 	 * 				Hi &lt;b&gt;mom &lt;/b&gt;
@@ -524,6 +511,16 @@ public class HTMLUtilities {
 	 *
 	 *  <br><br><br>
 	 *
+	 * @param text string to be encoded
+	 * @return the encoded HTML string
+	 */
+	public static String friendlyEncodeHTML(String text) {
+		return friendlyEncodeHTML(text, true);
+	}
+
+	/**
+	 * See {@link #friendlyEncodeHTML(String)}
+	 * 
 	 * @param text string to be encoded
 	 * @param skipLeadingWhitespace  true signals to ignore any leading whitespace characters.
 	 * 	      This is useful when line wrapping to force wrapped lines to the left
@@ -596,6 +593,64 @@ public class HTMLUtilities {
 		}
 
 		return buffer.toString();
+	}
+
+	/**
+	 * Escapes any HTML special characters in the specified text.
+	 * <p>
+	 * Does not otherwise modify the input text or wrap lines.
+	 * <p>
+	 * Calling this twice will result in text being double-escaped, which will not display correctly.
+	 * <p>
+	 * See also <code>StringEscapeUtils#escapeHtml3(String)</code> if you need quote-safe html encoding.
+	 * <p>
+	 *  
+	 * @param text plain-text that might have some characters that should NOT be interpreted as HTML
+	 * @return string with any html characters replaced with equivalents
+	 */
+	public static String escapeHTML(String text) {
+
+		StringBuilder buffer = new StringBuilder(text.length());
+		text.codePoints().forEach(cp -> {
+			switch (cp) {
+				case '&':
+					buffer.append("&amp;");
+					break;
+				case '<':
+					buffer.append("&lt;");
+					break;
+				case '>':
+					buffer.append("&gt;");
+					break;
+				default:
+					if (charNeedsHTMLEscaping(cp)) {
+						buffer.append("&#x");
+						buffer.append(Integer.toString(cp, 16).toUpperCase());
+						buffer.append(";");
+					}
+					else {
+						buffer.appendCodePoint(cp);
+					}
+					break;
+			}
+		});
+
+		return buffer.toString();
+	}
+
+	/**
+	 * Tests a unicode code point (i.e., 32 bit character) to see if it needs to be escaped before 
+	 * being added to a HTML document because it is non-printable or a non-standard control 
+	 * character
+	 * 
+	 * @param codePoint character to test
+	 * @return boolean true if character should be escaped
+	 */
+	public static boolean charNeedsHTMLEscaping(int codePoint) {
+		if (codePoint == '\n' || codePoint == '\t' || (' ' <= codePoint && codePoint < 0x7F)) {
+			return false;
+		}
+		return true;
 	}
 
 	/**
@@ -741,21 +796,11 @@ public class HTMLUtilities {
 		// formatting tags (like <B>, <FONT>, etc).   So, just normalize the text, not
 		// preserving any of the line breaks.
 		//
-		String condensed = condense(updated);
-		return condensed;
-	}
-
-	private static String condense(String text) {
-		// replace newlines, as they are sometimes inserted where two words were expected to
-		// contain no whitespace
-		String updated = text.replaceAll("\\n", "");
-		StringTokenizer tokenizer = new StringTokenizer(updated);
-		StringBuilder buffy = new StringBuilder();
-		while (tokenizer.hasMoreTokens()) {
-			buffy.append(tokenizer.nextToken()).append(" ");
-		}
-
-		return buffy.toString().trim();
+		// Note: Calling this method here causes unwanted removal of newlines.  If the original 
+		//       need for this call is found, this can be revisited. 
+		//       (see history for condense() code)
+		// String condensed = condense(updated);
+		return updated;
 	}
 
 	/**

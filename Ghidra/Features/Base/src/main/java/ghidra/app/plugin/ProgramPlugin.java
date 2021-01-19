@@ -1,6 +1,5 @@
 /* ###
  * IP: GHIDRA
- * REVIEWED: YES
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,6 +15,10 @@
  */
 package ghidra.app.plugin;
 
+import java.util.ArrayList;
+
+import docking.ActionContext;
+import docking.action.DockingAction;
 import ghidra.app.events.*;
 import ghidra.app.services.GoToService;
 import ghidra.framework.plugintool.*;
@@ -25,30 +28,30 @@ import ghidra.program.model.listing.*;
 import ghidra.program.util.ProgramLocation;
 import ghidra.program.util.ProgramSelection;
 
-import java.util.ArrayList;
-
-import docking.action.DockingAction;
-
 /**
  * Base class to handle common program events: Program Open/Close,
  * Program Location, Program Selection, and Program Highlight. 
  * <p>
  * Subclasses should override the following methods if they are interested
  * in the corresponding events:
+ * <ul>
  * <LI> <code>programOpened(Program)</code> 
  * <LI> <code>programClosed(Program)</code> 
  * <LI> <code>locationChanged(ProgramLocation)</code>
  * <LI> <code>selectionChanged(ProgramSelection) </code>
  * <LI> <code>highlightChanged(ProgramSelection) </code>
  * </LI>
+ * </ul>
  * <br>
  * This class will handle the enablement and add to popup state for
  * plugin actions when subclasses call any of the following methods:
+ * <ul>
  * <LI><code>enableOnHighlight(PluginAction)</code>
  * <LI><code>enableOnLocation(PluginAction)</code>
  * <LI><code>enableOnProgram(PluginAction)</code>
  * <LI><code>enableOnSelection(PluginAction)</code>
  * </LI>
+ * </ul>
  *
  */
 public abstract class ProgramPlugin extends Plugin {
@@ -64,7 +67,6 @@ public abstract class ProgramPlugin extends Plugin {
 
 	/**
 	 * Constructs a new program plugin
-	 * @param name plugin name       the name of this plugin
 	 * @param plugintool tool        the parent tool for this plugin
 	 * @param consumeLocationChange  true if this plugin should consume ProgramLocation events
 	 * @param consumeSelectionChange true if this plugin should consume ProgramSelection events
@@ -87,10 +89,10 @@ public abstract class ProgramPlugin extends Plugin {
 		}
 		registerEventConsumed(ProgramOpenedPluginEvent.class);
 		registerEventConsumed(ProgramClosedPluginEvent.class);
-		programActionList = new ArrayList<DockingAction>(3);
-		locationActionList = new ArrayList<DockingAction>(3);
-		selectionActionList = new ArrayList<DockingAction>(3);
-		highlightActionList = new ArrayList<DockingAction>(3);
+		programActionList = new ArrayList<>(3);
+		locationActionList = new ArrayList<>(3);
+		selectionActionList = new ArrayList<>(3);
+		highlightActionList = new ArrayList<>(3);
 	}
 
 	public ProgramPlugin(PluginTool tool, boolean consumeLocationChange,
@@ -201,7 +203,10 @@ public abstract class ProgramPlugin extends Plugin {
 	 * the program is closed.
 	 * @throws IllegalArgumentException if this action was called for
 	 * another enableOnXXX(PlugAction) method.
+	 * @deprecated {@link ActionContext} is now used for action enablement.  Deprecated in 9.1; to
+	 *             be removed no sooner than two versions after that.
 	 */
+	@Deprecated
 	protected void enableOnProgram(DockingAction action) {
 		if (locationActionList.contains(action)) {
 			throw new IllegalArgumentException("Action already added to location action list");
@@ -222,7 +227,10 @@ public abstract class ProgramPlugin extends Plugin {
 	 * is null.
 	 * @throws IllegalArgumentException if this action was called for
 	 * another enableOnXXX(PlugAction) method.
+	 * @deprecated {@link ActionContext} is now used for action enablement.  Deprecated in 9.1; to
+	 *             be removed no sooner than two versions after that.
 	 */
+	@Deprecated
 	protected void enableOnLocation(DockingAction action) {
 		if (programActionList.contains(action)) {
 			throw new IllegalArgumentException("Action already added to program action list");
@@ -243,7 +251,10 @@ public abstract class ProgramPlugin extends Plugin {
 	 * the selection is null or empty.
 	 * @throws IllegalArgumentException if this action was called for
 	 * another enableOnXXX(PlugAction) method.
+	 * @deprecated {@link ActionContext} is now used for action enablement.  Deprecated in 9.1; to
+	 *             be removed no sooner than two versions after that.
 	 */
+	@Deprecated
 	protected void enableOnSelection(DockingAction action) {
 		if (programActionList.contains(action)) {
 			throw new IllegalArgumentException("Action already added to program action list");
@@ -263,7 +274,10 @@ public abstract class ProgramPlugin extends Plugin {
 	 * the highlight is null or empty.
 	 * @throws IllegalArgumentException if this action was called for
 	 * another enableOnXXX(PlugAction) method.
+	 * @deprecated {@link ActionContext} is now used for action enablement.  Deprecated in 9.1; to
+	 *             be removed no sooner than two versions after that.
 	 */
+	@Deprecated
 	protected void enableOnHighlight(DockingAction action) {
 		if (programActionList.contains(action)) {
 			throw new IllegalArgumentException("Action already added to program action list");
@@ -378,8 +392,8 @@ public abstract class ProgramPlugin extends Plugin {
 		if (currentProgram == null) {
 			return;
 		}
-		firePluginEvent(new ProgramSelectionPluginEvent(getName(), new ProgramSelection(set),
-			currentProgram));
+		firePluginEvent(
+			new ProgramSelectionPluginEvent(getName(), new ProgramSelection(set), currentProgram));
 	}
 
 	/**

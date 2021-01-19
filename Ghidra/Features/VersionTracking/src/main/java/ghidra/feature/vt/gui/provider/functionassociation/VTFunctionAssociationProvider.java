@@ -15,8 +15,12 @@
  */
 package ghidra.feature.vt.gui.provider.functionassociation;
 
-import static ghidra.feature.vt.api.impl.VTChangeManager.*;
-import static ghidra.feature.vt.gui.provider.functionassociation.FilterSettings.*;
+import static ghidra.feature.vt.api.impl.VTChangeManager.DOCR_VT_ASSOCIATION_STATUS_CHANGED;
+import static ghidra.feature.vt.api.impl.VTChangeManager.DOCR_VT_MATCH_ADDED;
+import static ghidra.feature.vt.api.impl.VTChangeManager.DOCR_VT_MATCH_DELETED;
+import static ghidra.feature.vt.gui.provider.functionassociation.FilterSettings.SHOW_ALL;
+import static ghidra.feature.vt.gui.provider.functionassociation.FilterSettings.SHOW_UNACCEPTED;
+import static ghidra.feature.vt.gui.provider.functionassociation.FilterSettings.SHOW_UNMATCHED;
 
 import java.awt.*;
 import java.awt.event.*;
@@ -28,14 +32,14 @@ import javax.swing.event.TableModelEvent;
 import javax.swing.event.TableModelListener;
 import javax.swing.table.JTableHeader;
 
-import docking.ActionContext;
-import docking.ToolTipManager;
-import docking.WindowPosition;
+import docking.*;
 import docking.action.*;
+import docking.actions.PopupActionProvider;
 import docking.menu.ActionState;
 import docking.menu.MultiStateDockingAction;
 import docking.widgets.EventTrigger;
 import docking.widgets.fieldpanel.FieldPanel;
+import docking.widgets.label.GDLabel;
 import docking.widgets.table.threaded.ThreadedTableModel;
 import ghidra.app.plugin.core.functioncompare.FunctionComparisonPanel;
 import ghidra.app.services.GoToService;
@@ -52,7 +56,6 @@ import ghidra.framework.model.*;
 import ghidra.framework.options.Options;
 import ghidra.framework.options.SaveState;
 import ghidra.framework.plugintool.ComponentProviderAdapter;
-import ghidra.framework.plugintool.PopupListener;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.listing.Function;
 import ghidra.program.model.listing.Program;
@@ -67,7 +70,7 @@ import resources.ResourceManager;
  * Provider for the version tracking function association table. 
  */
 public class VTFunctionAssociationProvider extends ComponentProviderAdapter
-		implements VTControllerListener, PopupListener {
+		implements VTControllerListener, PopupActionProvider {
 
 	private static final String FILTER_SETTINGS_KEY = "FUNCTION_FILTER_SETTINGS";
 	private static final String BASE_TITLE = "Version Tracking Functions";
@@ -125,7 +128,7 @@ public class VTFunctionAssociationProvider extends ComponentProviderAdapter
 		createActions();
 		addGeneralCodeComparisonActions();
 		controller.addListener(this);
-		tool.addPopupListener(this);
+		tool.addPopupActionProvider(this);
 	}
 
 	private void createActions() {
@@ -143,8 +146,7 @@ public class VTFunctionAssociationProvider extends ComponentProviderAdapter
 
 	private void createFilterAction() {
 		MultiStateDockingAction<FilterSettings> filterAction =
-			new MultiStateDockingAction<FilterSettings>("Function Association Functions Filter",
-				VTPlugin.OWNER) {
+			new MultiStateDockingAction<>("Function Association Functions Filter", VTPlugin.OWNER) {
 
 				@Override
 				public void actionStateChanged(ActionState<FilterSettings> newActionState,
@@ -217,7 +219,7 @@ public class VTFunctionAssociationProvider extends ComponentProviderAdapter
 	}
 
 	@Override
-	public List<DockingActionIf> getPopupActions(ActionContext context) {
+	public List<DockingActionIf> getPopupActions(Tool tool, ActionContext context) {
 		if (context.getComponentProvider() == this) {
 			ListingCodeComparisonPanel dualListingPanel =
 				functionComparisonPanel.getDualListingPanel();
@@ -279,7 +281,7 @@ public class VTFunctionAssociationProvider extends ComponentProviderAdapter
 						getExistingMatch(sourceFunction, destinationFunction));
 				vtListingContext.setCodeComparisonPanel(dualListingPanel);
 				vtListingContext.setContextObject(dualListingPanel);
-				vtListingContext.setSource(source);
+				vtListingContext.setSourceObject(source);
 				return vtListingContext;
 			}
 
@@ -335,7 +337,7 @@ public class VTFunctionAssociationProvider extends ComponentProviderAdapter
 		destinationFunctionsTable.dispose();
 		destinationTableFilterPanel.dispose();
 
-		tool.removePopupListener(this);
+		tool.removePopupActionProvider(this);
 	}
 
 	public void reload() {
@@ -357,7 +359,7 @@ public class VTFunctionAssociationProvider extends ComponentProviderAdapter
 		dualTablePanel.add(splitPane, BorderLayout.CENTER);
 
 		JPanel statusPanel = new JPanel(new BorderLayout());
-		statusLabel = new JLabel(NO_ERROR_MESSAGE);
+		statusLabel = new GDLabel(NO_ERROR_MESSAGE);
 		statusLabel.setHorizontalAlignment(SwingConstants.CENTER);
 		statusLabel.setForeground(Color.RED.darker());
 		statusLabel.addComponentListener(new ComponentAdapter() {
@@ -475,9 +477,11 @@ public class VTFunctionAssociationProvider extends ComponentProviderAdapter
 
 		sourceFunctionsModel.addTableModelListener(new TitleUpdateListener());
 
-		sourceFunctionsTable.getColumnModel().getColumn(
-			VTFunctionAssociationTableModel.ADDRESS_COL).setPreferredWidth(
-				VTFunctionAssociationTableModel.ADDRESS_COL_WIDTH);
+		sourceFunctionsTable.getColumnModel()
+				.getColumn(
+					VTFunctionAssociationTableModel.ADDRESS_COL)
+				.setPreferredWidth(
+					VTFunctionAssociationTableModel.ADDRESS_COL_WIDTH);
 
 		sourceTableFilterPanel =
 			new GhidraTableFilterPanel<>(sourceFunctionsTable, sourceFunctionsModel);
@@ -486,7 +490,7 @@ public class VTFunctionAssociationProvider extends ComponentProviderAdapter
 		String sourceString =
 			(sourceProgram != null) ? sourceProgram.getDomainFile().toString() : NO_SESSION;
 		String sourceTitle = SOURCE_TITLE + " = " + sourceString;
-		sourceSessionLabel = new JLabel(sourceTitle);
+		sourceSessionLabel = new GDLabel(sourceTitle);
 		sourceSessionLabel.setBorder(BorderFactory.createEmptyBorder(0, 4, 0, 0));
 		sourceFunctionPanel.add(sourceSessionLabel, BorderLayout.NORTH);
 		sourceFunctionPanel.add(sourceThreadedTablePanel, BorderLayout.CENTER);
@@ -532,9 +536,11 @@ public class VTFunctionAssociationProvider extends ComponentProviderAdapter
 		JTableHeader functionHeader = destinationFunctionsTable.getTableHeader();
 		functionHeader.setUpdateTableInRealTime(true);
 
-		destinationFunctionsTable.getColumnModel().getColumn(
-			VTFunctionAssociationTableModel.ADDRESS_COL).setPreferredWidth(
-				VTFunctionAssociationTableModel.ADDRESS_COL_WIDTH);
+		destinationFunctionsTable.getColumnModel()
+				.getColumn(
+					VTFunctionAssociationTableModel.ADDRESS_COL)
+				.setPreferredWidth(
+					VTFunctionAssociationTableModel.ADDRESS_COL_WIDTH);
 
 		destinationTableFilterPanel =
 			new GhidraTableFilterPanel<>(destinationFunctionsTable, destinationFunctionsModel);
@@ -544,7 +550,7 @@ public class VTFunctionAssociationProvider extends ComponentProviderAdapter
 			(destinationProgram != null) ? destinationProgram.getDomainFile().toString()
 					: NO_SESSION;
 		String destinationTitle = DESTINATION_TITLE + " = " + destinationString;
-		destinationSessionLabel = new JLabel(destinationTitle);
+		destinationSessionLabel = new GDLabel(destinationTitle);
 		destinationSessionLabel.setBorder(BorderFactory.createEmptyBorder(0, 4, 0, 0));
 		destinationFunctionPanel.add(destinationSessionLabel, BorderLayout.NORTH);
 		destinationFunctionPanel.add(destinationThreadedTablePanel, BorderLayout.CENTER);
@@ -629,10 +635,10 @@ public class VTFunctionAssociationProvider extends ComponentProviderAdapter
 			messageWidth = fm.stringWidth(text);
 		}
 		if (messageWidth > statusLabel.getWidth()) {
-			ToolTipManager.setToolTipText(statusLabel, text);
+			statusLabel.setToolTipText(text);
 		}
 		else {
-			ToolTipManager.setToolTipText(statusLabel, null);
+			statusLabel.setToolTipText(null);
 		}
 	}
 
@@ -795,7 +801,7 @@ public class VTFunctionAssociationProvider extends ComponentProviderAdapter
 		private void getTableFilterString(String tableName, ThreadedTableModel<?, ?> model,
 				StringBuffer buffy) {
 			int filteredCount = model.getRowCount();
-			int unfilteredCount = model.getUnfilteredCount();
+			int unfilteredCount = model.getUnfilteredRowCount();
 
 			buffy.append(tableName).append(" - ").append(filteredCount).append(" functions");
 			if (filteredCount != unfilteredCount) {

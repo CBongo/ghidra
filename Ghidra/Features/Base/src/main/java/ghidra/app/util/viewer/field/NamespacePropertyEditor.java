@@ -24,7 +24,7 @@ import javax.swing.border.TitledBorder;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 
-import docking.ToolTipManager;
+import docking.widgets.checkbox.GCheckBox;
 import ghidra.framework.options.CustomOptionsEditor;
 import ghidra.util.HTMLUtilities;
 import ghidra.util.layout.VerticalLayout;
@@ -73,21 +73,21 @@ public class NamespacePropertyEditor extends PropertyEditorSupport implements Cu
 		JPanel panel = new JPanel(new VerticalLayout(3));
 
 		// the namespace checkbox will disable the text field options when it is not used
-		showNonLocalCheckBox = new JCheckBox(DISPLAY_NON_LOCAL_NAMESPACE_LABEL);
+		showNonLocalCheckBox = new GCheckBox(DISPLAY_NON_LOCAL_NAMESPACE_LABEL);
 		showNonLocalCheckBox.setSelected(false);
-		ToolTipManager.setToolTipText(showNonLocalCheckBox, SHOW_NON_LOCAL_NAMESPACE_TOOLTIP);
+		showNonLocalCheckBox.setToolTipText(SHOW_NON_LOCAL_NAMESPACE_TOOLTIP);
 
-		showLocalCheckBox = new JCheckBox(DISPLAY_LOCAL_NAMESPACE_LABEL);
+		showLocalCheckBox = new GCheckBox(DISPLAY_LOCAL_NAMESPACE_LABEL);
 		showLocalCheckBox.setSelected(false);
-		ToolTipManager.setToolTipText(showLocalCheckBox, SHOW_LOCAL_NAMESPACE_TOOLTIP);
+		showLocalCheckBox.setToolTipText(SHOW_LOCAL_NAMESPACE_TOOLTIP);
 
-		showLibraryInNamespaceCheckBox = new JCheckBox(DISPLAY_LIBRARY_IN_NAMESPACE_LABEL);
+		showLibraryInNamespaceCheckBox = new GCheckBox(DISPLAY_LIBRARY_IN_NAMESPACE_LABEL);
 		showLibraryInNamespaceCheckBox.setSelected(true);
-		ToolTipManager.setToolTipText(showLocalCheckBox, SHOW_LIBRARY_IN_NAMESPACE_TOOLTIP);
+		showLibraryInNamespaceCheckBox.setToolTipText(SHOW_LIBRARY_IN_NAMESPACE_TOOLTIP);
 
 		panel.add(showNonLocalCheckBox);
-		panel.add(showLocalCheckBox);
 		panel.add(showLibraryInNamespaceCheckBox);
+		panel.add(showLocalCheckBox);
 
 		localPrefixField =
 			createLocalPrefixTextField(LOCAL_NAMESPACE_PREFIX_LABEL, LOCAL_PREFIX_TOOLTIP, panel);
@@ -116,8 +116,8 @@ public class NamespacePropertyEditor extends PropertyEditorSupport implements Cu
 		JPanel textFieldPanel = new JPanel();
 		textFieldPanel.setBorder(BorderFactory.createEmptyBorder(0, 10, 0, 0));
 
-		useLocalPrefixCheckBox = new JCheckBox("Use Local Namespace Override");
-		ToolTipManager.setToolTipText(useLocalPrefixCheckBox, tooltipText);
+		useLocalPrefixCheckBox = new GCheckBox("Use Local Namespace Override");
+		useLocalPrefixCheckBox.setToolTipText(tooltipText);
 		useLocalPrefixCheckBox.addItemListener(e -> {
 			textField.setEnabled(useLocalPrefixCheckBox.isSelected());
 			firePropertyChange();
@@ -169,7 +169,8 @@ public class NamespacePropertyEditor extends PropertyEditorSupport implements Cu
 		if (namespaceOption.isShowLocalNamespace() != showLocalCheckBox.isSelected()) {
 			showLocalCheckBox.setSelected(namespaceOption.isShowLocalNamespace());
 		}
-		if (namespaceOption.isShowLibraryInNamespace() != showLibraryInNamespaceCheckBox.isSelected()) {
+		if (namespaceOption.isShowLibraryInNamespace() != showLibraryInNamespaceCheckBox
+				.isSelected()) {
 			showLibraryInNamespaceCheckBox.setSelected(namespaceOption.isShowLibraryInNamespace());
 		}
 		if (namespaceOption.isUseLocalPrefixOverride() != useLocalPrefixCheckBox.isSelected()) {

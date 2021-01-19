@@ -27,41 +27,70 @@ import java.util.List;
 import javax.swing.*;
 
 import docking.event.mouse.GMouseListenerAdapter;
+import docking.widgets.AutoLookup;
+import docking.widgets.label.GDLabel;
 import docking.widgets.list.GList;
+import docking.widgets.list.GListAutoLookup;
 import ghidra.util.exception.AssertException;
 
 class DirectoryList extends GList<File> implements GhidraFileChooserDirectoryModelIf {
+	private static final int DEFAULT_ICON_SIZE = 16;
+	private static final int MIN_HEIGHT_PADDING = 5;
 
 	private GhidraFileChooser chooser;
 	private DirectoryListModel model;
 	private JLabel listEditorLabel;
-	private JTextField listEditorText;
+	private JTextField listEditorField;
 	private JPanel listEditor;
 
 	/** The file being edited */
 	private File editedFile;
 
-	DirectoryList(GhidraFileChooser chooser, DirectoryListModel model) {
+	/**
+	 * Create a new DirectoryList instance.
+	 * 
+	 * @param chooser the {@link GhidraFileChooser} this instance is nested in
+	 * @param model the {@link DirectoryListModel}
+	 * @param font the parent component's font, used to calculate row height in the list once
+	 */
+	DirectoryList(GhidraFileChooser chooser, DirectoryListModel model, Font font) {
 		super(model);
 		this.chooser = chooser;
 		this.model = model;
-		build();
+		build(font);
 	}
 
-	private void build() {
-		setLayoutOrientation(JList.VERTICAL_WRAP);
-		setCellRenderer(new FileListCellRenderer(chooser));
+	private void build(Font font) {
 
-		addMouseListener(new MouseAdapter() {
+		setLayoutOrientation(JList.VERTICAL_WRAP);
+
+		FileListCellRenderer cellRenderer = new FileListCellRenderer(chooser);
+		setCellRenderer(cellRenderer);
+
+		// Enable the list to calculate the width of the cells on its own, but manually
+		// specify the height to ensure some padding between rows.
+		// We need the parent component's Font instead of using our
+		// own #getFont() because we are not a child of the parent yet and
+		// the font may be set to something other than the default.
+		// Use 1/3 of the line height of the font to ensure visually consistent
+		// padding between rows.  (historically, 5px was used as the padding
+		// between the default 12pt (15px lineht) rows, so 15px lineht/5px padding
+		// equals .333 ratio.) 
+		FontMetrics metrics = cellRenderer.getFontMetrics(font);
+		setFixedCellHeight(
+			Math.max(metrics.getHeight(), DEFAULT_ICON_SIZE) +
+				Math.max(metrics.getHeight() / 3, MIN_HEIGHT_PADDING));
+		setFixedCellWidth(-1);
+
+		addMouseListener(new GMouseListenerAdapter() {
 			@Override
 			public void mouseClicked(MouseEvent e) {
+				super.mouseClicked(e);
+
 				// always end editing on a mouse click of any kind
 				listEditor.setVisible(false);
 				requestFocus();
 			}
-		});
-
-		addMouseListener(new GMouseListenerAdapter() {
 
 			@Override
 			public boolean shouldConsume(MouseEvent e) {
@@ -85,31 +114,9 @@ class DirectoryList extends GList<File> implements GhidraFileChooserDirectoryMod
 		addKeyListener(new KeyAdapter() {
 			@Override
 			public void keyReleased(KeyEvent e) {
-				if (e.getKeyCode() != KeyEvent.VK_ENTER) {
-					return;
-				}
-				e.consume();
-
-				int[] selectedIndices = getSelectedIndices();
-				if (selectedIndices.length == 0) {
-					chooser.okCallback();
-					// this implies the user has somehow put focus into the table, but has not
-					// made a selection...just let the chooser decide what to do
-					return;
-				}
-
-				if (selectedIndices.length > 1) {
-					// let the chooser decide what to do with multiple rows selected
-					chooser.okCallback();
-					return;
-				}
-
-				File file = model.getFile(selectedIndices[0]);
-				if (chooser.getModel().isDirectory(file)) {
-					chooser.setCurrentDirectory(file);
-				}
-				else {
-					chooser.userChoseFile(file);
+				if (e.getKeyCode() == KeyEvent.VK_ENTER) {
+					e.consume();
+					handleEnterKey();
 				}
 			}
 		});
@@ -121,7 +128,7 @@ class DirectoryList extends GList<File> implements GhidraFileChooserDirectoryMod
 			updateChooserForSelection();
 		});
 
-		listEditorLabel = new JLabel();
+		listEditorLabel = new GDLabel();
 		listEditorLabel.addMouseListener(new MouseAdapter() {
 			@Override
 			public void mouseReleased(MouseEvent e) {
@@ -136,9 +143,9 @@ class DirectoryList extends GList<File> implements GhidraFileChooserDirectoryMod
 			}
 		});
 
-		listEditorText = new JTextField();
-		listEditorText.setName("LIST_EDITOR_FIELD");
-		listEditorText.addKeyListener(new KeyAdapter() {
+		listEditorField = new JTextField();
+		listEditorField.setName("LIST_EDITOR_FIELD");
+		listEditorField.addKeyListener(new KeyAdapter() {
 			@Override
 			public void keyPressed(KeyEvent e) {
 				if (e.getKeyCode() == KeyEvent.VK_ESCAPE) {
@@ -154,13 +161,21 @@ class DirectoryList extends GList<File> implements GhidraFileChooserDirectoryMod
 					e.consume();
 				}
 				else if (e.getKeyCode() == KeyEvent.VK_ENTER) {
-					stopListEdit();
+					String invalidFilenameMessage =
+						chooser.getInvalidFilenameMessage(listEditorField.getText());
+					if (invalidFilenameMessage != null) {
+						chooser.setStatusText(invalidFilenameMessage);
+						// keep the user in the field by not stopping the current edit
+					}
+					else {
+						stopListEdit();
+					}
 					e.consume();
 				}
 			}
 		});
 
-		listEditorText.addFocusListener(new FocusAdapter() {
+		listEditorField.addFocusListener(new FocusAdapter() {
 			@Override
 			public void focusLost(FocusEvent e) {
 				// Tracker SCR 3358 - Keep changes on focus lost
@@ -172,12 +187,37 @@ class DirectoryList extends GList<File> implements GhidraFileChooserDirectoryMod
 		listEditor.setBorder(BorderFactory.createLineBorder(Color.GRAY));
 
 		listEditor.add(listEditorLabel, BorderLayout.WEST);
-		listEditor.add(listEditorText, BorderLayout.CENTER);
+		listEditor.add(listEditorField, BorderLayout.CENTER);
 
 		listEditor.setBackground(Color.WHITE);
-		listEditorText.setBorder(BorderFactory.createEmptyBorder(2, 2, 2, 2));
+		listEditorField.setBorder(BorderFactory.createEmptyBorder(2, 2, 2, 2));
 
 		add(listEditor);
+	}
+
+	private void handleEnterKey() {
+
+		int[] selectedIndices = getSelectedIndices();
+		if (selectedIndices.length == 0) {
+			chooser.okCallback();
+			// this implies the user has somehow put focus into the table, but has not
+			// made a selection...just let the chooser decide what to do
+			return;
+		}
+
+		if (selectedIndices.length > 1) {
+			// let the chooser decide what to do with multiple rows selected
+			chooser.okCallback();
+			return;
+		}
+
+		File file = model.getFile(selectedIndices[0]);
+		if (chooser.getModel().isDirectory(file)) {
+			chooser.setCurrentDirectory(file);
+		}
+		else {
+			chooser.userChoseFile(file);
+		}
 	}
 
 	private void maybeSelectItem(MouseEvent e) {
@@ -216,6 +256,16 @@ class DirectoryList extends GList<File> implements GhidraFileChooserDirectoryMod
 			selectedFiles.add(model.getFile(index));
 		}
 		chooser.userSelectedFiles(selectedFiles);
+	}
+
+	@Override
+	protected AutoLookup createAutoLookup() {
+		return new GListAutoLookup<>(this) {
+			@Override
+			protected boolean canBinarySearchColumn(int column) {
+				return false;
+			}
+		};
 	}
 
 	@Override
@@ -298,9 +348,9 @@ class DirectoryList extends GList<File> implements GhidraFileChooserDirectoryMod
 		listEditor.setBounds(r.x, r.y, r.width, r.height);
 		listEditor.setVisible(true);
 		listEditorLabel.setIcon(chooser.getModel().getIcon(editedFile));
-		listEditorText.setText(editedFile.getName());
-		listEditorText.requestFocus();
-		listEditorText.selectAll();
+		listEditorField.setText(editedFile.getName());
+		listEditorField.requestFocus();
+		listEditorField.selectAll();
 	}
 
 	void cancelListEdit() {
@@ -308,7 +358,7 @@ class DirectoryList extends GList<File> implements GhidraFileChooserDirectoryMod
 		remove(listEditor);
 		listEditor.setVisible(false);
 		listEditorLabel.setIcon(null);
-		listEditorText.setText("");
+		listEditorField.setText("");
 		repaint();
 	}
 
@@ -318,14 +368,23 @@ class DirectoryList extends GList<File> implements GhidraFileChooserDirectoryMod
 			return;
 		}
 
+		String invalidFilenameMessage =
+			chooser.getInvalidFilenameMessage(listEditorField.getText());
+		if (invalidFilenameMessage != null) {
+			chooser.setStatusText("Rename aborted - " + invalidFilenameMessage);
+			cancelListEdit();
+			return;
+		}
+
 		File editedFileCopy = editedFile;
 		int index = model.indexOfFile(editedFileCopy);
 		if (index < 0) {
 			throw new AssertException("Somehow editing file not in our model.");
 		}
-		File dest = new File(editedFileCopy.getParentFile(), listEditorText.getText());
+		File dest = new File(editedFileCopy.getParentFile(), listEditorField.getText());
 		cancelListEdit();
 		if (chooser.getModel().renameFile(editedFileCopy, dest)) {
+			chooser.setStatusText("");
 			model.set(index, dest);
 			//chooser.updateFiles(chooser.getCurrentDirectory(), true);
 			chooser.setSelectedFileAndUpdateDisplay(dest);
@@ -336,6 +395,6 @@ class DirectoryList extends GList<File> implements GhidraFileChooserDirectoryMod
 	}
 
 	/*junit*/ JTextField getListEditorText() {
-		return listEditorText;
+		return listEditorField;
 	}
 }

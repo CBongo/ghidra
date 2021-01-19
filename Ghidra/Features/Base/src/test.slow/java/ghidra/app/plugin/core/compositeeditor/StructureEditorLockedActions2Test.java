@@ -29,8 +29,9 @@ public class StructureEditorLockedActions2Test extends AbstractStructureEditorLo
 	@Test
 	public void testCycleGroupByteSomeRoom() throws Exception {
 		init(complexStructure, pgmTestCat);
-		getModel().clearComponents(new int[] { 2, 3 });// clear 6 bytes
-
+		runSwing(() -> {
+			getModel().clearComponents(new int[] { 2, 3 });// clear 6 bytes
+		});
 		DataType dt8 = getDataType(8);
 		int dt8Len = getLength(8);
 		int num = getModel().getNumComponents();
@@ -87,8 +88,9 @@ public class StructureEditorLockedActions2Test extends AbstractStructureEditorLo
 	@Test
 	public void testCycleGroupFloatLotsOfRoom() throws Exception {
 		init(complexStructure, pgmTestCat);
-		getModel().clearComponents(new int[] { 2, 3, 4 });// clear 14 bytes
-
+		runSwing(() -> {
+			getModel().clearComponents(new int[] { 2, 3, 4 });// clear 14 bytes
+		});
 		DataType dt16 = getDataType(16);
 		int dt16Len = getLength(16);
 		int num = getModel().getNumComponents();
@@ -250,6 +252,7 @@ public class StructureEditorLockedActions2Test extends AbstractStructureEditorLo
 		okInput(dialog, 2);
 		dialog = null;
 		waitUntilDialogProviderGone(NumberInputDialog.class, 2000);
+		waitForBusyTool(tool); // the 'Duplicate Multiple' action uses a task
 
 		assertEquals(num - 2, getModel().getNumComponents());
 		checkSelection(new int[] { 2 });
@@ -261,10 +264,6 @@ public class StructureEditorLockedActions2Test extends AbstractStructureEditorLo
 		assertEquals("comment 2", getComment(2));
 	}
 
-	/**
-	 * Edit an existing aligned structure and create a structure from a selection. Use the default name.
-	 * @throws Exception
-	 */
 	@Test
 	public void testExistingAlignedDtEditInternalStructureOnSelectionDefaultName()
 			throws Exception {
@@ -292,10 +291,11 @@ public class StructureEditorLockedActions2Test extends AbstractStructureEditorLo
 		invoke(createInternalStructureAction);
 
 		// Specify name for structure.
-		JDialog inputDialog = waitForJDialog(null, "Specify the Structure's Name", 2000);
+		JDialog inputDialog = waitForJDialog("Specify the Structure's Name");
 		assertNotNull(inputDialog);
 		pressButtonByText(inputDialog, "OK");
-		waitForSwing();
+
+		waitForTasks();
 
 		assertEquals(5, getModel().getNumComponents());
 		Structure internalStruct = (Structure) getDataType(1);
@@ -316,7 +316,7 @@ public class StructureEditorLockedActions2Test extends AbstractStructureEditorLo
 	/**
 	 * Edit an existing structure and create a structure from a selection, 
 	 * but cancel out of name dialog.
-	 * @throws Exception
+	 * @throws Exception it the test throws an exception
 	 */
 	@Test
 	public void testExistingDtEditInternalStructureOnSelectionCancelOnName() throws Exception {
@@ -334,7 +334,7 @@ public class StructureEditorLockedActions2Test extends AbstractStructureEditorLo
 		invoke(createInternalStructureAction);
 
 		// Specify name for structure.
-		JDialog inputDialog = waitForJDialog(null, "Specify the Structure's Name", 2000);
+		JDialog inputDialog = waitForJDialog("Specify the Structure's Name");
 		assertNotNull(inputDialog);
 		pressButtonByText(inputDialog, "Cancel");
 		waitForSwing();
@@ -350,7 +350,7 @@ public class StructureEditorLockedActions2Test extends AbstractStructureEditorLo
 
 	/**
 	 * Edit an existing structure and create a structure from a selection. Use the default name.
-	 * @throws Exception
+	 * @throws Exception if the test throws an exception
 	 */
 	@Test
 	public void testExistingDtEditInternalStructureOnSelectionDefaultName() throws Exception {
@@ -368,10 +368,11 @@ public class StructureEditorLockedActions2Test extends AbstractStructureEditorLo
 		invoke(createInternalStructureAction);
 
 		// Specify name for structure.
-		JDialog inputDialog = waitForJDialog(null, "Specify the Structure's Name", 2000);
+		JDialog inputDialog = waitForJDialog("Specify the Structure's Name");
 		assertNotNull(inputDialog);
 		pressButtonByText(inputDialog, "OK");
-		waitForSwing();
+
+		waitForTasks();
 
 		assertEquals(6, getModel().getNumComponents());
 		Structure internalStruct = (Structure) getDataType(1);

@@ -21,31 +21,33 @@ import javax.swing.Icon;
 
 import docking.action.MenuData;
 import ghidra.framework.main.AppInfo;
-import ghidra.framework.main.datatable.ProjectDataActionContext;
-import ghidra.framework.main.datatable.ProjectDataContextAction;
+import ghidra.framework.main.datatable.ProjectDataContext;
+import ghidra.framework.main.datatable.FrontendProjectTreeAction;
 import ghidra.framework.model.*;
+import ghidra.framework.plugintool.PluginTool;
+import ghidra.util.HTMLUtilities;
 import ghidra.util.HelpLocation;
 
-public class ProjectDataOpenToolAction extends ProjectDataContextAction {
+public class ProjectDataOpenToolAction extends FrontendProjectTreeAction {
 	private String toolName;
 
 	public ProjectDataOpenToolAction(String owner, String group, String toolName, Icon icon) {
 		super("Open" + toolName, owner);
 		this.toolName = toolName;
-		String[] menuPath = { "Open With", toolName };
+		String[] menuPath = { "Open With", HTMLUtilities.escapeHTML(toolName) };
 		setPopupMenuData(new MenuData(menuPath, icon, "Open"));
 		setHelpLocation(new HelpLocation(owner, "Open_File_With"));
 
 	}
 
 	@Override
-	protected void actionPerformed(ProjectDataActionContext context) {
+	protected void actionPerformed(ProjectDataContext context) {
 		List<DomainFile> selectedFiles = context.getSelectedFiles();
 		openInTool(selectedFiles);
 	}
 
 	@Override
-	protected boolean isEnabledForContext(ProjectDataActionContext context) {
+	protected boolean isEnabledForContext(ProjectDataContext context) {
 		return context.getSelectedFiles().size() > 0 && context.getSelectedFolders().size() == 0;
 	}
 
@@ -57,7 +59,7 @@ public class ProjectDataOpenToolAction extends ProjectDataContextAction {
 		Workspace activeWorkspace = toolManager.getActiveWorkspace();
 
 		ToolTemplate template = toolChest.getToolTemplate(toolName);
-		Tool newTool = activeWorkspace.runTool(template);
+		PluginTool newTool = activeWorkspace.runTool(template);
 
 		DomainFile[] files = fileList.toArray(new DomainFile[fileList.size()]);
 		newTool.acceptDomainFiles(files);

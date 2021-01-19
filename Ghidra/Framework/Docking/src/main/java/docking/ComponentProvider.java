@@ -25,9 +25,9 @@ import javax.swing.*;
 import docking.action.*;
 import docking.help.HelpDescriptor;
 import docking.help.HelpService;
-import ghidra.util.HelpLocation;
-import ghidra.util.UniversalIdGenerator;
+import ghidra.util.*;
 import ghidra.util.exception.AssertException;
+import utilities.util.reflection.ReflectionUtilities;
 
 /**
  * Abstract base class for creating dockable GUI components within a tool.  
@@ -61,34 +61,58 @@ import ghidra.util.exception.AssertException;
  *  <li>{@link #componentActivated()} and {@link #componentDeactived()}
  *  <li>{@link #componentHidden()} and {@link #componentShown()}
  * </ul>
+ * 
  * <p>
- * Note: This class was created so that implementors could add local actions within the constructor
+ * <b><u>Show Provider Action</u></b> - Each provider has an action to show the provider.  For
+ * typical, non-transient providers (see {@link #setTransient()}) the action will appear in 
+ * the tool's <b>Window</b> menu.   You can have your provider also appear in the tool's toolbar
+ * by calling {@link #addToTool()}.
+ * <p>
+ * Historical Note: This class was created so that implementors could add local actions within the constructor
  * without having to understand that they must first add themselves to the WindowManager.
  */
-
 public abstract class ComponentProvider implements HelpDescriptor, ActionContextProvider {
+	private static final String TRANSIENT_PROVIDER_TOOLBAR_WARNING_MESSAGE =
+		"Transient providers are not added to the toolbar";
+
+	private static final String TRANSIENT_PROVIDER_KEY_BINDING_WARNING_MESSAGE =
+		"Transient providers cannot have key bindings";
+
 	public static final String DEFAULT_WINDOW_GROUP = "Default";
+
+	private static final String TOOLBAR_GROUP = "View";
+
 	// maps for mapping old provider names and owner to new names and/or owner
 	private static Map<String, String> oldOwnerMap = new HashMap<>();
 	private static Map<String, String> oldNameMap = new HashMap<>();
-	protected DockingTool dockingTool;
+	protected Tool dockingTool;
 	private String name;
 	private final String owner;
 	private String title;
 	private String subTitle;
 	private String tabText;
-	private Icon icon;
+
 	private Set<DockingActionIf> actionSet = new LinkedHashSet<>();
-	private String windowMenuGroup;
+
+	/** True if this provider's action should appear in the toolbar */
+	private boolean addToolbarAction;
 	private boolean isTransient;
-	private HelpLocation helpLocation;
+	private KeyBindingData defaultKeyBindingData;
+	private Icon icon;
+
+	private String windowMenuGroup;
 	private String group = DEFAULT_WINDOW_GROUP;
 	private WindowPosition defaultWindowPosition = WindowPosition.WINDOW;
 	private WindowPosition defaultIntraGroupPosition = WindowPosition.STACK;
+	private DockingAction showProviderAction;
+
+	private HelpLocation helpLocation;
 	private final Class<?> contextType;
 
 	private long instanceID = UniversalIdGenerator.nextID().getValue();
 	private boolean instanceIDHasBeenInitialized;
+
+	private String inceptionInformation;
 
 	/**
 	 * Creates a new component provider with a default location of {@link WindowPosition#WINDOW}.
@@ -97,7 +121,7 @@ public abstract class ComponentProvider implements HelpDescriptor, ActionContext
 	 *        the same window.
 	 * @param owner The owner of this provider, usually a plugin name.
 	 */
-	public ComponentProvider(DockingTool tool, String name, String owner) {
+	public ComponentProvider(Tool tool, String name, String owner) {
 		this(tool, name, owner, null);
 	}
 
@@ -110,12 +134,38 @@ public abstract class ComponentProvider implements HelpDescriptor, ActionContext
 	 * @param contextType the type of context supported by this provider; may be null (see
 	 *        {@link #getContextType()}
 	 */
-	public ComponentProvider(DockingTool tool, String name, String owner, Class<?> contextType) {
+	public ComponentProvider(Tool tool, String name, String owner, Class<?> contextType) {
 		this.dockingTool = tool;
 		this.name = name;
 		this.owner = owner;
 		this.title = name;
 		this.contextType = contextType;
+
+		recordInception();
+	}
+
+	/**
+	 * Returns the action used to show this provider
+	 * @return the action
+	 */
+	DockingActionIf getShowProviderAction() {
+		createShowProviderAction();
+		return showProviderAction;
+	}
+
+	private void createShowProviderAction() {
+		if (showProviderAction != null) {
+			return;
+		}
+
+		if (addToolbarAction) {
+			Objects.requireNonNull(icon,
+				"The provider's icon cannot be null when requesting the provider's action " +
+					"appear in the toolbar");
+		}
+
+		boolean supportsKeyBindings = !isTransient;
+		showProviderAction = new ShowProviderAction(supportsKeyBindings);
 	}
 
 	/**
@@ -125,7 +175,7 @@ public abstract class ComponentProvider implements HelpDescriptor, ActionContext
 	public abstract JComponent getComponent();
 
 	/**
-	 * A method that allows children to set the <tt>instanceID</tt> to a desired value (useful for
+	 * A method that allows children to set the <code>instanceID</code> to a desired value (useful for
 	 * restoring saved IDs).
 	 * <p>
 	 * Note: this can be called only once during the lifetime of the calling instance; otherwise, an 
@@ -198,6 +248,7 @@ public abstract class ComponentProvider implements HelpDescriptor, ActionContext
 	 * Removes this provider from the tool.
 	 */
 	public void removeFromTool() {
+		dockingTool.removeAction(showProviderAction);
 		dockingTool.removeComponentProvider(this);
 	}
 
@@ -205,7 +256,7 @@ public abstract class ComponentProvider implements HelpDescriptor, ActionContext
 	 * Adds the given action to the system and associates it with this provider.
 	 * @param action The action to add.
 	 */
-	protected void addLocalAction(DockingActionIf action) {
+	public void addLocalAction(DockingActionIf action) {
 		if (actionSet.contains(action)) {
 			return;
 		}
@@ -216,7 +267,7 @@ public abstract class ComponentProvider implements HelpDescriptor, ActionContext
 	}
 
 	/**
-	 * Removes the given action from the system.
+	 * Removes the given action from this component provider.
 	 * @param action The action to remove.
 	 */
 	protected void removeLocalAction(DockingAction action) {
@@ -224,6 +275,16 @@ public abstract class ComponentProvider implements HelpDescriptor, ActionContext
 		if (isInTool()) {
 			dockingTool.removeLocalAction(this, action);
 		}
+	}
+
+	/**
+	 * Removes all local actions from this component provider
+	 */
+	protected void removeAllLocalActions() {
+		if (isInTool()) {
+			actionSet.forEach(action -> dockingTool.removeLocalAction(this, action));
+		}
+		actionSet.clear();
 	}
 
 	/**
@@ -337,7 +398,44 @@ public abstract class ComponentProvider implements HelpDescriptor, ActionContext
 	 */
 	@Override
 	public ActionContext getActionContext(MouseEvent event) {
-		return new ActionContext(this, getComponent());
+		Component c = getComponent();
+		KeyboardFocusManager kfm = KeyboardFocusManager.getCurrentKeyboardFocusManager();
+		Component focusedComponent = kfm.getFocusOwner();
+		if (focusedComponent != null && SwingUtilities.isDescendingFrom(focusedComponent, c)) {
+			c = focusedComponent;
+		}
+		return createContext(c, null);
+	}
+
+	/**
+	 * A default method for creating an action context for this provider
+	 * @return the new context
+	 */
+	protected ActionContext createContext() {
+		return new ActionContext(this);
+	}
+
+	/**
+	 * A default method for creating an action context for this provider, using the given
+	 * {@link ActionContext#getContextObject() context object}
+	 * 
+	 * @param contextObject the provider-specific context object
+	 * @return the new context
+	 */
+	protected ActionContext createContext(Object contextObject) {
+		return new ActionContext(this).setContextObject(contextObject);
+	}
+
+	/**
+	 * A default method for creating an action context for this provider, using the given
+	 * {@link ActionContext#getContextObject() context object} and component
+	 * 
+	 * @param sourceComponent the component that is the target of the context being created
+	 * @param contextObject the provider-specific context object
+	 * @return the new context
+	 */
+	protected ActionContext createContext(Component sourceComponent, Object contextObject) {
+		return new ActionContext(this, sourceComponent).setContextObject(contextObject);
 	}
 
 	/**
@@ -361,6 +459,10 @@ public abstract class ComponentProvider implements HelpDescriptor, ActionContext
 		this.helpLocation = helpLocation;
 		HelpService helpService = DockingWindowManager.getHelpService();
 		helpService.registerHelp(this, helpLocation);
+
+		if (showProviderAction != null) {
+			showProviderAction.setHelpLocation(helpLocation);
+		}
 	}
 
 	/**
@@ -441,7 +543,7 @@ public abstract class ComponentProvider implements HelpDescriptor, ActionContext
 	 * text returned from {@link #getTitle()} will be used by default.
 	 * 
 	 * @return the optionally set text to display in the tab for a component provider.
-	 * @set {@link #setTabText(String)}
+	 * @see #setTabText(String)
 	 */
 
 	public String getTabText() {
@@ -449,13 +551,56 @@ public abstract class ComponentProvider implements HelpDescriptor, ActionContext
 	}
 
 	/**
-	 * Convenience method for setting the provider's icon.
-	 * @param icon the icon to use for this provider.
+	 * Sets the default key binding that will show this provider when pressed.   This value can
+	 * be changed by the user and saved as part of the Tool options.
+	 * 
+	 * @param kbData the key binding
 	 */
-	public void setIcon(Icon icon) {
-		this.icon = icon;
+	protected void setKeyBinding(KeyBindingData kbData) {
+
 		if (isInTool()) {
-			dockingTool.getWindowManager().setIcon(this, icon);
+			throw new IllegalStateException(
+				"Cannot set the default key binding after the provider is added to the tool");
+		}
+
+		this.defaultKeyBindingData = kbData;
+
+		if (isTransient && kbData != null) {
+			Msg.error(this, TRANSIENT_PROVIDER_KEY_BINDING_WARNING_MESSAGE,
+				ReflectionUtilities.createJavaFilteredThrowable());
+			this.defaultKeyBindingData = null;
+		}
+	}
+
+	/**
+	 * Convenience method for setting the provider's icon
+	 * @param icon the icon to use for this provider
+	 */
+	protected void setIcon(Icon icon) {
+		this.icon = icon;
+		if (!isInTool()) {
+			return;
+		}
+
+		if (addToolbarAction && showProviderAction != null) {
+			Objects.requireNonNull(icon, "Icon cannot be set to null when using a toolbar action");
+			showProviderAction.setToolBarData(new ToolBarData(icon));
+		}
+
+		dockingTool.getWindowManager().setIcon(this, icon);
+	}
+
+	/**
+	 * Signals that this provider's action for showing the provider should appear in the main 
+	 * toolbar
+	 */
+	protected void addToToolbar() {
+		this.addToolbarAction = true;
+
+		if (isTransient) {
+			Msg.error(this, TRANSIENT_PROVIDER_TOOLBAR_WARNING_MESSAGE,
+				ReflectionUtilities.createJavaFilteredThrowable());
+			addToolbarAction = false;
 		}
 	}
 
@@ -465,7 +610,6 @@ public abstract class ComponentProvider implements HelpDescriptor, ActionContext
 	 * @return the menu group for this provider or null if this provider should appear in the
 	 * top-level menu.
 	 */
-
 	public String getWindowSubMenuName() {
 		return windowMenuGroup;
 	}
@@ -473,10 +617,20 @@ public abstract class ComponentProvider implements HelpDescriptor, ActionContext
 	/**
 	 * Returns true if this component goes away during a user session (most providers remain in
 	 * the tool all session long, visible or not)
-	 * @return true if transitent
+	 * @return true if transient
 	 */
 	public boolean isTransient() {
-		return isTransient;
+		return isTransient || isSnapshot();
+	}
+
+	/**
+	 * A special marker that indicates this provider is a snapshot of a primary provider, 
+	 * somewhat like a picture of the primary provider.
+	 * 
+	 * @return true if a snapshot
+	 */
+	public boolean isSnapshot() {
+		return false;
 	}
 
 	/**
@@ -485,6 +639,25 @@ public abstract class ComponentProvider implements HelpDescriptor, ActionContext
 	 */
 	protected void setTransient() {
 		isTransient = true;
+
+		if (isInTool()) {
+			throw new IllegalStateException(
+				"A component provider cannot be marked as 'transient' " +
+					"after it is added to the tool");
+		}
+
+		// avoid visually disturbing the user by adding/removing toolbar actions for temp providers
+		if (addToolbarAction) {
+			addToolbarAction = false;
+			Msg.error(this, TRANSIENT_PROVIDER_TOOLBAR_WARNING_MESSAGE,
+				ReflectionUtilities.createJavaFilteredThrowable());
+		}
+
+		if (defaultKeyBindingData != null) {
+			defaultKeyBindingData = null;
+			Msg.error(this, TRANSIENT_PROVIDER_KEY_BINDING_WARNING_MESSAGE,
+				ReflectionUtilities.createJavaFilteredThrowable());
+		}
 	}
 
 	/**
@@ -582,13 +755,29 @@ public abstract class ComponentProvider implements HelpDescriptor, ActionContext
 		return this;
 	}
 
-	public DockingTool getTool() {
+	public Tool getTool() {
 		return dockingTool;
 	}
 
 	@Override
 	public String toString() {
 		return name + " - " + getTitle() + " - " + getSubTitle();
+	}
+
+	private void recordInception() {
+		if (!SystemUtilities.isInDevelopmentMode()) {
+			inceptionInformation = "";
+			return;
+		}
+
+		inceptionInformation = getInceptionFromTheFirstClassThatIsNotUs();
+	}
+
+	private String getInceptionFromTheFirstClassThatIsNotUs() {
+		Throwable t = ReflectionUtilities.createThrowableWithStackOlderThan(getClass());
+		StackTraceElement[] trace = t.getStackTrace();
+		String classInfo = trace[0].toString();
+		return classInfo;
 	}
 
 	/**
@@ -614,9 +803,14 @@ public abstract class ComponentProvider implements HelpDescriptor, ActionContext
 	}
 
 	/**
-	 * Register a name and/or owner change to a provider so that old tools can restore those provider windows
-	 * to their old position and size. Note you must supply all four arguments. If the name or owner did not
-	 * change, use the name or owner that did not change for both the old and new values.
+	 * Register a name and/or owner change to a provider so that old tools can restore those 
+	 * provider windows to their old position and size. Note you must supply all four 
+	 * arguments. If the name or owner did not change, use the name or owner that did not change 
+	 * for both the old and new values.
+	 * 
+	 * <p>Note: when you make use of this method, please signal when it is safe to remove 
+	 * its usage.
+	 * 
 	 * @param oldName the old name of the provider.
 	 * @param oldOwner the old owner of the provider.
 	 * @param newName the new name of the provider. If the name did not change, use the old name here.
@@ -633,4 +827,45 @@ public abstract class ComponentProvider implements HelpDescriptor, ActionContext
 		return "owner=" + oldOwner + "name=" + oldName;
 	}
 
+	private class ShowProviderAction extends DockingAction {
+
+		ShowProviderAction(boolean supportsKeyBindings) {
+			super(name, owner,
+				supportsKeyBindings ? KeyBindingType.SHARED : KeyBindingType.UNSUPPORTED);
+
+			if (addToolbarAction) {
+				setToolBarData(new ToolBarData(icon, TOOLBAR_GROUP));
+			}
+
+			if (supportsKeyBindings && defaultKeyBindingData != null) {
+				// this action itself is not 'key binding managed', but the system *will* use
+				// any key binding value we set when connecting 'shared' actions
+				setKeyBindingData(defaultKeyBindingData);
+			}
+
+			setDescription("Display " + name);
+			HelpLocation providerHelp = ComponentProvider.this.getHelpLocation();
+			if (providerHelp != null) {
+				setHelpLocation(providerHelp);
+			}
+		}
+
+		@Override
+		public void actionPerformed(ActionContext context) {
+
+			DockingWindowManager myDwm = DockingWindowManager.getInstance(getComponent());
+			if (myDwm == null) {
+				// this can happen when the tool loses focus
+				dockingTool.showComponentProvider(ComponentProvider.this, true);
+				return;
+			}
+
+			myDwm.showComponent(ComponentProvider.this, true, true);
+		}
+
+		@Override
+		protected String getInceptionFromTheFirstClassThatIsNotUsOrABuilder() {
+			return inceptionInformation;
+		}
+	}
 }

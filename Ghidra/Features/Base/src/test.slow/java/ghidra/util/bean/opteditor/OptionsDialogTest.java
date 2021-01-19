@@ -33,13 +33,15 @@ import javax.swing.tree.TreePath;
 import org.apache.commons.lang3.StringUtils;
 import org.junit.*;
 
-import docking.DockingKeyBindingAction;
 import docking.action.DockingActionIf;
+import docking.actions.KeyBindingUtils;
 import docking.options.editor.*;
+import docking.tool.ToolConstants;
 import docking.widgets.MultiLineLabel;
 import docking.widgets.filechooser.GhidraFileChooser;
 import docking.widgets.table.RowObjectFilterModel;
-import docking.widgets.tree.*;
+import docking.widgets.tree.GTree;
+import docking.widgets.tree.GTreeNode;
 import generic.test.TestUtils;
 import ghidra.GhidraOptions;
 import ghidra.app.plugin.core.console.ConsolePlugin;
@@ -58,6 +60,8 @@ import ghidra.test.TestEnv;
  */
 public class OptionsDialogTest extends AbstractGhidraHeadedIntegrationTest {
 
+	private static final String MY_PATH_NAME_OPTION_NAME = "My PathName";
+	private static final String TOOL_NODE_NAME = "Tool";
 	private PluginTool tool;
 	private TestEnv env;
 	private OptionsDialog dialog;
@@ -248,9 +252,9 @@ public class OptionsDialogTest extends AbstractGhidraHeadedIntegrationTest {
 	public void testShowMultiLevelOptions2() throws Exception {
 
 		Object root = treeModel.getRoot();
-		Object toolNode = getGTreeNode(root, "Tool");
+		Object toolNode = getGTreeNode(root, TOOL_NODE_NAME);
 
-		Options options = tool.getOptions("Tool");
+		Options options = tool.getOptions(ToolConstants.TOOL_OPTIONS);
 		List<String> optNames = options.getOptionNames();
 		Collections.sort(optNames);
 		for (String simpleName : optNames) {
@@ -276,9 +280,9 @@ public class OptionsDialogTest extends AbstractGhidraHeadedIntegrationTest {
 	@Test
 	public void testFileChooserEditor() throws Exception {
 
-		ScrollableOptionsEditor editor = showOptions("Tool");
+		ScrollableOptionsEditor editor = showOptions(ToolConstants.TOOL_OPTIONS);
 
-		pressBrowseButton(editor, "My PathName");
+		pressBrowseButton(editor, MY_PATH_NAME_OPTION_NAME);
 
 		GhidraFileChooser chooser = waitForDialogComponent(GhidraFileChooser.class);
 		assertNotNull(chooser);
@@ -294,23 +298,23 @@ public class OptionsDialogTest extends AbstractGhidraHeadedIntegrationTest {
 		pressButton(openButton);
 		waitForSwing();
 
-		JTextField pathField = getEditorTextField(editor, "My PathName");
+		JTextField pathField = getEditorTextField(editor, MY_PATH_NAME_OPTION_NAME);
 		assertEquals(file.getAbsolutePath(), pathField.getText());
 	}
 
 	@Test
 	public void testFileChooserEditor_ClearValue() throws Exception {
 
-		ScrollableOptionsEditor editor = showOptions("Tool");
-		JTextField pathField = getEditorTextField(editor, "My PathName");
+		ScrollableOptionsEditor editor = showOptions(ToolConstants.TOOL_OPTIONS);
+		JTextField pathField = getEditorTextField(editor, MY_PATH_NAME_OPTION_NAME);
 
 		setText(pathField, "");
 
 		pressOptionsOk();
 
 		showOptionsDialog(tool);
-		editor = showOptions("Tool");
-		pathField = getEditorTextField(editor, "My PathName");
+		editor = showOptions(ToolConstants.TOOL_OPTIONS);
+		pathField = getEditorTextField(editor, MY_PATH_NAME_OPTION_NAME);
 		assertEquals("", pathField.getText());
 	}
 
@@ -320,7 +324,7 @@ public class OptionsDialogTest extends AbstractGhidraHeadedIntegrationTest {
 		// test double click on color panel
 		// verify the color editor is displayed
 		Object root = treeModel.getRoot();
-		Object toolNode = getGTreeNode(root, "Tool");
+		Object toolNode = getGTreeNode(root, TOOL_NODE_NAME);
 		selectNode(toolNode);
 		assertTrue(!defaultPanel.isShowing());
 
@@ -353,7 +357,7 @@ public class OptionsDialogTest extends AbstractGhidraHeadedIntegrationTest {
 	@Test
 	public void testPropertySelectorEditor() throws Exception {
 		Object root = treeModel.getRoot();
-		Object toolNode = getGTreeNode(root, "Tool");
+		Object toolNode = getGTreeNode(root, TOOL_NODE_NAME);
 		assertTrue(defaultPanel.isShowing());
 
 		Object buttonNode = getGTreeNode(toolNode, "Mouse Buttons");
@@ -457,17 +461,17 @@ public class OptionsDialogTest extends AbstractGhidraHeadedIntegrationTest {
 		// Tests that options under a folder in the tree will properly restore default values
 		//
 
-		boolean originalValue = getCurrentBooleanEditorValueForNestedOption("Tool", "My Options",
-			"my sub group Boolean Value");
+		boolean originalValue = getCurrentBooleanEditorValueForNestedOption(
+			ToolConstants.TOOL_OPTIONS, "My Options", "my sub group Boolean Value");
 
-		setCurrentBooleanEditorValueForNestedOption("Tool", "My Options",
+		setCurrentBooleanEditorValueForNestedOption(ToolConstants.TOOL_OPTIONS, "My Options",
 			"my sub group Boolean Value", !originalValue);
 		apply();
 
 		restoreDefaults();
 
-		boolean currentValue = getCurrentBooleanEditorValueForNestedOption("Tool", "My Options",
-			"my sub group Boolean Value");
+		boolean currentValue = getCurrentBooleanEditorValueForNestedOption(
+			ToolConstants.TOOL_OPTIONS, "My Options", "my sub group Boolean Value");
 		assertEquals("Sub-option did not get restored after restoring default values",
 			originalValue, currentValue);
 	}
@@ -500,7 +504,7 @@ public class OptionsDialogTest extends AbstractGhidraHeadedIntegrationTest {
 		// Verify that options get changed in the options objects
 		//
 		Object root = treeModel.getRoot();
-		Object toolNode = getGTreeNode(root, "Tool");
+		Object toolNode = getGTreeNode(root, TOOL_NODE_NAME);
 		assertTrue(defaultPanel.isShowing());
 
 		Object buttonNode = getGTreeNode(toolNode, "Mouse Buttons");
@@ -521,7 +525,7 @@ public class OptionsDialogTest extends AbstractGhidraHeadedIntegrationTest {
 		assertTrue(applyButton.isEnabled());
 		runSwing(() -> applyButton.getActionListeners()[0].actionPerformed(null));
 
-		Options options = tool.getOptions("Tool");
+		Options options = tool.getOptions(ToolConstants.TOOL_OPTIONS);
 		GhidraOptions.CURSOR_MOUSE_BUTTON_NAMES mouseButton =
 			options.getEnum("Mouse Buttons" + Options.DELIMITER + "Mouse Button To Activate",
 				(GhidraOptions.CURSOR_MOUSE_BUTTON_NAMES) null);
@@ -533,7 +537,7 @@ public class OptionsDialogTest extends AbstractGhidraHeadedIntegrationTest {
 	public void testCancel() throws Exception {
 		// make changes to options, but cancel
 		Object root = treeModel.getRoot();
-		Object toolNode = getGTreeNode(root, "Tool");
+		Object toolNode = getGTreeNode(root, TOOL_NODE_NAME);
 		assertTrue(defaultPanel.isShowing());
 
 		Object buttonNode = getGTreeNode(toolNode, "Mouse Buttons");
@@ -554,7 +558,7 @@ public class OptionsDialogTest extends AbstractGhidraHeadedIntegrationTest {
 		assertTrue(cancelButton.isEnabled());
 		runSwing(() -> cancelButton.getActionListeners()[0].actionPerformed(null));
 
-		Options options = tool.getOptions("Tool");
+		Options options = tool.getOptions(ToolConstants.TOOL_OPTIONS);
 		GhidraOptions.CURSOR_MOUSE_BUTTON_NAMES mouseButton =
 			options.getEnum("Mouse Buttons" + Options.DELIMITER + "Mouse Button To Activate",
 				(GhidraOptions.CURSOR_MOUSE_BUTTON_NAMES) null);
@@ -603,7 +607,7 @@ public class OptionsDialogTest extends AbstractGhidraHeadedIntegrationTest {
 	@Test
 	public void testToolConfigChange() throws Exception {
 		Object root = treeModel.getRoot();
-		Object toolNode = getGTreeNode(root, "Tool");
+		Object toolNode = getGTreeNode(root, TOOL_NODE_NAME);
 		assertTrue(defaultPanel.isShowing());
 		selectNode(toolNode);
 
@@ -636,7 +640,7 @@ public class OptionsDialogTest extends AbstractGhidraHeadedIntegrationTest {
 		assertTrue(applyButton.isEnabled());
 		runSwing(() -> applyButton.getActionListeners()[0].actionPerformed(null));
 
-		Options options = tool.getOptions("Tool");
+		Options options = tool.getOptions(ToolConstants.TOOL_OPTIONS);
 
 		Color c = options.getColor("Favorite Color", Color.RED);
 
@@ -648,7 +652,7 @@ public class OptionsDialogTest extends AbstractGhidraHeadedIntegrationTest {
 	@Test
 	public void testSaveRestoreToolState() throws Exception {
 		Object root = treeModel.getRoot();
-		Object toolNode = getGTreeNode(root, "Tool");
+		Object toolNode = getGTreeNode(root, TOOL_NODE_NAME);
 		assertTrue(defaultPanel.isShowing());
 		selectNode(toolNode);
 
@@ -681,7 +685,7 @@ public class OptionsDialogTest extends AbstractGhidraHeadedIntegrationTest {
 		assertTrue(applyButton.isEnabled());
 		runSwing(() -> applyButton.getActionListeners()[0].actionPerformed(null));
 
-		Options options = tool.getOptions("Tool");
+		Options options = tool.getOptions(ToolConstants.TOOL_OPTIONS);
 
 		Color c = options.getColor("Favorite Color", Color.RED);
 
@@ -712,7 +716,7 @@ public class OptionsDialogTest extends AbstractGhidraHeadedIntegrationTest {
 		if (StringUtils.isBlank(keyBindingColumnValue)) {
 			return null;
 		}
-		return DockingKeyBindingAction.parseKeyStroke(keyBindingColumnValue);
+		return KeyBindingUtils.parseKeyStroke(keyBindingColumnValue);
 	}
 
 	private void assertOptionsKeyStroke(String actionName, String pluginName, KeyStroke value)
@@ -834,8 +838,8 @@ public class OptionsDialogTest extends AbstractGhidraHeadedIntegrationTest {
 	}
 
 	private void waitForThreadedModel() throws InterruptedException {
-		GTreeRootNode root = (GTreeRootNode) treeModel.getRoot();
-		GTree gTree = root.getGTree();
+		GTreeNode root = (GTreeNode) treeModel.getRoot();
+		GTree gTree = root.getTree();
 		while (gTree.isBusy()) {
 			Thread.sleep(50);
 		}
@@ -988,10 +992,9 @@ public class OptionsDialogTest extends AbstractGhidraHeadedIntegrationTest {
 	}
 
 	private void showOptionsDialog(PluginTool pluginTool) throws Exception {
-		List<DockingActionIf> list = pluginTool.getAllActions();
-		for (int i = 0; i < list.size(); i++) {
-
-			DockingActionIf action = list.get(i);
+		// TODO change to getAction("Edit Options")
+		Set<DockingActionIf> list = pluginTool.getAllActions();
+		for (DockingActionIf action : list) {
 			if (action.getName().equals("Edit Options")) {
 				performAction(action, false);
 				break;
@@ -1052,15 +1055,18 @@ public class OptionsDialogTest extends AbstractGhidraHeadedIntegrationTest {
 	}
 
 	private void createMultiLevelOptions() {
-		Options options = tool.getOptions("Tool");
+		Options options = tool.getOptions(ToolConstants.TOOL_OPTIONS);
 
 		// register this options because it is used in a test that saves and restores and
 		// only registered options are saved.
 		String myOptionsName = "My Options" + Options.DELIMITER;
-		options.registerOption(myOptionsName + "my sub group Boolean Value", true, null, null);
+		options.registerOption(myOptionsName + "my sub group Boolean Value", true, null,
+			"description");
 
-		options.registerOption("My PathName", OptionType.FILE_TYPE, null, null, "");
-		options.setFile("My PathName", new File(System.getProperty("user.dir")));
+		File file = new File(System.getProperty("user.dir"));
+		options.registerOption(MY_PATH_NAME_OPTION_NAME, OptionType.FILE_TYPE, file, null,
+			"description");
+		options.setFile(MY_PATH_NAME_OPTION_NAME, file);
 
 		// the following "get" methods set a value
 		options.getInt(myOptionsName + "my sub group" + Options.DELIMITER + "My Test Value", 10);
@@ -1069,19 +1075,29 @@ public class OptionsDialogTest extends AbstractGhidraHeadedIntegrationTest {
 
 		String intOptionName = myOptionsName + "my sub group" + Options.DELIMITER + "Group A" +
 			Options.DELIMITER + "Second Int Value";
+		options.registerOption(intOptionName, 50, null, "description");
 		options.setInt(intOptionName, 50);
-		options.setBoolean(myOptionsName + "my sub group" + Options.DELIMITER + "Group A" +
-			Options.DELIMITER + "First boolean value", true);
 
-		options.setInt(
+		String name = myOptionsName + "my sub group" + Options.DELIMITER + "Group A" +
+			Options.DELIMITER + "First boolean value";
+		options.registerOption(name, true, null, "description");
+		options.setBoolean(name, true);
+
+		name =
 			"New Options" + Options.DELIMITER + " subgroup A" + Options.DELIMITER + " subgroup B" +
-				Options.DELIMITER + " subgroup C" + Options.DELIMITER + "Another int value",
-			300);
+				Options.DELIMITER + " subgroup C" + Options.DELIMITER + "Another int value";
+		options.registerOption(name, 300, null, "description");
+		options.setInt(name, 300);
 
-		options.setColor("Favorite Color", Color.RED);
+		name = "Favorite Color";
+		options.registerOption(name, Color.RED, null, "description");
+		options.setColor(name, Color.RED);
 
 		// select the middle button
-		options.setEnum("Mouse Buttons" + Options.DELIMITER + "Mouse Button To Activate",
+		name = "Mouse Buttons" + Options.DELIMITER + "Mouse Button To Activate";
+		options.registerOption(name, GhidraOptions.CURSOR_MOUSE_BUTTON_NAMES.MIDDLE, null,
+			"description");
+		options.setEnum(name,
 			GhidraOptions.CURSOR_MOUSE_BUTTON_NAMES.MIDDLE);
 
 	}

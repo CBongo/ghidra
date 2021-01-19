@@ -23,7 +23,9 @@ import javax.swing.JMenuItem;
 import docking.action.MenuData;
 import ghidra.app.context.ListingActionContext;
 import ghidra.app.context.ListingContextAction;
-import ghidra.program.model.data.*;
+import ghidra.docking.settings.FormatSettingsDefinition;
+import ghidra.program.model.data.AbstractIntegerDataType;
+import ghidra.program.model.data.DataType;
 import ghidra.program.model.listing.*;
 import ghidra.program.model.scalar.Scalar;
 import ghidra.program.util.OperandFieldLocation;
@@ -40,10 +42,6 @@ public abstract class AbstractConvertAction extends ListingContextAction {
 		this.isSigned = isSigned;
 		setPopupMenuData(new MenuData(new String[] { "Convert", "" }, "Convert"));
 		setEnabled(true);
-		JMenuItem item = new JMenuItem();
-		Font font = item.getFont();
-		metrics = plugin.getTool().getActiveWindow().getFontMetrics(font);
-
 	}
 
 	@Override
@@ -65,7 +63,11 @@ public abstract class AbstractConvertAction extends ListingContextAction {
 				// unsupported data action
 				return false;
 			}
-			DataType dataType = ((Data) cu).getBaseDataType();
+			Data data = (Data) cu;
+			if (!data.isDefined()) {
+				return false;
+			}
+			DataType dataType = data.getBaseDataType();
 			if (!(dataType instanceof AbstractIntegerDataType)) {
 				return false;
 			}
@@ -126,14 +128,28 @@ public abstract class AbstractConvertAction extends ListingContextAction {
 		return isSigned;
 	}
 
+	private int stringWidth(String s) {
+		if (metrics == null) {
+			JMenuItem item = new JMenuItem();
+			Font font = item.getFont();
+			metrics = plugin.getTool().getActiveWindow().getFontMetrics(font);
+		}
+		int w = metrics.stringWidth(s);
+		if (w == 0) {
+			// use default computation if metrics report 0
+			return 10 * s.length();
+		}
+		return w;
+	}
+
 	String getStandardLengthString(String baseString) {
-		int baseWidth = metrics.stringWidth(baseString);
-		int spaceWidth = metrics.stringWidth(" ");
+		int baseWidth = stringWidth(baseString);
+		int spaceWidth = stringWidth(" ");
 		int paddingSize = (140 - baseWidth) / spaceWidth;
 		if (paddingSize <= 0) {
 			return baseString;
 		}
-		StringBuffer buf = new StringBuffer(baseString);
+		StringBuilder buf = new StringBuilder(baseString);
 		for (int i = 0; i < paddingSize; i++) {
 			buf.append(" ");
 		}

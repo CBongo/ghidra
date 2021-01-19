@@ -29,6 +29,7 @@ import docking.DockingUtils;
 import docking.dnd.GClipboard;
 import docking.dnd.StringTransferable;
 import docking.widgets.OptionDialog;
+import docking.widgets.label.GIconLabel;
 import ghidra.framework.model.DomainFile;
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.util.HelpLocation;
@@ -43,13 +44,12 @@ public class AboutDomainObjectUtils {
 	 * Displays an informational dialog about the specified domain object
 	 *
 	 * @param tool			 plugin tool
-	 * @param domainObject   domain object to display information about
+	 * @param domainFile     domain file to display information about
+	 * @param metadata		 the metadata for the domainFile
 	 * @param title          title to use for the dialog
 	 * @param additionalInfo additional custom user information to append to
 	 *                       the bottom of the dialog
-	 * @param shouldParent   true means that about dialog will be parented
-	 *                       to <code>parent</code>, false means that only
-	 *                       the location will be set relative to <code>parent</code>
+	 * @param helpLocation	 the help location
 	 */
 	public static void displayInformation(PluginTool tool, DomainFile domainFile,
 			Map<String, String> metadata, String title, String additionalInfo,
@@ -62,7 +62,7 @@ public class AboutDomainObjectUtils {
 		if (helpLocation != null) {
 			dialog.setHelpLocation(helpLocation);
 		}
-		tool.showDialog(dialog, (Component) null);
+		tool.showDialog(dialog);
 	}
 
 	private static void addInfo(JPanel panel, String name, String value) {
@@ -125,10 +125,9 @@ public class AboutDomainObjectUtils {
 			contentPanel.add(sp, BorderLayout.SOUTH);
 		}
 
-		JLabel infoLabel =
-			new JLabel(OptionDialog.getIconForMessageType(OptionDialog.INFORMATION_MESSAGE));
 		JPanel infoPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 10));
-		infoPanel.add(infoLabel);
+		infoPanel.add(
+			new GIconLabel(OptionDialog.getIconForMessageType(OptionDialog.INFORMATION_MESSAGE)));
 
 		JPanel panel = new JPanel(new BorderLayout(5, 5));
 		panel.add(infoPanel, BorderLayout.WEST);

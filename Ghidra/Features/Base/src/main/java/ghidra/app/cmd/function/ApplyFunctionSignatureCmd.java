@@ -309,8 +309,7 @@ public class ApplyFunctionSignatureCmd extends BackgroundCommand {
 
 		Program program = function.getProgram();
 		Address entryPoint = function.getEntryPoint();
-		SymbolUtilities.validateName(name, entryPoint, SymbolType.FUNCTION,
-			program.getAddressMap().getAddressFactory());
+		SymbolUtilities.validateName(name);
 
 		SymbolTable symbolTable = program.getSymbolTable();
 		Symbol sym = symbolTable.getPrimarySymbol(entryPoint);
@@ -372,7 +371,7 @@ public class ApplyFunctionSignatureCmd extends BackgroundCommand {
 			Namespace namespace) {
 		Symbol otherSym = symbolTable.getSymbol(name, address, namespace);
 		if (otherSym != null) {
-			if (otherSym.getSymbolType() == SymbolType.CODE) {
+			if (otherSym.getSymbolType() == SymbolType.LABEL) {
 				otherSym.delete(); // replace label if function name matches
 			}
 		}

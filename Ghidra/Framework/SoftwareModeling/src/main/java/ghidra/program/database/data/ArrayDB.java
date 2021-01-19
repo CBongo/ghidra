@@ -17,7 +17,7 @@ package ghidra.program.database.data;
 
 import java.io.IOException;
 
-import db.Record;
+import db.DBRecord;
 import ghidra.docking.settings.Settings;
 import ghidra.docking.settings.SettingsDefinition;
 import ghidra.program.database.DBObjectCache;
@@ -45,7 +45,7 @@ class ArrayDB extends DataTypeDB implements Array {
 	 * @param record
 	 */
 	public ArrayDB(DataTypeManagerDB dataMgr, DBObjectCache<DataTypeDB> cache,
-			ArrayDBAdapter adapter, Record record) {
+			ArrayDBAdapter adapter, DBRecord record) {
 		super(dataMgr, cache, record);
 		this.adapter = adapter;
 	}
@@ -57,7 +57,7 @@ class ArrayDB extends DataTypeDB implements Array {
 
 	@Override
 	public Class<?> getValueClass(Settings settings) {
-		return DataTypeUtilities.getArrayValueClass(this, settings);
+		return getArrayValueClass(settings);
 	}
 
 	@Override
@@ -74,7 +74,7 @@ class ArrayDB extends DataTypeDB implements Array {
 	@Override
 	protected boolean refresh() {
 		try {
-			Record rec = adapter.getRecord(key);
+			DBRecord rec = adapter.getRecord(key);
 			if (rec != null) {
 				record = rec;
 				return super.refresh();
@@ -88,13 +88,21 @@ class ArrayDB extends DataTypeDB implements Array {
 
 	@Override
 	public String getDisplayName() {
-		validate(lock);
 		String localDisplayName = displayName;
-		if (localDisplayName == null) {
-			localDisplayName = DataTypeUtilities.getDisplayName(this, false);
-			displayName = localDisplayName;
+		if (localDisplayName != null && !isInvalid()) {
+			return localDisplayName;
 		}
-		return localDisplayName;
+		lock.acquire();
+		try {
+			checkIsValid();
+			if ( displayName == null ) {
+				displayName = DataTypeUtilities.getDisplayName(this, false);
+			}
+			return displayName;
+		}
+		finally {
+			lock.release();
+		}
 	}
 
 	@Override
@@ -184,9 +192,6 @@ class ArrayDB extends DataTypeDB implements Array {
 
 	@Override
 	public boolean isEquivalent(DataType dt) {
-		if (dt == null) {
-			return false;
-		}
 		if (dt == this) {
 			return true;
 		}
@@ -354,18 +359,13 @@ class ArrayDB extends DataTypeDB implements Array {
 	@Override
 	public String getDefaultLabelPrefix(MemBuffer buf, Settings settings, int len,
 			DataTypeDisplayOptions options) {
-		String prefix =
-			ArrayStringable.getArrayStringableLabelPrefix(this, buf, settings, len, options);
-		return prefix != null ? prefix : super.getDefaultLabelPrefix(buf, settings, len, options);
+		return getArrayDefaultLabelPrefix(buf, settings, len, options);
 	}
 
 	@Override
 	public String getDefaultOffcutLabelPrefix(MemBuffer buf, Settings settings, int len,
 			DataTypeDisplayOptions options, int offcutLength) {
-		String prefix = ArrayStringable.getArrayStringableOffcutLabelPrefix(this, buf, settings,
-			len, options, offcutLength);
-		return prefix != null ? prefix
-				: super.getDefaultOffcutLabelPrefix(buf, settings, len, options, offcutLength);
+		return getArrayDefaultOffcutLabelPrefix(buf, settings, len, options, offcutLength);
 	}
 
 	@Override
@@ -411,11 +411,11 @@ class ArrayDB extends DataTypeDB implements Array {
 
 	@Override
 	public Object getValue(MemBuffer buf, Settings settings, int length) {
-		return DataTypeUtilities.getArrayValue(this, buf, settings, length);
+		return getArrayValue(buf, settings, length);
 	}
 
 	@Override
 	public String getRepresentation(MemBuffer buf, Settings settings, int length) {
-		return DataTypeUtilities.getArrayRepresentation(this, buf, settings, length);
+		return getArrayRepresentation(buf, settings, length);
 	}
 }

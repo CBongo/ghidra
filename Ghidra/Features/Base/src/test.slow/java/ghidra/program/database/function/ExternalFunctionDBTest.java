@@ -42,6 +42,7 @@ public class ExternalFunctionDBTest extends AbstractGhidraHeadedIntegrationTest 
 
 	/**
 	 * Constructor for FunctionDataDBTest.
+	 * 
 	 * @param arg0
 	 */
 	public ExternalFunctionDBTest() {
@@ -73,7 +74,7 @@ public class ExternalFunctionDBTest extends AbstractGhidraHeadedIntegrationTest 
 			extMgr.addExtLocation("TestLibrary", name, null, SourceType.USER_DEFINED);
 		Symbol extSym = extLoc.getSymbol();
 		assertNotNull(extSym);
-		assertEquals(SymbolType.CODE, extSym.getSymbolType());
+		assertEquals(SymbolType.LABEL, extSym.getSymbolType());
 		assertEquals(extLoc, extSym.getObject());
 		assertNull(extLoc.getFunction());
 
@@ -191,12 +192,12 @@ public class ExternalFunctionDBTest extends AbstractGhidraHeadedIntegrationTest 
 		f.setCustomVariableStorage(true);
 
 		DataType[] dt =
-			new DataType[] { new ByteDataType(), new WordDataType(), new Pointer16DataType() };
+			new DataType[] { new LongDataType(), new WordDataType(), new Pointer16DataType() };
 
 		Register[] regs =
-			new Register[] { functionManager.getProgram().getProgramContext().getRegister("R1"),
-				functionManager.getProgram().getProgramContext().getRegister("R0"),
-				functionManager.getProgram().getProgramContext().getRegister("SP") };
+			new Register[] { functionManager.getProgram().getProgramContext().getRegister("r1"),
+				functionManager.getProgram().getProgramContext().getRegister("r0l"),
+				functionManager.getProgram().getProgramContext().getRegister("spl") };
 
 		LocalVariableImpl regVar = new LocalVariableImpl("TestReg0", 0, dt[0], regs[0], program);
 		regVar.setComment("My Comment0");
@@ -234,7 +235,7 @@ public class ExternalFunctionDBTest extends AbstractGhidraHeadedIntegrationTest 
 			program.getExternalManager().getUniqueExternalLocation(parentNamespace, "foo");
 		assertNotNull(externalLocation);
 		assertTrue(!externalLocation.isFunction());
-		assertEquals(SymbolType.CODE, externalLocation.getSymbol().getSymbolType());
+		assertEquals(SymbolType.LABEL, externalLocation.getSymbol().getSymbolType());
 	}
 
 	@Test
@@ -250,7 +251,7 @@ public class ExternalFunctionDBTest extends AbstractGhidraHeadedIntegrationTest 
 			program.getExternalManager().getUniqueExternalLocation(parentNamespace, "EXT_00001000");
 		assertNotNull(externalLocation);
 		assertTrue(!externalLocation.isFunction());
-		assertEquals(SymbolType.CODE, externalLocation.getSymbol().getSymbolType());
+		assertEquals(SymbolType.LABEL, externalLocation.getSymbol().getSymbolType());
 	}
 
 	private Address addr(long offset) {

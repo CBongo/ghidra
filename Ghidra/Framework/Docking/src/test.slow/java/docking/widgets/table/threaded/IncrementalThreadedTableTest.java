@@ -121,7 +121,7 @@ public class IncrementalThreadedTableTest extends AbstractThreadedTableTest {
 
 	@Override
 	protected TestThreadedTableModelListener createListener() {
-		return new TestIncrementalThreadedTableModelListener(spy);
+		return new TestIncrementalThreadedTableModelListener(model, spy);
 	}
 
 //==================================================================================================
@@ -515,7 +515,7 @@ public class IncrementalThreadedTableTest extends AbstractThreadedTableTest {
 
 		if (isBusy) {
 			SwingUpdateManager sum =
-				(SwingUpdateManager) getInstanceField("updateManager", tableUpdateManager);
+				(SwingUpdateManager) getInstanceField("addRemoveUpdater", tableUpdateManager);
 			spy.record("\t\tSwingUpdateManager busy?: " + sum.isBusy());
 
 			if (sum.isBusy()) {

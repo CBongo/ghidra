@@ -53,7 +53,7 @@ public class ToolTipUtils {
 	}
 
 	/**
-	 * Examines the give <tt>dataType</tt> and creates a tool tip for it, 
+	 * Examines the give <code>dataType</code> and creates a tool tip for it, 
 	 * depending upon its actual class type.
 	 * 
 	 * @param  dataType The data type from which a tool tip will be 
@@ -66,10 +66,7 @@ public class ToolTipUtils {
 
 	/**
 	 * Return dataType details as HTML.
-	 * @param dataType
-	 * @param htmlFragmentOnly if true only a fragment of HTML, suitable for combining 
-	 * with other fragments will be Returned.  If false, the fragment will be enclosed 
-	 * within an HTML tag element.
+	 * @param dataType the dataType to be represented
 	 * @return dataType details formatted as HTML
 	 */
 	public static HTMLDataTypeRepresentation getHTMLRepresentation(DataType dataType) {
@@ -91,6 +88,9 @@ public class ToolTipUtils {
 			}
 			else if (dataType instanceof Array) {
 				return new ArrayDataTypeHTMLRepresentation((Array) dataType);
+			}
+			else if (dataType instanceof BitFieldDataType) {
+				return new BitFieldDataTypeHTMLRepresentation((BitFieldDataType) dataType);
 			}
 			else {
 				return new DefaultDataTypeHTMLRepresentation(dataType);
@@ -203,8 +203,9 @@ public class ToolTipUtils {
 		buf.append("<td width=\"1%\">");
 		buf.append(colorString(Color.BLACK, friendlyEncodeHTML(param.getDataType().getName())));
 		buf.append("</td><td width=\"1%\">");
-		Color paramColor = param.getFunction().hasCustomVariableStorage()
-				? PARAM_CUSTOM_STORAGE_COLOR : PARAM_DYNAMIC_STORAGE_COLOR;
+		Color paramColor =
+			param.getFunction().hasCustomVariableStorage() ? PARAM_CUSTOM_STORAGE_COLOR
+					: PARAM_DYNAMIC_STORAGE_COLOR;
 		buf.append(
 			colorString(paramColor, friendlyEncodeHTML(param.getVariableStorage().toString())));
 		buf.append("</td><td width=\"1%\">");

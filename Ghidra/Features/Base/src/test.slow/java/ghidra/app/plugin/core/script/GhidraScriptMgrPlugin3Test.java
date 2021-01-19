@@ -19,9 +19,7 @@ import static org.junit.Assert.*;
 
 import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
-import java.io.File;
 import java.io.IOException;
-import java.util.List;
 
 import javax.swing.*;
 
@@ -31,19 +29,13 @@ import docking.KeyEntryTextField;
 import docking.action.DockingActionIf;
 import docking.widgets.filter.FilterTextField;
 import docking.widgets.list.ListPanel;
-import docking.widgets.pathmanager.PathManager;
 import generic.jar.ResourceFile;
-import generic.util.Path;
 import ghidra.app.script.GhidraScriptUtil;
 import ghidra.app.script.JavaScriptProvider;
 import ghidra.util.StringUtilities;
 import ghidra.util.exception.AssertException;
 
 public class GhidraScriptMgrPlugin3Test extends AbstractGhidraScriptMgrPluginTest {
-
-	public GhidraScriptMgrPlugin3Test() {
-		super();
-	}
 
 	@Test
 	public void testKeyBinding() throws Exception {
@@ -105,7 +97,7 @@ public class GhidraScriptMgrPlugin3Test extends AbstractGhidraScriptMgrPluginTes
 
 		pressSaveButton();
 
-		String scriptOutput = runScript(script.getName());
+		String scriptOutput = runSelectedScript(script.getName());
 
 		assertTrue("Script output not generated",
 			scriptOutput.contains("> new scripts are neato!"));
@@ -140,7 +132,7 @@ public class GhidraScriptMgrPlugin3Test extends AbstractGhidraScriptMgrPluginTes
 		pressSaveButton();
 		setTimestampToTheFuture(script);
 
-		String updatedScriptOutput = runScript(script.getName());
+		String updatedScriptOutput = runSelectedScript(script.getName());
 
 		assertTrue("Script output not updated with new script contents - did recompile work?",
 			StringUtilities.containsAll(updatedScriptOutput, "> new scripts are neato!",
@@ -156,11 +148,11 @@ public class GhidraScriptMgrPlugin3Test extends AbstractGhidraScriptMgrPluginTes
 	public void testRefreshFindsNewScript() throws Exception {
 		int rowCount = getRowCount();
 
-		JavaScriptProvider jsp = new JavaScriptProvider();
+		JavaScriptProvider javaScriptProvider = new JavaScriptProvider();
 
-		ResourceFile newScript = GhidraScriptUtil.createNewScript(jsp,
+		ResourceFile newScript = GhidraScriptUtil.createNewScript(javaScriptProvider,
 			new ResourceFile(GhidraScriptUtil.USER_SCRIPTS_DIR), provider.getScriptDirectories());
-		jsp.createNewScript(newScript, null);
+		javaScriptProvider.createNewScript(newScript, null);
 
 		refreshScriptManager();
 
@@ -168,7 +160,7 @@ public class GhidraScriptMgrPlugin3Test extends AbstractGhidraScriptMgrPluginTes
 
 		assertEquals(rowCount + 1, getRowCount());
 
-		newScript.delete();
+		deleteFile(newScript);
 	}
 
 	@Test
@@ -191,7 +183,7 @@ public class GhidraScriptMgrPlugin3Test extends AbstractGhidraScriptMgrPluginTes
 		assertCategoryInTree(newCategory);
 		assertCategoryNotInTree(oldCategory);
 
-		newScript.delete();
+		deleteFile(newScript);
 	}
 
 	@Test
@@ -209,12 +201,13 @@ public class GhidraScriptMgrPlugin3Test extends AbstractGhidraScriptMgrPluginTes
 
 		String oldCategory = newCategory;
 		newCategory = changeScriptCategory_WithSubcatogory(newScript);
+
 		refreshScriptManager();
 
 		assertCategoryInTree(newCategory);
 		assertCategoryNotInTree(oldCategory);
 
-		newScript.delete();
+		deleteFile(newScript);
 	}
 
 	@Test
@@ -283,34 +276,23 @@ public class GhidraScriptMgrPlugin3Test extends AbstractGhidraScriptMgrPluginTes
 		// Tests that the user can add an additional script path directory and choose that one
 		// to use
 		//
-		DockingActionIf pathAction = getAction(plugin, "Script Directories");
-		performAction(pathAction, false);
+		DockingActionIf bundleStatusAction = getAction(plugin, "Script Directories");
+		performAction(bundleStatusAction, false);
 		waitForSwing();
 
-		PickPathsDialog pathsDialog = env.waitForDialogComponent(PickPathsDialog.class, MAX_TIME);
+		final ResourceFile dir = new ResourceFile(getTestDirectoryPath() + "/test_scripts");
+		dir.getFile(false).mkdirs();
 
-		final File dir = new File(getTestDirectoryPath() + "/test_scripts");
-		dir.mkdirs();
-
-		final PathManager pathManager = pathsDialog.getPathManager();
-		SwingUtilities.invokeLater(() -> {
-			List<Path> paths = pathManager.getPaths();
-			paths.add(0, new Path(dir));
-			pathManager.setPaths(paths);
-		});
+		provider.getBundleHost().enable(dir);
 		waitForSwing();
-
-		pressButtonByText(pathsDialog, "Dismiss");
-		waitForSwing();
-		assertTrue(!pathsDialog.isShowing());
 
 		pressNewButton();
 
 		chooseJavaProvider();
 
-		SaveDialog sd = env.waitForDialogComponent(SaveDialog.class, MAX_TIME);
+		SaveDialog saveDialog = waitForDialogComponent(SaveDialog.class);
 
-		final ListPanel listPanel = (ListPanel) findComponentByName(sd.getComponent(), "PATH_LIST");
+		final ListPanel listPanel = (ListPanel) findComponentByName(saveDialog.getComponent(), "PATH_LIST");
 		assertNotNull(listPanel);
 		assertTrue(listPanel.isVisible());
 		assertEquals(2, listPanel.getListModel().getSize());
@@ -333,18 +315,19 @@ public class GhidraScriptMgrPlugin3Test extends AbstractGhidraScriptMgrPluginTes
 		}, false);
 		waitForSwing();
 
-		pressButtonByText(sd, "OK");
-		assertTrue(!sd.isShowing());
+		pressButtonByText(saveDialog, "OK");
+		assertTrue(!saveDialog.isShowing());
 		waitForTasks();
 
-		ResourceFile newScript = sd.getFile();
+		ResourceFile newScript = saveDialog.getFile();
 		assertTrue(newScript.exists());
 
 		assertNotNull(newScript);
-		assertEquals(dir, newScript.getParentFile().getFile(false));
+		assertEquals(dir.getAbsolutePath(),
+			newScript.getParentFile().getFile(false).getAbsolutePath());
 
-		newScript.delete();
-		dir.delete();
+		deleteFile(newScript);
+		deleteFile(dir);
 		waitForSwing();
 	}
 
@@ -405,6 +388,7 @@ public class GhidraScriptMgrPlugin3Test extends AbstractGhidraScriptMgrPluginTes
 		chooseDiscaredEditorChanges();
 
 		assertFalse("Editor not closed after discarding changes", editor.isVisible());
+
 	}
 
 	@Test
@@ -546,7 +530,7 @@ public class GhidraScriptMgrPlugin3Test extends AbstractGhidraScriptMgrPluginTes
 
 	@Test
 	public void testCancel() throws Exception {
-		TestChangeProgramScript script = startCancellableScript();
+		TestChangeProgramScript script = startCancellableScriptTask();
 
 		cancel();
 
@@ -555,7 +539,7 @@ public class GhidraScriptMgrPlugin3Test extends AbstractGhidraScriptMgrPluginTes
 
 	@Test
 	public void testCancel_DoNotCancel() throws Exception {
-		TestChangeProgramScript script = startCancellableScript();
+		TestChangeProgramScript script = startCancellableScriptTask();
 
 		cancel();
 

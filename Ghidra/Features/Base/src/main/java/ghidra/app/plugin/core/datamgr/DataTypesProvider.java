@@ -15,8 +15,8 @@
  */
 package ghidra.app.plugin.core.datamgr;
 
+import java.awt.Component;
 import java.awt.Point;
-import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.util.ArrayList;
 import java.util.List;
@@ -30,6 +30,7 @@ import docking.ActionContext;
 import docking.DockingWindowManager;
 import docking.action.DockingAction;
 import docking.action.ToggleDockingAction;
+import docking.event.mouse.GMouseListenerAdapter;
 import docking.menu.MultiActionDockingAction;
 import docking.widgets.OptionDialog;
 import docking.widgets.PopupWindow;
@@ -41,7 +42,7 @@ import ghidra.app.plugin.core.datamgr.archive.*;
 import ghidra.app.plugin.core.datamgr.tree.*;
 import ghidra.app.plugin.core.datamgr.util.DataTypeUtils;
 import ghidra.app.util.ToolTipUtils;
-import ghidra.app.util.datatype.DataTypeIdUrl;
+import ghidra.app.util.datatype.DataTypeUrl;
 import ghidra.framework.main.datatree.ArchiveProvider;
 import ghidra.framework.main.datatree.VersionControlDataTypeArchiveUndoCheckoutAction;
 import ghidra.framework.main.projectdata.actions.*;
@@ -57,6 +58,8 @@ import resources.ResourceManager;
 import util.HistoryList;
 
 public class DataTypesProvider extends ComponentProviderAdapter {
+
+	private static final String DATA_TYPES_ICON = "images/dataTypes.png";
 	private static final String TITLE = "Data Type Manager";
 	private static final String POINTER_FILTER_STATE = "PointerFilterState";
 	private static final String ARRAY_FILTER_STATE = "ArrayFilterState";
@@ -80,7 +83,8 @@ public class DataTypesProvider extends ComponentProviderAdapter {
 	private HelpLocation helpLocation;
 	private DataTypeManagerPlugin plugin;
 
-	private HistoryList<DataType> navigationHistory = new HistoryList<>(15, dt -> {
+	private HistoryList<DataTypeUrl> navigationHistory = new HistoryList<>(15, url -> {
+		DataType dt = url.getDataType(plugin);
 		setDataTypeSelected(dt);
 	});
 	private MultiActionDockingAction nextAction;
@@ -95,8 +99,11 @@ public class DataTypesProvider extends ComponentProviderAdapter {
 
 	public DataTypesProvider(DataTypeManagerPlugin plugin, String providerName) {
 		super(plugin.getTool(), providerName, plugin.getName(), DataTypesActionContext.class);
-		setTitle(TITLE);
 		this.plugin = plugin;
+
+		setTitle(TITLE);
+		setIcon(ResourceManager.loadImage(DATA_TYPES_ICON));
+		addToToolbar();
 
 		navigationHistory.setAllowDuplicates(true);
 
@@ -104,11 +111,6 @@ public class DataTypesProvider extends ComponentProviderAdapter {
 		helpLocation = new HelpLocation(plugin.getName(), "Data_Type_Manager");
 		addToTool();
 		createLocalActions();
-	}
-
-	@Override
-	public ImageIcon getIcon() {
-		return ResourceManager.loadImage(DataTypeManagerPlugin.DATA_TYPES_ICON);
 	}
 
 	/**
@@ -330,22 +332,22 @@ public class DataTypesProvider extends ComponentProviderAdapter {
 		GTreeNode clickedNode = null;
 		boolean isToolbarAction = true;
 		if (event != null) {
-
 			Object source = event.getSource();
 			if (source instanceof JTextField || source instanceof JTextPane) {
-				return new ActionContext(this, source, source);
+				Component component = (Component) source;
+				return new ActionContext(this, source, component);
 			}
 
 			Point point = event.getPoint();
 			clickedNode = archiveGTree.getNodeForLocation(point.x, point.y);
 			isToolbarAction = false;
 		}
-		return new DataTypesActionContext(this, plugin.getProgram(), archiveGTree, clickedNode,
-			isToolbarAction);
+
+		return new DataTypesActionContext(this, plugin.getProgram(), archiveGTree,
+			clickedNode, isToolbarAction);
 	}
 
-	@Override
-	// overridden to handle special logic in plugin
+	@Override // overridden to handle special logic in plugin
 	public void closeComponent() {
 		plugin.closeProvider(this);
 	}
@@ -354,22 +356,34 @@ public class DataTypesProvider extends ComponentProviderAdapter {
 		splitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
 
 		archiveGTree = new DataTypeArchiveGTree(plugin);
-		archiveGTree.addMouseListener(new MouseAdapter() {
+		archiveGTree.addMouseListener(new GMouseListenerAdapter() {
+
+			private GTreeNode lastClickedNode;
+
+			@Override
+			public void doubleClickTriggered(MouseEvent e) {
+
+				Point point = e.getPoint();
+				GTreeNode clickedNode = archiveGTree.getNodeForLocation(point.x, point.y);
+				if (clickedNode == null) {
+					return;
+				}
+
+				if (clickedNode != lastClickedNode) {
+					// this can happen when the tree moves during a double-click
+					return;
+				}
+
+				editNode(clickedNode);
+			}
 
 			@Override
 			public void mouseClicked(MouseEvent e) {
-
-				if (e.getClickCount() >= 2 && SwingUtilities.isLeftMouseButton(e)) {
-					Point point = e.getPoint();
-					GTreeNode clickedNode = archiveGTree.getNodeForLocation(point.x, point.y);
-					if (clickedNode == null) {
-						return;
-					}
-
-					editNode(clickedNode);
-				}
+				super.mouseClicked(e);
+				Point point = e.getPoint();
+				GTreeNode clickedNode = archiveGTree.getNodeForLocation(point.x, point.y);
+				lastClickedNode = clickedNode;
 			}
-
 		});
 
 		archiveGTree.addGTModelListener(new TreeModelListener() {
@@ -452,46 +466,24 @@ public class DataTypesProvider extends ComponentProviderAdapter {
 
 		previewScrollPane = new JScrollPane(previewPane);
 
-		DockingWindowManager.getHelpService().registerHelp(previewScrollPane,
-			new HelpLocation("DataTypeManagerPlugin", "Preview_Window"));
+		DockingWindowManager.getHelpService()
+				.registerHelp(previewScrollPane,
+					new HelpLocation("DataTypeManagerPlugin", "Preview_Window"));
 	}
 
 	private DataType locateDataType(HyperlinkEvent event) {
 		String href = event.getDescription();
 
-		DataTypeIdUrl url = null;
+		DataTypeUrl url = null;
 		try {
-			url = new DataTypeIdUrl(href);
+			url = new DataTypeUrl(href);
 		}
-		catch (NumberFormatException e) {
-			Msg.debug(this, "Could not parse Data Type ID URL '" + href + "'");
+		catch (IllegalArgumentException e) {
+			Msg.debug(this, "Could not parse Data Type URL '" + href + "'", e);
 			return null;
 		}
 
-		DataTypeManager manager = getManager(url);
-		if (manager == null) {
-			// this shouldn't be possible, unless the url is old and the manager has been closed
-			Msg.debug(this, "Could not find data type for " + event.getDescription());
-			return null;
-		}
-
-		DataType dt = manager.findDataTypeForID(url.getDataTypeId());
-		return dt;
-	}
-
-	private DataTypeManager getManager(DataTypeIdUrl url) {
-		UniversalID id = url.getDataTypeManagerId();
-		return getManager(id);
-	}
-
-	private DataTypeManager getManager(UniversalID id) {
-		DataTypeManager[] mgs = plugin.getDataTypeManagers();
-		for (DataTypeManager dtm : mgs) {
-			if (dtm.getUniversalID().equals(id)) {
-				return dtm;
-			}
-		}
-		return null;
+		return url.getDataType(plugin);
 	}
 
 	private void updatePreviewPane() {
@@ -538,9 +530,6 @@ public class DataTypesProvider extends ComponentProviderAdapter {
 
 		String toolTipText = ToolTipUtils.getToolTipText(dataType);
 		String updated = HTMLUtilities.convertLinkPlaceholdersToHyperlinks(toolTipText);
-
-		// Make the text a bit bigger, for readability
-		updated = HTMLUtilities.setFontSize(updated, 16);
 		previewPane.setText(updated);
 		previewPane.setCaretPosition(0);
 	}
@@ -548,6 +537,7 @@ public class DataTypesProvider extends ComponentProviderAdapter {
 	void dispose() {
 		previewUpdateManager.dispose();
 		archiveGTree.dispose();
+		navigationHistory.clear();
 	}
 
 	@Override
@@ -699,8 +689,8 @@ public class DataTypesProvider extends ComponentProviderAdapter {
 	}
 
 	private ArchiveNode getProgramArchiveNode() {
-		GTreeNode rootNode = getGTree().getRootNode();
-		List<GTreeNode> children = rootNode.getAllChildren();
+		GTreeNode rootNode = getGTree().getModelRoot();
+		List<GTreeNode> children = rootNode.getChildren();
 		for (GTreeNode node : children) {
 			ArchiveNode archiveNode = (ArchiveNode) node;
 			Archive archive = archiveNode.getArchive();
@@ -712,8 +702,8 @@ public class DataTypesProvider extends ComponentProviderAdapter {
 	}
 
 	private ArchiveNode getDataTypeArchiveNode(DataTypeArchive dataTypeArchive) {
-		GTreeNode rootNode = getGTree().getRootNode();
-		List<GTreeNode> children = rootNode.getAllChildren();
+		GTreeNode rootNode = getGTree().getModelRoot();
+		List<GTreeNode> children = rootNode.getChildren();
 		for (GTreeNode node : children) {
 			ArchiveNode archiveNode = (ArchiveNode) node;
 			Archive archive = archiveNode.getArchive();
@@ -752,7 +742,7 @@ public class DataTypesProvider extends ComponentProviderAdapter {
 		}
 
 		Category category = dataTypeManager.getCategory(dataType.getCategoryPath());
-		ArchiveRootNode rootNode = (ArchiveRootNode) gTree.getRootNode();
+		ArchiveRootNode rootNode = (ArchiveRootNode) gTree.getViewRoot();
 		ArchiveNode archiveNode = rootNode.getNodeForManager(dataTypeManager);
 		if (archiveNode == null) {
 			plugin.setStatus("Cannot find archive '" + dataTypeManager.getName() + "'.  It may " +
@@ -842,8 +832,8 @@ public class DataTypesProvider extends ComponentProviderAdapter {
 	}
 
 	void programRenamed() {
-		ArchiveRootNode rootNode = (ArchiveRootNode) archiveGTree.getRootNode();
-		List<GTreeNode> allChildren = rootNode.getAllChildren();
+		ArchiveRootNode rootNode = (ArchiveRootNode) archiveGTree.getModelRoot();
+		List<GTreeNode> allChildren = rootNode.getChildren();
 		for (GTreeNode node : allChildren) {
 			ArchiveNode archiveNode = (ArchiveNode) node;
 			if (archiveNode.getArchive() instanceof ProgramArchive) {
@@ -857,6 +847,10 @@ public class DataTypesProvider extends ComponentProviderAdapter {
 		ConflictResolutionPolicy conflictMode =
 			getConflictHandlerModesAction().getCurrentUserData();
 		return conflictMode.getHandler();
+	}
+
+	DataTypeManagerPlugin getPlugin() {
+		return plugin;
 	}
 
 	private DataType getDataTypeFrom(TreePath path) {
@@ -874,7 +868,7 @@ public class DataTypesProvider extends ComponentProviderAdapter {
 		return dt;
 	}
 
-	HistoryList<DataType> getNavigationHistory() {
+	HistoryList<DataTypeUrl> getNavigationHistory() {
 		return navigationHistory;
 	}
 
@@ -896,7 +890,12 @@ public class DataTypesProvider extends ComponentProviderAdapter {
 			return; // Ignore events from the GTree's housekeeping
 		}
 
-		navigationHistory.add(dt);
+		// the data type is null when a non-data type node is selected, like a category node
+		if (dt == null) {
+			return;
+		}
+
+		navigationHistory.add(new DataTypeUrl(dt));
 		contextChanged();
 	}
 }

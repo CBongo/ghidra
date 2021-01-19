@@ -18,8 +18,6 @@ package ghidra.util.bean;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
-import java.awt.event.MouseEvent;
-
 import javax.swing.ButtonModel;
 
 import org.junit.Before;
@@ -27,7 +25,7 @@ import org.junit.Test;
 
 import docking.ActionContext;
 import docking.action.*;
-import docking.menu.DockingToolbarButton;
+import docking.menu.DialogToolbarButton;
 import docking.test.AbstractDockingTest;
 import docking.widgets.EmptyBorderButton;
 import resources.ResourceManager;
@@ -44,7 +42,7 @@ public class EmptyBorderButtonTest extends AbstractDockingTest {
 	}
 
 	@Test
-    public void testButtonBorderOnRollover() {
+	public void testButtonBorderOnRollover() {
 		assertEquals(emptyBorderButton.getBorder(), EmptyBorderButton.NO_BUTTON_BORDER);
 
 		buttonModel.setRollover(true);
@@ -61,7 +59,7 @@ public class EmptyBorderButtonTest extends AbstractDockingTest {
 	}
 
 	@Test
-    public void testButtonBorderOnPress() {
+	public void testButtonBorderOnPress() {
 		assertEquals(emptyBorderButton.getBorder(), EmptyBorderButton.NO_BUTTON_BORDER);
 
 		// just pressing the button does not change the border...
@@ -82,30 +80,15 @@ public class EmptyBorderButtonTest extends AbstractDockingTest {
 	}
 
 	private void setButtonArmed(final boolean armed) {
-		runSwing(new Runnable() {
-			@Override
-			public void run() {
-				buttonModel.setArmed(armed);
-			}
-		});
+		runSwing(() -> buttonModel.setArmed(armed));
 	}
 
 	private void setButtonPressed(final boolean pressed) {
-		runSwing(new Runnable() {
-			@Override
-			public void run() {
-				buttonModel.setPressed(pressed);
-			}
-		});
+		runSwing(() -> buttonModel.setPressed(pressed));
 	}
 
 	private void setRollover(final boolean isRollover) {
-		runSwing(new Runnable() {
-			@Override
-			public void run() {
-				buttonModel.setRollover(isRollover);
-			}
-		});
+		runSwing(() -> buttonModel.setRollover(isRollover));
 	}
 
 //	public void testButtonBorderOnModalDialog() throws InterruptedException {
@@ -146,7 +129,7 @@ public class EmptyBorderButtonTest extends AbstractDockingTest {
 //	}
 
 	@Test
-    public void testButtonEnablementFromAction() {
+	public void testButtonEnablementFromAction() {
 		DockingAction action = new DockingAction("name", "owner") {
 			@Override
 			public void actionPerformed(ActionContext context) {
@@ -158,23 +141,18 @@ public class EmptyBorderButtonTest extends AbstractDockingTest {
 				return true;
 			}
 		};
-		ActionContextProvider contextProvider = new ActionContextProvider() {
-
-			@Override
-			public ActionContext getActionContext(MouseEvent e) {
-				return new ActionContext(null, null, e.getSource());
-			}
-		};
+		ActionContextProvider contextProvider =
+			e -> new ActionContext(null, e.getSource(), e.getComponent());
 		action.setToolBarData(new ToolBarData(ResourceManager.getDefaultIcon()));
 		action.setEnabled(false);
 
-		DockingToolbarButton button = new DockingToolbarButton(action, contextProvider);
+		DialogToolbarButton button = new DialogToolbarButton(action, contextProvider);
 		assertTrue(!button.isEnabled());
 
 		action.setEnabled(true);
 		assertTrue(button.isEnabled());
 
-		button = new DockingToolbarButton(action, contextProvider);
+		button = new DialogToolbarButton(action, contextProvider);
 		assertTrue(button.isEnabled());
 
 		action.setEnabled(false);

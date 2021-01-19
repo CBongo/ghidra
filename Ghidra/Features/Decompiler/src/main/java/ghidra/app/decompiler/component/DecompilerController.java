@@ -23,13 +23,14 @@ import com.google.common.cache.CacheBuilder;
 
 import docking.widgets.fieldpanel.support.ViewerPosition;
 import ghidra.app.decompiler.*;
-import ghidra.app.plugin.core.decompile.DecompileClipboardProvider;
+import ghidra.app.plugin.core.decompile.DecompilerClipboardProvider;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.listing.*;
 import ghidra.program.model.pcode.HighFunction;
 import ghidra.program.util.ProgramLocation;
 import ghidra.program.util.ProgramSelection;
 import ghidra.util.bean.field.AnnotatedTextFieldElement;
+import utility.function.Callback;
 
 /**
  * Coordinates the interactions between the DecompilerProvider, DecompilerPanel, and the DecompilerManager
@@ -45,7 +46,7 @@ public class DecompilerController {
 	private int cacheSize;
 
 	public DecompilerController(DecompilerCallbackHandler handler, DecompileOptions options,
-			DecompileClipboardProvider clipboard) {
+			DecompilerClipboardProvider clipboard) {
 		this.cacheSize = options.getCacheSize();
 		this.callbackHandler = handler;
 		decompilerCache = buildCache();
@@ -88,11 +89,12 @@ public class DecompilerController {
 	 * Shows the function containing the given location in the decompilerPanel.  Also, positions the
 	 * decompilerPanel's cursor to the closest equivalent position. If the decompilerPanel is
 	 * already displaying the function, then only the cursor is repositioned.  To force a
-	 * re-decompile use {@link #refreshDisplay(Program, ProgramLocation)}.
+	 * re-decompile use {@link #refreshDisplay(Program, ProgramLocation, File)}.
 	 *
 	 * @param program the program for the given location
 	 * @param location the location containing the function to be displayed and the location in
 	 * that function to position the cursor.
+	 * @param viewerPosition the viewer position
 	 */
 	public void display(Program program, ProgramLocation location, ViewerPosition viewerPosition) {
 		if (!decompilerMgr.isBusy() && decompilerPanel.containsLocation(location)) {
@@ -121,7 +123,7 @@ public class DecompilerController {
 			return false;
 		}
 
-		// cancel any pending decompile tasks, so that previous requests don't overwrite the latest request
+		// cancel pending decompile tasks; previous requests shouldn't overwrite the latest request
 		decompilerMgr.cancelAll();
 		setDecompileData(
 			new DecompileData(program, function, location, results, null, null, viewerPosition));
@@ -135,7 +137,7 @@ public class DecompilerController {
 
 	/**
 	 * Sets new decompiler options and triggers a new decompile.
-	 * @param decompilerOptions
+	 * @param decompilerOptions the options
 	 */
 	public void setOptions(DecompileOptions decompilerOptions) {
 		clearCache();
@@ -155,12 +157,21 @@ public class DecompilerController {
 		decompilerPanel.setMouseNavigationEnabled(enabled);
 	}
 
+	/**
+	 * Resets the native decompiler process.  Call this method when the decompiler's view
+	 * of a program has been invalidated, such as when a new overlay space has been added.
+	 */
+	public void resetDecompiler() {
+		decompilerMgr.resetDecompiler();
+	}
+
 //==================================================================================================
 //  Methods call by the DecompilerManager
 //==================================================================================================
 
 	/**
-	 * Called by the DecompilerManager to update the currently displayed DecompileData.
+	 * Called by the DecompilerManager to update the currently displayed DecompileData
+	 * @param decompileData the new data
 	 */
 	public void setDecompileData(DecompileData decompileData) {
 		updateCache(decompileData);
@@ -185,16 +196,29 @@ public class DecompilerController {
 //==================================================================================================
 //  Methods called by actions and other miscellaneous classes
 //==================================================================================================
+
+	public void doWhenNotBusy(Callback c) {
+		callbackHandler.doWheNotBusy(c);
+	}
+
 	/**
 	 * Always decompiles the function containing the given location before positioning the
 	 * decompilerPanel's cursor to the closest equivalent position.
 	 * @param program the program for the given location
 	 * @param location the location containing the function to be displayed and the location in
 	 * that function to position the cursor.
+	 * @param debugFile the debug file
 	 */
 	public void refreshDisplay(Program program, ProgramLocation location, File debugFile) {
 		clearCache();
 		decompilerMgr.decompile(program, location, null, debugFile, true);
+	}
+
+	public boolean hasDecompileResults() {
+		if (currentDecompileData != null) {
+			return currentDecompileData.hasDecompileResults();
+		}
+		return false;
 	}
 
 	public ClangTokenGroup getCCodeModel() {
@@ -248,14 +272,11 @@ public class DecompilerController {
 	}
 
 	void goToFunction(Function function, boolean newWindow) {
-		while (function.isThunk()) {
-			Function thunkedFunction = function.getThunkedFunction(false);
-			if (thunkedFunction == null || thunkedFunction.isExternal()) {
-				break;
-			}
+		Function thunkedFunction = function.getThunkedFunction(true);
+		if (thunkedFunction != null) {
 			function = thunkedFunction;
 		}
-		goToAddress(function.getEntryPoint(), newWindow);
+		callbackHandler.goToFunction(function, newWindow);
 	}
 
 	void goToLabel(String labelName, boolean newWindow) {

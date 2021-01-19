@@ -24,6 +24,8 @@ import java.util.List;
 import javax.swing.*;
 
 import docking.options.editor.ButtonPanelFactory;
+import docking.widgets.checkbox.GCheckBox;
+import docking.widgets.list.GListCellRenderer;
 import docking.widgets.table.GTable;
 import docking.wizard.AbstractWizardJPanel;
 import ghidra.app.util.GenericHelpTopics;
@@ -38,9 +40,11 @@ import util.CollectionUtils;
  * Panel that shows the users for a given repository and the users associated with the current
  * shared project. There are 3 main sub-panels:
  * <p>
+ * <ul>
  * <li>Known Users Panel: Displays all users in the repository</li>
  * <li>Button Panel: Provides buttons for adding/removing users from the project</li>
  * <li>User Access Panel: Displays all users on the project, and their access permissions</li>
+ * </ul>
  * <p>
  * If the current user is an admin, he may change user permissions and add/remove them 
  * from the project. If not, only the User Access Panel will be visible and it will
@@ -68,7 +72,7 @@ public class ProjectAccessPanel extends AbstractWizardJPanel {
 	/** 
 	 * Construct a new panel from a {@link RepositoryAdapter} instance.
 	 * 
-	 * @param knownUser names of the users that are known to the remote server
+	 * @param knownUsers names of the users that are known to the remote server
 	 * @param repository the repository adapter instance
 	 * @param tool the current tool
 	 * @throws IOException if there's an error processing the repository user list
@@ -191,8 +195,7 @@ public class ProjectAccessPanel extends AbstractWizardJPanel {
 		add(mainPanel, BorderLayout.CENTER);
 
 		if (anonymousServerAccessAllowed) {
-			anonymousAccessCB = new JCheckBox("Allow Anonymous Access");
-			anonymousAccessCB.setSelected(origAnonymousAccessEnabled);
+			anonymousAccessCB = new GCheckBox("Allow Anonymous Access", origAnonymousAccessEnabled);
 			anonymousAccessCB.setBorder(BorderFactory.createEmptyBorder(10, 10, 0, 0));
 			add(anonymousAccessCB, BorderLayout.SOUTH);
 		}
@@ -554,9 +557,9 @@ public class ProjectAccessPanel extends AbstractWizardJPanel {
 
 		/**
 		 * Renderer for the {@link KnownUsersPanel}. This is to ensure that we render the
-		 * correct icon for each user in the list, and that the text is colored properly.
+		 * correct icon for each user in the list
 		 */
-		private class UserListCellRenderer extends JLabel implements ListCellRenderer {
+		private class UserListCellRenderer extends GListCellRenderer<String> {
 
 			private Icon icon;
 			private Icon inProjectIcon;
@@ -566,30 +569,18 @@ public class ProjectAccessPanel extends AbstractWizardJPanel {
 				inProjectIcon = ResourceManager.loadImage("images/user.png");
 				icon = ResourceManager.getScaledIcon(icon, inProjectIcon.getIconWidth(),
 					inProjectIcon.getIconHeight());
-				setBorder(BorderFactory.createEmptyBorder(0, 5, 0, 0));
-				setOpaque(true);
 			}
 
 			@Override
-			public Component getListCellRendererComponent(JList list, Object value, int index,
-					boolean isSelected, boolean cellHasFocus) {
+			public Component getListCellRendererComponent(JList<? extends String> list,
+					String username, int index, boolean isSelected, boolean cellHasFocus) {
 
-				String name = (String) value;
+				super.getListCellRendererComponent(list, username, index, isSelected, cellHasFocus);
 
 				if (userAccessPanel != null) {
-					setIcon(userAccessPanel.isInProjectAccessList(name) ? inProjectIcon : icon);
+					setIcon(userAccessPanel.isInProjectAccessList(username) ? inProjectIcon : icon);
 				}
 
-				setText(name);
-
-				if (isSelected) {
-					setBackground(list.getSelectionBackground());
-					setForeground(list.getSelectionForeground());
-				}
-				else {
-					setBackground(list.getBackground());
-					setForeground(list.getForeground());
-				}
 				return this;
 			}
 		}

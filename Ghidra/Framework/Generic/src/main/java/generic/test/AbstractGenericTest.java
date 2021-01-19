@@ -15,7 +15,7 @@
  */
 package generic.test;
 
-import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.*;
 
 import java.awt.*;
 import java.awt.event.*;
@@ -32,6 +32,7 @@ import java.util.regex.Pattern;
 
 import javax.swing.*;
 import javax.swing.table.TableCellEditor;
+import javax.swing.table.TableCellRenderer;
 import javax.swing.text.JTextComponent;
 import javax.swing.tree.*;
 
@@ -48,12 +49,14 @@ import ghidra.framework.ApplicationConfiguration;
 import ghidra.util.*;
 import ghidra.util.datastruct.WeakSet;
 import ghidra.util.exception.AssertException;
+import ghidra.util.task.AbstractSwingUpdateManager;
 import ghidra.util.task.SwingUpdateManager;
 import junit.framework.AssertionFailedError;
 import sun.awt.AppContext;
 import utilities.util.FileUtilities;
 import utilities.util.reflection.ReflectionUtilities;
 import utility.application.ApplicationLayout;
+import utility.function.ExceptionalCallback;
 
 public abstract class AbstractGenericTest extends AbstractGTest {
 
@@ -62,6 +65,7 @@ public abstract class AbstractGenericTest extends AbstractGTest {
 	private static File debugDirectory;
 
 	public static final String TESTDATA_DIRECTORY_NAME = "testdata";
+	public static final String DEFAULT_TOOL_NAME = "CodeBrowser";
 	public static final String DEFAULT_TEST_TOOL_NAME = "TestCodeBrowser";
 
 	private static boolean initialized = false;
@@ -215,7 +219,8 @@ public abstract class AbstractGenericTest extends AbstractGTest {
 
 	/**
 	 * A callback for subclasses when a test has failed. This will be called
-	 * before <code>tearDown()</code>
+	 * <b>after</b> <code>tearDown()</code>.  This means that any diagnostics will have to 
+	 * take into account items that have already been disposed.
 	 * 
 	 * @param e the exception that happened when the test failed
 	 */
@@ -245,8 +250,9 @@ public abstract class AbstractGenericTest extends AbstractGTest {
 	 */
 	public static Set<Window> getAllWindows() {
 		Set<Window> set = new HashSet<>();
-		Frame sharedOwnerFrame = (Frame) AppContext.getAppContext().get(
-			new StringBuffer("SwingUtilities.sharedOwnerFrame"));
+		Frame sharedOwnerFrame = (Frame) AppContext.getAppContext()
+				.get(
+					new StringBuffer("SwingUtilities.sharedOwnerFrame"));
 		if (sharedOwnerFrame != null) {
 			set.addAll(getAllWindows(sharedOwnerFrame));
 		}
@@ -291,7 +297,7 @@ public abstract class AbstractGenericTest extends AbstractGTest {
 	 * @param cls class where resource exists
 	 * @param name resource filename
 	 * @return list of lines contained in file
-	 * @throws IOException
+	 * @throws IOException if an exception occurs reading the given resource
 	 */
 	public static List<String> loadTextResource(Class<?> cls, String name) throws IOException {
 
@@ -347,7 +353,7 @@ public abstract class AbstractGenericTest extends AbstractGTest {
 	 * Returns a file that points to the location on disk of the given relative
 	 * path name. The path is relative to the test resources directory.
 	 *
-	 * @param relativePath
+	 * @param relativePath the path of the file
 	 * @return a file that points to the location on disk of the relative path.
 	 * @throws FileNotFoundException If the directory does not exist
 	 * @throws IOException if the given path does not represent a directory
@@ -443,6 +449,9 @@ public abstract class AbstractGenericTest extends AbstractGTest {
 
 	// TODO deprecate this; at time of writing there are 1174 references; wait until it is
 	//      a more reasonable number
+	//
+	//      Update: 744 references at 12/1/19
+	//      Update: 559 references at 12/4/20
 	public static void waitForPostedSwingRunnables() {
 		waitForSwing();
 	}
@@ -485,9 +494,9 @@ public abstract class AbstractGenericTest extends AbstractGTest {
 	 * has the type classType. This method is only really useful if it is known
 	 * that only a single field of classType exists within the ownerInstance.
 	 * 
-	 * @param <T>
-	 * @param classType
-	 * @param ownerInstance
+	 * @param <T> the type
+	 * @param classType the class type of the desired field
+	 * @param ownerInstance the object instance that owns the field
 	 * @return field object of type classType or null
 	 */
 	public static <T> T getInstanceFieldByClassType(Class<T> classType, Object ownerInstance) {
@@ -497,7 +506,7 @@ public abstract class AbstractGenericTest extends AbstractGTest {
 	/**
 	 * Sets the instance field by the given name on the given object instance.
 	 * <p>
-	 * Note: if the field is static, then the <tt>ownerInstance</tt> field can
+	 * Note: if the field is static, then the <code>ownerInstance</code> field can
 	 * be the class of the object that contains the variable.
 	 *
 	 * @param fieldName The name of the field to retrieve.
@@ -519,7 +528,7 @@ public abstract class AbstractGenericTest extends AbstractGTest {
 	 * Gets the instance field by the given name on the given object instance.
 	 * The value is a primitive wrapper if it is a primitive type.
 	 * <p>
-	 * Note: if the field is static, then the <tt>ownerInstance</tt> field can
+	 * Note: if the field is static, then the <code>ownerInstance</code> field can
 	 * be the class of the object that contains the variable.
 	 *
 	 * @param fieldName The name of the field to retrieve.
@@ -565,9 +574,9 @@ public abstract class AbstractGenericTest extends AbstractGTest {
 	/**
 	 * Uses reflection to execute the method denoted by the given method name.
 	 * If any value is returned from the method execution, then it will be
-	 * returned from this method. Otherwise, <tt>null</tt> is returned.
+	 * returned from this method. Otherwise, <code>null</code> is returned.
 	 * <p>
-	 * Note: if the method is static, then the <tt>ownerInstance</tt> field can
+	 * Note: if the method is static, then the <code>ownerInstance</code> field can
 	 * be the class of the object that contains the method.
 	 *
 	 * @param methodName The name of the method to execute.
@@ -661,10 +670,10 @@ public abstract class AbstractGenericTest extends AbstractGTest {
 		if (button == null) {
 			throw new AssertionError("Couldn't find button " + buttonText + ".");
 		}
-		if (!button.isShowing()) {
+		if (!runSwing(() -> button.isShowing())) {
 			throw new AssertionError("Button " + buttonText + " is not showing.");
 		}
-		if (!button.isEnabled()) {
+		if (!runSwing(() -> button.isEnabled())) {
 			throw new AssertionError("Button " + buttonText + " is not enabled.");
 		}
 		pressButton(button, waitForCompletion);
@@ -700,10 +709,10 @@ public abstract class AbstractGenericTest extends AbstractGTest {
 		if (button == null) {
 			throw new AssertionError("Couldn't find button " + buttonName + ".");
 		}
-		if (!button.isVisible()) {
+		if (!runSwing(() -> button.isShowing())) {
 			throw new AssertionError("Button " + buttonName + " is not showing.");
 		}
-		if (!button.isEnabled()) {
+		if (!runSwing(() -> button.isEnabled())) {
 			throw new AssertionError("Button " + buttonName + " is not enabled.");
 		}
 		pressButton(button, waitForCompletion);
@@ -1088,11 +1097,66 @@ public abstract class AbstractGenericTest extends AbstractGTest {
 		return ref.get();
 	}
 
-	public static void runSwing(Runnable runnable) {
-		runSwing(runnable, true);
+	/**
+	 * Run the given code snippet on the Swing thread and wait for it to finish
+	 * @param r the runnable code snippet
+	 */
+	public static void runSwing(Runnable r) {
+		runSwing(r, true);
+	}
+
+	/**
+	 * Run the given code snippet on the Swing thread later, not blocking the current thread.  Use
+	 * this if the code snippet causes a blocking operation.
+	 * 
+	 * <P>This is a shortcut for <code>runSwing(r, false);</code>.
+	 * 
+	 * @param r the runnable code snippet
+	 */
+	public void runSwingLater(Runnable r) {
+		runSwing(r, false);
+	}
+
+	/**
+	 * Call this version of {@link #runSwing(Runnable)} when you expect your runnable <b>may</b> 
+	 * throw exceptions
+	 * 
+	 * @param callback the runnable code snippet to call
+	 * @throws Exception any exception that is thrown on the Swing thread
+	 */
+	public static <E extends Exception> void runSwingWithException(ExceptionalCallback<E> callback)
+			throws Exception {
+
+		if (Swing.isSwingThread()) {
+			throw new AssertException("Unexpectedly called from the Swing thread");
+		}
+
+		ExceptionHandlingRunner exceptionHandlingRunner = new ExceptionHandlingRunner(callback);
+		Throwable throwable = exceptionHandlingRunner.getException();
+		if (throwable == null) {
+			return;
+		}
+
+		if (throwable instanceof Exception) {
+			// this is what the client expected
+			throw (Exception) throwable;
+		}
+
+		// a runtime exception; re-throw
+		throw new AssertException(throwable);
 	}
 
 	public static void runSwing(Runnable runnable, boolean wait) {
+
+		// 
+		// Special Case: this check handled re-entrant test code.  That is, an calls to runSwing()
+		//               that are made from within a runSwing() call.  Most clients do not do
+		//               this, but it can happen when a client makes a test API call (which itself
+		//               calls runSwing()) from within a runSwing() call. 
+		//               
+		//               Calling the run method directly here ensures that the order of client 
+		//               requests is preserved.
+		//
 		if (SwingUtilities.isEventDispatchThread()) {
 			runnable.run();
 			return;
@@ -1115,15 +1179,21 @@ public abstract class AbstractGenericTest extends AbstractGTest {
 		};
 
 		SwingUtilities.invokeLater(swingExceptionCatcher);
-
 	}
 
 	protected static class ExceptionHandlingRunner {
-		private final Runnable delegateRunnable;
+		private final ExceptionalCallback<? extends Exception> delegateCallback;
 		private Throwable exception;
 
 		ExceptionHandlingRunner(Runnable delegateRunnable) {
-			this.delegateRunnable = delegateRunnable;
+			this.delegateCallback = () -> {
+				delegateRunnable.run();
+			};
+			run();
+		}
+
+		ExceptionHandlingRunner(ExceptionalCallback<? extends Exception> delegateCallback) {
+			this.delegateCallback = delegateCallback;
 			run();
 		}
 
@@ -1162,7 +1232,7 @@ public abstract class AbstractGenericTest extends AbstractGTest {
 
 			Runnable swingExceptionCatcher = () -> {
 				try {
-					delegateRunnable.run();
+					delegateCallback.call();
 				}
 				catch (Throwable t) {
 					exception = t;
@@ -1266,11 +1336,47 @@ public abstract class AbstractGenericTest extends AbstractGTest {
 	}
 
 	public static void clickTableCell(final JTable table, final int row, final int col,
-			int clickCount) throws Exception {
+			int clickCount) {
 		runSwing(() -> table.setRowSelectionInterval(row, row));
 		waitForSwing();
 		Rectangle rect = table.getCellRect(row, col, true);
 		clickMouse(table, MouseEvent.BUTTON1, rect.x + 10, rect.y + 10, clickCount, 0);
+		waitForSwing();
+	}
+
+	/**
+	 * Clicks a range of items in a list (simulates holding SHIFT and selecting
+	 * each item in the range in-turn)
+	 * 
+	 * @param list the list to select from
+	 * @param row the initial index
+	 * @param count the number of rows to select
+	 */
+	public static void clickListRange(final JList<?> list, final int row, int count) {
+		waitForSwing();
+		for (int i = row; i < row + count; i++) {
+			Rectangle rect = list.getCellBounds(i, i);
+			clickMouse(list, MouseEvent.BUTTON1, rect.x + 10, rect.y + 10, 1,
+				InputEvent.SHIFT_DOWN_MASK);
+		}
+		waitForSwing();
+	}
+
+	/**
+	 * Clicks a range of items in a table (simulates holding SHIFT and selecting
+	 * each item in the range)
+	 * 
+	 * @param table the table to select
+	 * @param row the starting row index
+	 * @param count the number of rows to select
+	 */
+	public static void clickTableRange(final JTable table, final int row, int count) {
+		waitForSwing();
+		for (int i = row; i < row + count; i++) {
+			Rectangle rect = table.getCellRect(i, 0, true);
+			clickMouse(table, MouseEvent.BUTTON1, rect.x + 10, rect.y + 10, 1,
+				InputEvent.SHIFT_DOWN_MASK);
+		}
 		waitForSwing();
 	}
 
@@ -1284,6 +1390,36 @@ public abstract class AbstractGenericTest extends AbstractGTest {
 		TableCellEditor editor = table.getCellEditor(row, col);
 		assertNotNull("Unable to edit table cell at " + row + ", " + col, editor);
 		return editor;
+	}
+
+	/**
+	 * Gets the rendered value for the specified table cell.  The actual value at the cell may
+	 * not be a String.  This method will get the String display value, as created by the table.
+	 * 
+	 * @param table the table to query
+	 * @param row the row to query
+	 * @param column the column to query
+	 * @return the String value
+	 * @throws IllegalArgumentException if there is no renderer or the rendered component is
+	 *         something from which this method can get a String (such as a JLabel)
+	 */
+	public static String getRenderedTableCellValue(JTable table, int row, int column) {
+
+		return runSwing(() -> {
+
+			TableCellRenderer renderer = table.getCellRenderer(row, column);
+			if (renderer == null) {
+				throw new IllegalArgumentException(
+					"No renderer registered for row/col: " + row + '/' + column);
+			}
+			Component component = table.prepareRenderer(renderer, row, column);
+			if (!(component instanceof JLabel)) {
+				throw new IllegalArgumentException(
+					"Do not know how to get text from a renderer " + "that is not a JLabel");
+			}
+
+			return ((JLabel) component).getText();
+		});
 	}
 
 	public static <T> void setComboBoxSelection(final JComboBox<T> comboField, final T selection) {
@@ -1390,7 +1526,7 @@ public abstract class AbstractGenericTest extends AbstractGTest {
 	/**
 	 * Invoke <code>fixupGUI</code> at the beginning of your JUnit test or in
 	 * its setup() method to make your GUI for the JUnit test appear using the
-	 * system Look & Feel. The system look and feel is the default that Ghidra
+	 * system Look and Feel. The system look and feel is the default that Ghidra
 	 * uses. This will also change the default fonts for the JUnit test to be
 	 * the same as those in Ghidra.
 	 *
@@ -1426,6 +1562,29 @@ public abstract class AbstractGenericTest extends AbstractGTest {
 	}
 
 	/**
+	 * Signals that the client expected the System Under Test (SUT) to report errors.  Use this
+	 * when you wish to verify that errors are reported and you do not want those errors to
+	 * fail the test.  The default value for this setting is false, which means that any
+	 * errors reported will fail the running test.
+	 *
+	 * @param expected true if errors are expected.
+	 */
+	public static void setErrorsExpected(boolean expected) {
+		if (expected) {
+			Msg.error(AbstractGenericTest.class, ">>>>>>>>>>>>>>>> Expected Exception");
+			ConcurrentTestExceptionHandler.disable();
+		}
+		else {
+			Msg.error(AbstractGenericTest.class, "<<<<<<<<<<<<<<<< End Expected Exception");
+			ConcurrentTestExceptionHandler.enable();
+		}
+	}
+
+//==================================================================================================
+// Swing Methods
+//==================================================================================================	
+
+	/**
 	 * Waits for the Swing thread to process any pending events. This method
 	 * also waits for any {@link SwingUpdateManager}s that have pending events
 	 * to be flushed.
@@ -1437,13 +1596,13 @@ public abstract class AbstractGenericTest extends AbstractGTest {
 			throw new AssertException("Can't wait for swing from within the swing thread!");
 		}
 
-		Set<SwingUpdateManager> set = new HashSet<>();
+		Set<AbstractSwingUpdateManager> set = new HashSet<>();
 		runSwing(() -> {
 			@SuppressWarnings("unchecked")
 			WeakSet<SwingUpdateManager> s =
 				(WeakSet<SwingUpdateManager>) getInstanceField("instances",
 					SwingUpdateManager.class);
-			for (SwingUpdateManager manager : s) {
+			for (AbstractSwingUpdateManager manager : s) {
 				set.add(manager);
 			}
 		});
@@ -1460,7 +1619,7 @@ public abstract class AbstractGenericTest extends AbstractGTest {
 		return wasEverBusy;
 	}
 
-	private static boolean waitForSwing(Set<SwingUpdateManager> managers, boolean flush) {
+	private static boolean waitForSwing(Set<AbstractSwingUpdateManager> managers, boolean flush) {
 
 		// Note: not sure how long is too long to wait for the Swing thread and update managers
 		//       to finish.  This is usually less than a second.  We have seen a degenerate
@@ -1480,7 +1639,7 @@ public abstract class AbstractGenericTest extends AbstractGTest {
 			yieldToSwing();
 			keepGoing = false;
 
-			for (SwingUpdateManager manager : managers) {
+			for (AbstractSwingUpdateManager manager : managers) {
 
 				if (!manager.isBusy()) {
 					// no current or pending work
@@ -1517,7 +1676,7 @@ public abstract class AbstractGenericTest extends AbstractGTest {
 		return wasEverBusy;
 	}
 
-	private static void flushAllManagers(Set<SwingUpdateManager> managers, boolean flush) {
+	private static void flushAllManagers(Set<AbstractSwingUpdateManager> managers, boolean flush) {
 
 		//
 		// Some update managers will make an update that causes another manager to schedule an
@@ -1534,21 +1693,19 @@ public abstract class AbstractGenericTest extends AbstractGTest {
 		// which would be 2
 		int n = 3;
 		for (int i = 0; i < n; i++) {
-			for (SwingUpdateManager manager : managers) {
+			for (AbstractSwingUpdateManager manager : managers) {
 				doFlush(flush, manager);
 			}
 		}
 	}
 
-	private static void doFlush(boolean doFlush, SwingUpdateManager manager) {
+	private static void doFlush(boolean doFlush, AbstractSwingUpdateManager manager) {
 		if (!doFlush) {
 			return;
 		}
 
 		runSwing(() -> {
-			if (manager.hasPendingUpdates()) {
-				manager.updateNow();
-			}
+			manager.flush();
 		}, false);
 		yieldToSwing();
 	}
@@ -1569,7 +1726,7 @@ public abstract class AbstractGenericTest extends AbstractGTest {
 
 		if (SwingUtilities.isEventDispatchThread()) {
 			Msg.error(AbstractGenericTest.class,
-				"Incorrectly called yeildToSwing() from the Swing thread");
+				"Incorrectly called yieldToSwing() from the Swing thread");
 			return; // shouldn't happen
 		}
 
@@ -1685,7 +1842,7 @@ public abstract class AbstractGenericTest extends AbstractGTest {
 	/**
 	 * Creates a file path with a filename that is under the system temp
 	 * directory. The path returned will not point to an existing file. The
-	 * suffix of the file will be <tt>.tmp</tt>.
+	 * suffix of the file will be <code>.tmp</code>.
 	 * 
 	 * @param name the filename
 	 * @return a new file path
@@ -1749,7 +1906,7 @@ public abstract class AbstractGenericTest extends AbstractGTest {
 	 * prefix and the given suffix. The final filename will also include the
 	 * current test name, as well as any data added by
 	 * {@link File#createTempFile(String, String)}. The file suffix will be
-	 * <tt>.tmp</tt>
+	 * <code>.tmp</code>
 	 * <p>
 	 * The file will be marked to delete on JVM exit. This will not work if the
 	 * JVM is taken down the hard way, as when pressing the stop button in

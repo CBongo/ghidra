@@ -41,7 +41,7 @@ import ghidra.program.model.listing.Program;
 import ghidra.program.model.mem.*;
 import ghidra.test.AbstractGhidraHeadedIntegrationTest;
 import ghidra.test.TestEnv;
-import ghidra.util.task.TaskMonitorAdapter;
+import ghidra.util.task.TaskMonitor;
 
 /**
  * Tests for the actions on the Memory Map provider.
@@ -56,10 +56,6 @@ public class MemoryMapProvider2Test extends AbstractGhidraHeadedIntegrationTest 
 	private Memory memory;
 	private JTable table;
 	private TableModel model;
-
-	public MemoryMapProvider2Test() {
-		super();
-	}
 
 	private Program buildProgram(String programName) throws Exception {
 		ProgramBuilder builder = new ProgramBuilder(programName, ProgramBuilder._TOY);
@@ -93,9 +89,8 @@ public class MemoryMapProvider2Test extends AbstractGhidraHeadedIntegrationTest 
 	@After
 	public void tearDown() throws Exception {
 		if (tool != null) {
-			closeAllWindowsAndFrames();
+			closeAllWindows();
 		}
-		env.release(program);
 		env.dispose();
 	}
 
@@ -105,7 +100,7 @@ public class MemoryMapProvider2Test extends AbstractGhidraHeadedIntegrationTest 
 		performAction(action, false);
 
 		// find the dialog for the add
-		AddBlockDialog d = waitForDialogComponent(tool.getToolFrame(), AddBlockDialog.class, 2000);
+		AddBlockDialog d = waitForDialogComponent(AddBlockDialog.class);
 		assertNotNull(d);
 		JRadioButton initRB = (JRadioButton) findComponentByName(d.getComponent(), "Initialized");
 		assertNotNull(initRB);
@@ -128,18 +123,15 @@ public class MemoryMapProvider2Test extends AbstractGhidraHeadedIntegrationTest 
 
 		JCheckBox readCB = (JCheckBox) findComponentByName(d.getComponent(), "Read");
 		assertNotNull(readCB);
-		assertTrue(readCB.isEnabled());
 		assertTrue(readCB.isSelected());
 
 		JCheckBox writeCB = (JCheckBox) findComponentByName(d.getComponent(), "Write");
 		assertNotNull(writeCB);
-		assertTrue(writeCB.isEnabled());
 		assertTrue(writeCB.isSelected());
 
 		JCheckBox executeCB = (JCheckBox) findComponentByName(d.getComponent(), "Execute");
 		assertNotNull(executeCB);
-		assertTrue(executeCB.isEnabled());
-		assertTrue(!executeCB.isSelected());
+		assertFalse(executeCB.isSelected());
 
 		RegisterField initialValue =
 			(RegisterField) findComponentByName(d.getComponent(), "Initial Value");
@@ -148,7 +140,7 @@ public class MemoryMapProvider2Test extends AbstractGhidraHeadedIntegrationTest 
 
 		JButton okButton = findButton(d.getComponent(), "OK");
 		assertNotNull(okButton);
-		assertTrue(!okButton.isEnabled());
+		assertFalse(okButton.isEnabled());
 
 		pressButtonByText(d.getComponent(), "Cancel");
 	}
@@ -160,39 +152,39 @@ public class MemoryMapProvider2Test extends AbstractGhidraHeadedIntegrationTest 
 		performAction(action, false);
 
 		// find the dialog for the add
-		AddBlockDialog d = waitForDialogComponent(tool.getToolFrame(), AddBlockDialog.class, 2000);
+		AddBlockDialog d = waitForDialogComponent(AddBlockDialog.class);
 		GhidraComboBox<?> comboBox = findComponent(d.getComponent(), GhidraComboBox.class);
 		assertNotNull(comboBox);
 		assertEquals(MemoryBlockType.DEFAULT, comboBox.getSelectedItem());
 
-		final JTextField nameField =
+		JTextField nameField =
 			(JTextField) findComponentByName(d.getComponent(), "Block Name");
-		final RegisterField lengthField =
+		RegisterField lengthField =
 			(RegisterField) findComponentByName(d.getComponent(), "Length");
-		final JTextField commentField =
+		JTextField commentField =
 			(JTextField) findComponentByName(d.getComponent(), "Comment");
-		final JCheckBox readCB = (JCheckBox) findComponentByName(d.getComponent(), "Read");
-		final JCheckBox writeCB = (JCheckBox) findComponentByName(d.getComponent(), "Write");
-		final JCheckBox executeCB = (JCheckBox) findComponentByName(d.getComponent(), "Execute");
+		JCheckBox readCB = (JCheckBox) findComponentByName(d.getComponent(), "Read");
+		JCheckBox writeCB = (JCheckBox) findComponentByName(d.getComponent(), "Write");
+		JCheckBox executeCB = (JCheckBox) findComponentByName(d.getComponent(), "Execute");
 
-		final JRadioButton initializedRB =
+		JRadioButton initializedRB =
 			(JRadioButton) findComponentByName(d.getComponent(), "Initialized");
 
-		final RegisterField initialValue =
+		RegisterField initialValue =
 			(RegisterField) findComponentByName(d.getComponent(), "Initial Value");
-		final AddressInput addrField =
+		AddressInput addrField =
 			(AddressInput) findComponentByName(d.getComponent(), "Source Addr");
 		assertNotNull(addrField);
-		assertTrue(!addrField.isShowing());
+		assertFalse(addrField.isShowing());
 
-		final JButton okButton = findButton(d.getComponent(), "OK");
+		JButton okButton = findButton(d.getComponent(), "OK");
 
-		SwingUtilities.invokeAndWait(() -> {
+		runSwing(() -> {
 			nameField.setText(".test");
 			lengthField.setText("0x100");
 			commentField.setText("this is a block test");
 			initialValue.setText("0xa");
-			executeCB.setSelected(true);
+			pressButton(executeCB);
 		});
 
 		int x = 1;
@@ -204,9 +196,9 @@ public class MemoryMapProvider2Test extends AbstractGhidraHeadedIntegrationTest 
 		assertTrue(writeCB.isEnabled());
 		assertTrue(executeCB.isEnabled());
 
-		SwingUtilities.invokeAndWait(() -> okButton.getActionListeners()[0].actionPerformed(null));
+		runSwing(() -> okButton.getActionListeners()[0].actionPerformed(null));
 		program.flushEvents();
-		waitForPostedSwingRunnables();
+		waitForSwing();
 
 		MemoryBlock block = memory.getBlock(getAddr(0));
 		assertNotNull(block);
@@ -218,9 +210,10 @@ public class MemoryMapProvider2Test extends AbstractGhidraHeadedIntegrationTest 
 		assertEquals(Boolean.TRUE, model.getValueAt(0, MemoryMapModel.READ));
 		assertEquals(Boolean.TRUE, model.getValueAt(0, MemoryMapModel.WRITE));
 		assertEquals(Boolean.TRUE, model.getValueAt(0, MemoryMapModel.EXECUTE));
+		assertEquals(Boolean.FALSE, model.getValueAt(0, MemoryMapModel.OVERLAY));
 		assertEquals("Default", model.getValueAt(0, MemoryMapModel.BLOCK_TYPE));
 		assertEquals(Boolean.TRUE, model.getValueAt(0, MemoryMapModel.INIT));
-		assertEquals("- none -", model.getValueAt(0, MemoryMapModel.SOURCE));
+		assertEquals("", model.getValueAt(0, MemoryMapModel.SOURCE));
 		assertEquals("this is a block test", model.getValueAt(0, MemoryMapModel.COMMENT));
 
 		assertEquals(0xa, memory.getByte(getAddr(0)));
@@ -242,34 +235,34 @@ public class MemoryMapProvider2Test extends AbstractGhidraHeadedIntegrationTest 
 		performAction(action, false);
 
 		// find the dialog for the add
-		AddBlockDialog d = waitForDialogComponent(tool.getToolFrame(), AddBlockDialog.class, 2000);
+		AddBlockDialog d = waitForDialogComponent(AddBlockDialog.class);
 
-		final AddressInput addrField =
+		AddressInput addrField =
 			(AddressInput) findComponentByName(d.getComponent(), "Start Addr");
 
-		final JTextField nameField =
+		JTextField nameField =
 			(JTextField) findComponentByName(d.getComponent(), "Block Name");
-		final RegisterField lengthField =
+		RegisterField lengthField =
 			(RegisterField) findComponentByName(d.getComponent(), "Length");
-		final JTextField commentField =
+		JTextField commentField =
 			(JTextField) findComponentByName(d.getComponent(), "Comment");
-		final JCheckBox readCB = (JCheckBox) findComponentByName(d.getComponent(), "Read");
-		final JCheckBox writeCB = (JCheckBox) findComponentByName(d.getComponent(), "Write");
-		final JCheckBox executeCB = (JCheckBox) findComponentByName(d.getComponent(), "Execute");
-		final JRadioButton initializedRB =
+		JCheckBox readCB = (JCheckBox) findComponentByName(d.getComponent(), "Read");
+		JCheckBox writeCB = (JCheckBox) findComponentByName(d.getComponent(), "Write");
+		JCheckBox executeCB = (JCheckBox) findComponentByName(d.getComponent(), "Execute");
+		JRadioButton initializedRB =
 			(JRadioButton) findComponentByName(d.getComponent(), "Initialized");
-		final RegisterField initialValue =
+		RegisterField initialValue =
 			(RegisterField) findComponentByName(d.getComponent(), "Initial Value");
 
-		final JButton okButton = findButton(d.getComponent(), "OK");
+		JButton okButton = findButton(d.getComponent(), "OK");
 
-		SwingUtilities.invokeAndWait(() -> {
+		runSwing(() -> {
 			addrField.setValue("0x200");
 			nameField.setText(".test");
 			lengthField.setText("0x100");
 			commentField.setText("this is a block test");
 			initialValue.setText("0xb");
-			executeCB.setSelected(true);
+			pressButton(executeCB);
 		});
 
 		int x = 1;
@@ -281,9 +274,9 @@ public class MemoryMapProvider2Test extends AbstractGhidraHeadedIntegrationTest 
 		assertTrue(writeCB.isEnabled());
 		assertTrue(executeCB.isEnabled());
 
-		SwingUtilities.invokeAndWait(() -> okButton.getActionListeners()[0].actionPerformed(null));
+		runSwing(() -> okButton.getActionListeners()[0].actionPerformed(null));
 		program.flushEvents();
-		waitForPostedSwingRunnables();
+		waitForSwing();
 
 		MemoryBlock block = memory.getBlock(getAddr(0x200));
 		assertNotNull(block);
@@ -295,9 +288,10 @@ public class MemoryMapProvider2Test extends AbstractGhidraHeadedIntegrationTest 
 		assertEquals(Boolean.TRUE, model.getValueAt(0, MemoryMapModel.READ));
 		assertEquals(Boolean.TRUE, model.getValueAt(0, MemoryMapModel.WRITE));
 		assertEquals(Boolean.TRUE, model.getValueAt(0, MemoryMapModel.EXECUTE));
+		assertEquals(Boolean.FALSE, model.getValueAt(0, MemoryMapModel.OVERLAY));
 		assertEquals("Default", model.getValueAt(0, MemoryMapModel.BLOCK_TYPE));
 		assertEquals(Boolean.TRUE, model.getValueAt(0, MemoryMapModel.INIT));
-		assertEquals("- none -", model.getValueAt(0, MemoryMapModel.SOURCE));
+		assertEquals("", model.getValueAt(0, MemoryMapModel.SOURCE));
 		assertEquals("this is a block test", model.getValueAt(0, MemoryMapModel.COMMENT));
 
 		assertEquals(0xb, memory.getByte(getAddr(0x200)));
@@ -317,41 +311,38 @@ public class MemoryMapProvider2Test extends AbstractGhidraHeadedIntegrationTest 
 		performAction(action, false);
 
 		// find the dialog for the add
-		final AddBlockDialog d =
-			waitForDialogComponent(tool.getToolFrame(), AddBlockDialog.class, 2000);
+		AddBlockDialog d =
+			waitForDialogComponent(AddBlockDialog.class);
 
-		final AddressInput addrField =
+		AddressInput addrField =
 			(AddressInput) findComponentByName(d.getComponent(), "Start Addr");
 
-		final JTextField nameField =
+		JTextField nameField =
 			(JTextField) findComponentByName(d.getComponent(), "Block Name");
-		final RegisterField lengthField =
+		RegisterField lengthField =
 			(RegisterField) findComponentByName(d.getComponent(), "Length");
-		final JTextField commentField =
+		JTextField commentField =
 			(JTextField) findComponentByName(d.getComponent(), "Comment");
-		final JCheckBox executeCB = (JCheckBox) findComponentByName(d.getComponent(), "Execute");
-		final RegisterField initialValue =
+		JCheckBox executeCB = (JCheckBox) findComponentByName(d.getComponent(), "Execute");
+		RegisterField initialValue =
 			(RegisterField) findComponentByName(d.getComponent(), "Initial Value");
 
-		final JButton okButton = findButton(d.getComponent(), "OK");
+		JButton okButton = findButton(d.getComponent(), "OK");
 
-		SwingUtilities.invokeAndWait(() -> {
+		runSwing(() -> {
 			addrField.setValue("0x01001200");
 			nameField.setText(".test");
 			lengthField.setText("0x100");
 			commentField.setText("this is a block test");
 			initialValue.setText("0xb");
-			executeCB.setSelected(true);
+			pressButton(executeCB);
 		});
-		assertTrue(okButton.isEnabled());
-
-		SwingUtilities.invokeLater(() -> okButton.getActionListeners()[0].actionPerformed(null));
-		waitForPostedSwingRunnables();
+		assertFalse(okButton.isEnabled());
 
 		String msg = findLabelStr(d.getComponent(), "statusLabel");
-		assertTrue(msg.indexOf("already exists in memory") > 0);
-		assertTrue(!okButton.isEnabled());
-		runSwing(() -> d.close());
+		assertTrue(msg.startsWith("Block address conflict"));
+		assertFalse(okButton.isEnabled());
+		close(d);
 	}
 
 	@Test
@@ -360,25 +351,25 @@ public class MemoryMapProvider2Test extends AbstractGhidraHeadedIntegrationTest 
 		performAction(action, false);
 
 		// find the dialog for the add
-		final AddBlockDialog d =
-			waitForDialogComponent(tool.getToolFrame(), AddBlockDialog.class, 2000);
+		AddBlockDialog d =
+			waitForDialogComponent(AddBlockDialog.class);
 
-		final AddressInput addrField =
+		AddressInput addrField =
 			(AddressInput) findComponentByName(d.getComponent(), "Start Addr");
 
-		final JTextField nameField =
+		JTextField nameField =
 			(JTextField) findComponentByName(d.getComponent(), "Block Name");
-		final RegisterField lengthField =
+		RegisterField lengthField =
 			(RegisterField) findComponentByName(d.getComponent(), "Length");
-		final JTextField commentField =
+		JTextField commentField =
 			(JTextField) findComponentByName(d.getComponent(), "Comment");
-		final JCheckBox executeCB = (JCheckBox) findComponentByName(d.getComponent(), "Execute");
-		final RegisterField initialValue =
+		JCheckBox executeCB = (JCheckBox) findComponentByName(d.getComponent(), "Execute");
+		RegisterField initialValue =
 			(RegisterField) findComponentByName(d.getComponent(), "Initial Value");
 
-		final JButton okButton = findButton(d.getComponent(), "OK");
+		JButton okButton = findButton(d.getComponent(), "OK");
 
-		SwingUtilities.invokeAndWait(() -> {
+		runSwing(() -> {
 			addrField.setValue("xxxxx");
 			nameField.setText(".test");
 			lengthField.setText("0x100");
@@ -386,12 +377,12 @@ public class MemoryMapProvider2Test extends AbstractGhidraHeadedIntegrationTest 
 			initialValue.setText("0xb");
 			executeCB.setSelected(true);
 		});
-		assertTrue(!okButton.isEnabled());
+		assertFalse(okButton.isEnabled());
 
 		String msg = findLabelStr(d.getComponent(), "statusLabel");
-		assertEquals("Please enter a valid starting address", msg);
-		assertTrue(!okButton.isEnabled());
-		runSwing(() -> d.close());
+		assertEquals("Please enter a valid Start Address", msg);
+		assertFalse(okButton.isEnabled());
+		close(d);
 	}
 
 	@Test
@@ -400,29 +391,29 @@ public class MemoryMapProvider2Test extends AbstractGhidraHeadedIntegrationTest 
 		performAction(action, false);
 
 		// find the dialog for the add
-		AddBlockDialog d = waitForDialogComponent(tool.getToolFrame(), AddBlockDialog.class, 2000);
+		AddBlockDialog d = waitForDialogComponent(AddBlockDialog.class);
 
-		final RegisterField lengthField =
+		RegisterField lengthField =
 			(RegisterField) findComponentByName(d.getComponent(), "Length");
-		final JTextField commentField =
+		JTextField commentField =
 			(JTextField) findComponentByName(d.getComponent(), "Comment");
-		final JCheckBox executeCB = (JCheckBox) findComponentByName(d.getComponent(), "Execute");
-		final RegisterField initialValue =
+		JCheckBox executeCB = (JCheckBox) findComponentByName(d.getComponent(), "Execute");
+		RegisterField initialValue =
 			(RegisterField) findComponentByName(d.getComponent(), "Initial Value");
 
-		final JButton okButton = findButton(d.getComponent(), "OK");
+		JButton okButton = findButton(d.getComponent(), "OK");
 
-		SwingUtilities.invokeAndWait(() -> {
+		runSwing(() -> {
 			lengthField.setText("0x100");
 			commentField.setText("this is a block test");
 			initialValue.setText("0xb");
 			executeCB.setSelected(true);
 		});
-		assertTrue(!okButton.isEnabled());
+		assertFalse(okButton.isEnabled());
 
 		String msg = findLabelStr(d.getComponent(), "statusLabel");
-		assertEquals("Please enter a name", msg);
-		assertTrue(!okButton.isEnabled());
+		assertEquals("Please enter a Block Name", msg);
+		assertFalse(okButton.isEnabled());
 
 	}
 
@@ -432,33 +423,31 @@ public class MemoryMapProvider2Test extends AbstractGhidraHeadedIntegrationTest 
 		performAction(action, false);
 
 		// find the dialog for the add
-		final AddBlockDialog d =
-			waitForDialogComponent(tool.getToolFrame(), AddBlockDialog.class, 2000);
+		AddBlockDialog d =
+			waitForDialogComponent(AddBlockDialog.class);
 
-		final JTextField nameField =
+		JTextField nameField =
 			(JTextField) findComponentByName(d.getComponent(), "Block Name");
-		final JTextField commentField =
+		JTextField commentField =
 			(JTextField) findComponentByName(d.getComponent(), "Comment");
-		final JCheckBox executeCB = (JCheckBox) findComponentByName(d.getComponent(), "Execute");
-		final JRadioButton uninitializedRB =
+		JCheckBox executeCB = (JCheckBox) findComponentByName(d.getComponent(), "Execute");
+		JRadioButton uninitializedRB =
 			(JRadioButton) findComponentByName(d.getComponent(), "Uninitialized");
 		assertTrue(uninitializedRB.isSelected()); // default choice
-		final RegisterField initialValue =
-			(RegisterField) findComponentByName(d.getComponent(), "Initial Value");
-		assertFalse(initialValue.isEnabled());
-		final JButton okButton = findButton(d.getComponent(), "OK");
 
-		SwingUtilities.invokeAndWait(() -> {
+		JButton okButton = findButton(d.getComponent(), "OK");
+
+		runSwing(() -> {
 			nameField.setText(".test");
 			commentField.setText("this is a block test");
 			executeCB.setSelected(true);
 		});
-		assertTrue(!okButton.isEnabled());
+		assertFalse(okButton.isEnabled());
 
 		String msg = findLabelStr(d.getComponent(), "statusLabel");
-		assertEquals("Please enter a valid length > 0 and <= 0x300000000", msg);
-		assertTrue(!okButton.isEnabled());
-		runSwing(() -> d.close());
+		assertEquals("Please enter a valid Length: 1 to 0x100000000", msg);
+		assertFalse(okButton.isEnabled());
+		close(d);
 	}
 
 	@Test
@@ -467,38 +456,38 @@ public class MemoryMapProvider2Test extends AbstractGhidraHeadedIntegrationTest 
 		performAction(action, false);
 
 		// find the dialog for the add
-		final AddBlockDialog d =
-			waitForDialogComponent(tool.getToolFrame(), AddBlockDialog.class, 2000);
+		AddBlockDialog d =
+			waitForDialogComponent(AddBlockDialog.class);
 
-		final JTextField nameField =
+		JTextField nameField =
 			(JTextField) findComponentByName(d.getComponent(), "Block Name");
-		final JTextField commentField =
+		JTextField commentField =
 			(JTextField) findComponentByName(d.getComponent(), "Comment");
-		final JCheckBox executeCB = (JCheckBox) findComponentByName(d.getComponent(), "Execute");
-		final JRadioButton initializedRB =
+		JCheckBox executeCB = (JCheckBox) findComponentByName(d.getComponent(), "Execute");
+		JRadioButton initializedRB =
 			(JRadioButton) findComponentByName(d.getComponent(), "Initialized");
 		assertFalse(initializedRB.isSelected());
 
 		pressButton(initializedRB);
 
-		final RegisterField initialValue =
+		RegisterField initialValue =
 			(RegisterField) findComponentByName(d.getComponent(), "Initial Value");
 		assertTrue(initialValue.isEnabled());
 
-		final JButton okButton = findButton(d.getComponent(), "OK");
+		JButton okButton = findButton(d.getComponent(), "OK");
 
-		SwingUtilities.invokeAndWait(() -> {
+		runSwing(() -> {
 			nameField.setText(".test");
 			commentField.setText("this is a block test");
 			initialValue.setText("0xb");
 			executeCB.setSelected(true);
 		});
-		assertTrue(!okButton.isEnabled());
+		assertFalse(okButton.isEnabled());
 
 		String msg = findLabelStr(d.getComponent(), "statusLabel");
-		assertEquals("Please enter a valid length > 0 and <= 0x40000000", msg);
-		assertTrue(!okButton.isEnabled());
-		runSwing(() -> d.close());
+		assertEquals("Please enter a valid Length: 1 to 0x100000000", msg);
+		assertFalse(okButton.isEnabled());
+		close(d);
 	}
 
 	@Test
@@ -508,31 +497,33 @@ public class MemoryMapProvider2Test extends AbstractGhidraHeadedIntegrationTest 
 		performAction(action, false);
 
 		// find the dialog for the add
-		final AddBlockDialog d =
-			waitForDialogComponent(tool.getToolFrame(), AddBlockDialog.class, 2000);
+		AddBlockDialog d =
+			waitForDialogComponent(AddBlockDialog.class);
 
-		final JTextField nameField =
+		JTextField nameField =
 			(JTextField) findComponentByName(d.getComponent(), "Block Name");
-		final JTextField commentField =
+		JTextField lengthField = (JTextField) findComponentByName(d.getComponent(), "Length");
+		JTextField commentField =
 			(JTextField) findComponentByName(d.getComponent(), "Comment");
-		final JCheckBox executeCB = (JCheckBox) findComponentByName(d.getComponent(), "Execute");
-		final RegisterField initialValue =
+		JCheckBox executeCB = (JCheckBox) findComponentByName(d.getComponent(), "Execute");
+		RegisterField initialValue =
 			(RegisterField) findComponentByName(d.getComponent(), "Initial Value");
 
-		final JButton okButton = findButton(d.getComponent(), "OK");
+		JButton okButton = findButton(d.getComponent(), "OK");
 
-		SwingUtilities.invokeAndWait(() -> {
+		runSwing(() -> {
 			nameField.setText(".rsrc");
+			lengthField.setText("0x100");
 			commentField.setText("this is a block test");
 			initialValue.setText("0xb");
 			executeCB.setSelected(true);
 		});
-		assertTrue(!okButton.isEnabled());
+		assertTrue(okButton.isEnabled());
 
 		String msg = findLabelStr(d.getComponent(), "statusLabel");
-		assertEquals("Block name already exists", msg);
-		assertTrue(!okButton.isEnabled());
-		runSwing(() -> d.close());
+		assertEquals("Warning! Duplicate Block Name", msg);
+
+		close(d);
 	}
 
 	@Test
@@ -541,22 +532,22 @@ public class MemoryMapProvider2Test extends AbstractGhidraHeadedIntegrationTest 
 		performAction(action, false);
 
 		// find the dialog for the add
-		AddBlockDialog d = waitForDialogComponent(tool.getToolFrame(), AddBlockDialog.class, 2000);
-		final JRadioButton uninitRB =
+		AddBlockDialog d = waitForDialogComponent(AddBlockDialog.class);
+		JRadioButton uninitRB =
 			(JRadioButton) findComponentByName(d.getComponent(), "Uninitialized");
 
-		final JTextField nameField =
+		JTextField nameField =
 			(JTextField) findComponentByName(d.getComponent(), "Block Name");
-		final RegisterField lengthField =
+		RegisterField lengthField =
 			(RegisterField) findComponentByName(d.getComponent(), "Length");
-		final JTextField commentField =
+		JTextField commentField =
 			(JTextField) findComponentByName(d.getComponent(), "Comment");
-		final JCheckBox readCB = (JCheckBox) findComponentByName(d.getComponent(), "Read");
-		final JCheckBox writeCB = (JCheckBox) findComponentByName(d.getComponent(), "Write");
-		final JCheckBox executeCB = (JCheckBox) findComponentByName(d.getComponent(), "Execute");
-		final JButton okButton = findButton(d.getComponent(), "OK");
+		JCheckBox readCB = (JCheckBox) findComponentByName(d.getComponent(), "Read");
+		JCheckBox writeCB = (JCheckBox) findComponentByName(d.getComponent(), "Write");
+		JCheckBox executeCB = (JCheckBox) findComponentByName(d.getComponent(), "Execute");
+		JButton okButton = findButton(d.getComponent(), "OK");
 
-		SwingUtilities.invokeAndWait(() -> {
+		runSwing(() -> {
 			uninitRB.setSelected(true);
 			uninitRB.getActionListeners()[0].actionPerformed(null);
 
@@ -564,15 +555,15 @@ public class MemoryMapProvider2Test extends AbstractGhidraHeadedIntegrationTest 
 			lengthField.setText("0x100");
 			commentField.setText("this is an uninitialized block test");
 		});
-		waitForPostedSwingRunnables();
+		waitForSwing();
 		assertTrue(okButton.isEnabled());
 		assertTrue(readCB.isSelected());
 		assertTrue(writeCB.isSelected());
-		assertTrue(!executeCB.isSelected());
+		assertFalse(executeCB.isSelected());
 
-		SwingUtilities.invokeAndWait(() -> okButton.getActionListeners()[0].actionPerformed(null));
+		runSwing(() -> okButton.getActionListeners()[0].actionPerformed(null));
 		program.flushEvents();
-		waitForPostedSwingRunnables();
+		waitForSwing();
 
 		MemoryBlock block = memory.getBlock(getAddr(0));
 		assertNotNull(block);
@@ -584,9 +575,10 @@ public class MemoryMapProvider2Test extends AbstractGhidraHeadedIntegrationTest 
 		assertEquals(Boolean.TRUE, model.getValueAt(0, MemoryMapModel.READ));
 		assertEquals(Boolean.TRUE, model.getValueAt(0, MemoryMapModel.WRITE));
 		assertEquals(Boolean.FALSE, model.getValueAt(0, MemoryMapModel.EXECUTE));
+		assertEquals(Boolean.FALSE, model.getValueAt(0, MemoryMapModel.OVERLAY));
 		assertEquals("Default", model.getValueAt(0, MemoryMapModel.BLOCK_TYPE));
 		assertEquals(Boolean.FALSE, model.getValueAt(0, MemoryMapModel.INIT));
-		assertEquals("- none -", model.getValueAt(0, MemoryMapModel.SOURCE));
+		assertEquals("", model.getValueAt(0, MemoryMapModel.SOURCE));
 		assertEquals("this is an uninitialized block test",
 			model.getValueAt(0, MemoryMapModel.COMMENT));
 
@@ -605,36 +597,42 @@ public class MemoryMapProvider2Test extends AbstractGhidraHeadedIntegrationTest 
 		performAction(action, false);
 
 		// find the dialog for the add
-		AddBlockDialog d = waitForDialogComponent(tool.getToolFrame(), AddBlockDialog.class, 2000);
-		final GhidraComboBox<?> comboBox = findComponent(d.getComponent(), GhidraComboBox.class);
+		AddBlockDialog d = waitForDialogComponent(AddBlockDialog.class);
+		GhidraComboBox<?> comboBox = findComponent(d.getComponent(), GhidraComboBox.class);
 
-		final JTextField nameField =
+		JTextField nameField =
 			(JTextField) findComponentByName(d.getComponent(), "Block Name");
-		final RegisterField lengthField =
+		RegisterField lengthField =
 			(RegisterField) findComponentByName(d.getComponent(), "Length");
-		final JTextField commentField =
+		JTextField commentField =
 			(JTextField) findComponentByName(d.getComponent(), "Comment");
-		final JCheckBox readCB = (JCheckBox) findComponentByName(d.getComponent(), "Read");
-		final JCheckBox writeCB = (JCheckBox) findComponentByName(d.getComponent(), "Write");
-		final JCheckBox executeCB = (JCheckBox) findComponentByName(d.getComponent(), "Execute");
-		final JRadioButton initializedRB =
+		JCheckBox readCB = (JCheckBox) findComponentByName(d.getComponent(), "Read");
+		JCheckBox writeCB = (JCheckBox) findComponentByName(d.getComponent(), "Write");
+		JCheckBox executeCB = (JCheckBox) findComponentByName(d.getComponent(), "Execute");
+		JCheckBox overlayCB = (JCheckBox) findComponentByName(d.getComponent(), "Overlay");
+		JRadioButton initializedRB =
 			(JRadioButton) findComponentByName(d.getComponent(), "Initialized");
-		final RegisterField initialValue =
+		RegisterField initialValue =
 			(RegisterField) findComponentByName(d.getComponent(), "Initial Value");
-		final AddressInput addrField =
+		AddressInput addrField =
 			(AddressInput) findComponentByName(d.getComponent(), "Source Addr");
 		assertNotNull(addrField);
-		assertTrue(!addrField.isShowing());
+		assertFalse(addrField.isShowing());
 
-		final JButton okButton = findButton(d.getComponent(), "OK");
+		JButton okButton = findButton(d.getComponent(), "OK");
 
-		SwingUtilities.invokeAndWait(() -> {
-			comboBox.setSelectedItem(MemoryBlockType.OVERLAY);
+		runSwing(() -> {
+			comboBox.setSelectedItem(MemoryBlockType.DEFAULT);
+			overlayCB.setSelected(true);
+			overlayCB.getActionListeners()[0].actionPerformed(null);
 			nameField.setText(".test");
 			lengthField.setText("0x100");
 			commentField.setText("this is a block test");
 			initialValue.setText("0xa");
-			executeCB.setSelected(true);
+		});
+
+		runSwing(() -> {
+			pressButton(executeCB);
 		});
 
 		int x = 1;
@@ -642,13 +640,13 @@ public class MemoryMapProvider2Test extends AbstractGhidraHeadedIntegrationTest 
 		clickMouse(initializedRB, 1, x, y, 1, 0);
 
 		assertTrue(okButton.isEnabled());
-		assertTrue(readCB.isEnabled());
-		assertTrue(writeCB.isEnabled());
-		assertTrue(executeCB.isEnabled());
+		assertTrue(readCB.isSelected());
+		assertTrue(writeCB.isSelected());
+		assertTrue(executeCB.isSelected());
 
-		SwingUtilities.invokeAndWait(() -> okButton.getActionListeners()[0].actionPerformed(null));
+		runSwing(() -> okButton.getActionListeners()[0].actionPerformed(null));
 		program.flushEvents();
-		waitForPostedSwingRunnables();
+		waitForSwing();
 
 		MemoryBlock block = null;
 		AddressSpace[] spaces = program.getAddressFactory().getAddressSpaces();
@@ -672,10 +670,12 @@ public class MemoryMapProvider2Test extends AbstractGhidraHeadedIntegrationTest 
 		assertEquals(Boolean.TRUE, model.getValueAt(row, MemoryMapModel.READ));
 		assertEquals(Boolean.TRUE, model.getValueAt(row, MemoryMapModel.WRITE));
 		assertEquals(Boolean.TRUE, model.getValueAt(row, MemoryMapModel.EXECUTE));
-		assertEquals(MemoryBlockType.OVERLAY.toString(),
+		assertEquals(Boolean.TRUE, model.getValueAt(row, MemoryMapModel.OVERLAY));
+		assertEquals(
+			MemoryBlockType.DEFAULT.toString(),
 			model.getValueAt(row, MemoryMapModel.BLOCK_TYPE));
 		assertEquals(Boolean.TRUE, model.getValueAt(row, MemoryMapModel.INIT));
-		assertEquals("- none -", model.getValueAt(row, MemoryMapModel.SOURCE));
+		assertEquals("", model.getValueAt(row, MemoryMapModel.SOURCE));
 		assertEquals("this is a block test", model.getValueAt(row, MemoryMapModel.COMMENT));
 
 		assertEquals(0xa, memory.getByte(block.getStart()));
@@ -687,33 +687,37 @@ public class MemoryMapProvider2Test extends AbstractGhidraHeadedIntegrationTest 
 		performAction(action, false);
 
 		// find the dialog for the add
-		AddBlockDialog d = waitForDialogComponent(tool.getToolFrame(), AddBlockDialog.class, 2000);
-		final GhidraComboBox<?> comboBox = findComponent(d.getComponent(), GhidraComboBox.class);
+		AddBlockDialog d = waitForDialogComponent(AddBlockDialog.class);
+		GhidraComboBox<?> comboBox = findComponent(d.getComponent(), GhidraComboBox.class);
 
-		final JTextField nameField =
+		JTextField nameField =
 			(JTextField) findComponentByName(d.getComponent(), "Block Name");
-		final RegisterField lengthField =
+		RegisterField lengthField =
 			(RegisterField) findComponentByName(d.getComponent(), "Length");
-		final JTextField commentField =
+		JTextField commentField =
 			(JTextField) findComponentByName(d.getComponent(), "Comment");
-		final JCheckBox readCB = (JCheckBox) findComponentByName(d.getComponent(), "Read");
-		final JCheckBox writeCB = (JCheckBox) findComponentByName(d.getComponent(), "Write");
-		final JCheckBox executeCB = (JCheckBox) findComponentByName(d.getComponent(), "Execute");
-		final JRadioButton uninitRB =
+		JCheckBox readCB = (JCheckBox) findComponentByName(d.getComponent(), "Read");
+		JCheckBox writeCB = (JCheckBox) findComponentByName(d.getComponent(), "Write");
+		JCheckBox executeCB = (JCheckBox) findComponentByName(d.getComponent(), "Execute");
+		JCheckBox overlayCB = (JCheckBox) findComponentByName(d.getComponent(), "Overlay");
+
+		JRadioButton uninitRB =
 			(JRadioButton) findComponentByName(d.getComponent(), "Uninitialized");
-		final AddressInput addrField =
+		AddressInput addrField =
 			(AddressInput) findComponentByName(d.getComponent(), "Source Addr");
 		assertNotNull(addrField);
-		assertTrue(!addrField.isShowing());
+		assertFalse(addrField.isShowing());
 
-		final JButton okButton = findButton(d.getComponent(), "OK");
+		JButton okButton = findButton(d.getComponent(), "OK");
 
-		SwingUtilities.invokeAndWait(() -> {
-			comboBox.setSelectedItem(MemoryBlockType.OVERLAY);
+		runSwing(() -> {
+			comboBox.setSelectedItem(MemoryBlockType.DEFAULT);
+			overlayCB.setSelected(true);
+			overlayCB.getActionListeners()[0].actionPerformed(null);
 			nameField.setText(".test");
 			lengthField.setText("0x100");
 			commentField.setText("this is a block test");
-			executeCB.setSelected(true);
+			pressButton(executeCB);
 			uninitRB.setSelected(true);
 			uninitRB.getActionListeners()[0].actionPerformed(null);
 		});
@@ -722,9 +726,9 @@ public class MemoryMapProvider2Test extends AbstractGhidraHeadedIntegrationTest 
 		assertTrue(writeCB.isEnabled());
 		assertTrue(executeCB.isEnabled());
 
-		SwingUtilities.invokeAndWait(() -> okButton.getActionListeners()[0].actionPerformed(null));
+		runSwing(() -> okButton.getActionListeners()[0].actionPerformed(null));
 		program.flushEvents();
-		waitForPostedSwingRunnables();
+		waitForSwing();
 
 		MemoryBlock block = null;
 		AddressSpace[] spaces = program.getAddressFactory().getAddressSpaces();
@@ -749,10 +753,12 @@ public class MemoryMapProvider2Test extends AbstractGhidraHeadedIntegrationTest 
 		assertEquals(Boolean.TRUE, model.getValueAt(row, MemoryMapModel.READ));
 		assertEquals(Boolean.TRUE, model.getValueAt(row, MemoryMapModel.WRITE));
 		assertEquals(Boolean.TRUE, model.getValueAt(row, MemoryMapModel.EXECUTE));
-		assertEquals(MemoryBlockType.OVERLAY.toString(),
+		assertEquals(Boolean.TRUE, model.getValueAt(row, MemoryMapModel.OVERLAY));
+		assertEquals(
+			MemoryBlockType.DEFAULT.toString(),
 			model.getValueAt(row, MemoryMapModel.BLOCK_TYPE));
 		assertEquals(Boolean.FALSE, model.getValueAt(row, MemoryMapModel.INIT));
-		assertEquals("- none -", model.getValueAt(row, MemoryMapModel.SOURCE));
+		assertEquals("", model.getValueAt(row, MemoryMapModel.SOURCE));
 		assertEquals("this is a block test", model.getValueAt(row, MemoryMapModel.COMMENT));
 
 		try {
@@ -770,21 +776,21 @@ public class MemoryMapProvider2Test extends AbstractGhidraHeadedIntegrationTest 
 		performAction(action, false);
 
 		// find the dialog for the add
-		AddBlockDialog d = waitForDialogComponent(tool.getToolFrame(), AddBlockDialog.class, 2000);
-		final GhidraComboBox<?> comboBox = findComponent(d.getComponent(), GhidraComboBox.class);
+		AddBlockDialog d = waitForDialogComponent(AddBlockDialog.class);
+		GhidraComboBox<?> comboBox = findComponent(d.getComponent(), GhidraComboBox.class);
 		assertNotNull(comboBox);
-		final JTextField nameField =
+		JTextField nameField =
 			(JTextField) findComponentByName(d.getComponent(), "Block Name");
-		final RegisterField lengthField =
+		RegisterField lengthField =
 			(RegisterField) findComponentByName(d.getComponent(), "Length");
-		final JTextField commentField =
+		JTextField commentField =
 			(JTextField) findComponentByName(d.getComponent(), "Comment");
-		final JCheckBox readCB = (JCheckBox) findComponentByName(d.getComponent(), "Read");
-		final JCheckBox writeCB = (JCheckBox) findComponentByName(d.getComponent(), "Write");
-		final JCheckBox executeCB = (JCheckBox) findComponentByName(d.getComponent(), "Execute");
+		JCheckBox readCB = (JCheckBox) findComponentByName(d.getComponent(), "Read");
+		JCheckBox writeCB = (JCheckBox) findComponentByName(d.getComponent(), "Write");
+		JCheckBox executeCB = (JCheckBox) findComponentByName(d.getComponent(), "Execute");
 
-		final JButton okButton = findButton(d.getComponent(), "OK");
-		SwingUtilities.invokeAndWait(() -> {
+		JButton okButton = findButton(d.getComponent(), "OK");
+		runSwing(() -> {
 			comboBox.setSelectedItem(MemoryBlockType.BIT_MAPPED);
 			nameField.setText(".test");
 			lengthField.setText("0x100");
@@ -793,17 +799,17 @@ public class MemoryMapProvider2Test extends AbstractGhidraHeadedIntegrationTest 
 		RegisterField initialValue =
 			(RegisterField) findComponentByName(d.getComponent(), "Initial Value");
 		assertNotNull(initialValue);
-		assertTrue(!initialValue.isShowing());
+		assertFalse(initialValue.isShowing());
 
-		final AddressInput addrField =
+		AddressInput addrField =
 			(AddressInput) findComponentByName(d.getComponent(), "Source Addr");
 		assertNotNull(addrField);
 		assertTrue(addrField.isVisible());
 		if (addrField.getAddress() == null) {
-			assertTrue(!okButton.isEnabled());
+			assertFalse(okButton.isEnabled());
 			String msg = findLabelStr(d.getComponent(), "statusLabel");
 			assertEquals("Please enter a source address for the bit block", msg);
-			SwingUtilities.invokeAndWait(() -> addrField.setValue("01001000"));
+			runSwing(() -> addrField.setValue("01001000"));
 		}
 		else {
 			assertTrue(okButton.isEnabled());
@@ -814,9 +820,9 @@ public class MemoryMapProvider2Test extends AbstractGhidraHeadedIntegrationTest 
 		assertTrue(writeCB.isEnabled());
 		assertTrue(executeCB.isEnabled());
 
-		SwingUtilities.invokeAndWait(() -> okButton.getActionListeners()[0].actionPerformed(null));
+		runSwing(() -> okButton.getActionListeners()[0].actionPerformed(null));
 		program.flushEvents();
-		waitForPostedSwingRunnables();
+		waitForSwing();
 
 		MemoryBlock block = memory.getBlock(getAddr(0));
 		assertNotNull(block);
@@ -828,6 +834,7 @@ public class MemoryMapProvider2Test extends AbstractGhidraHeadedIntegrationTest 
 		assertEquals(Boolean.TRUE, model.getValueAt(0, MemoryMapModel.READ));
 		assertEquals(Boolean.TRUE, model.getValueAt(0, MemoryMapModel.WRITE));
 		assertEquals(Boolean.FALSE, model.getValueAt(0, MemoryMapModel.EXECUTE));
+		assertEquals(Boolean.FALSE, model.getValueAt(0, MemoryMapModel.OVERLAY));
 		assertEquals("Bit Mapped", model.getValueAt(0, MemoryMapModel.BLOCK_TYPE));
 		assertNull(model.getValueAt(0, MemoryMapModel.INIT));
 		assertEquals("01001000", model.getValueAt(0, MemoryMapModel.SOURCE));
@@ -848,29 +855,29 @@ public class MemoryMapProvider2Test extends AbstractGhidraHeadedIntegrationTest 
 		performAction(action, false);
 
 		// find the dialog for the add
-		AddBlockDialog d = waitForDialogComponent(tool.getToolFrame(), AddBlockDialog.class, 2000);
-		final GhidraComboBox<?> comboBox = findComponent(d.getComponent(), GhidraComboBox.class);
+		AddBlockDialog d = waitForDialogComponent(AddBlockDialog.class);
+		GhidraComboBox<?> comboBox = findComponent(d.getComponent(), GhidraComboBox.class);
 		assertNotNull(comboBox);
-		final JTextField nameField =
+		JTextField nameField =
 			(JTextField) findComponentByName(d.getComponent(), "Block Name");
-		final RegisterField lengthField =
+		RegisterField lengthField =
 			(RegisterField) findComponentByName(d.getComponent(), "Length");
-		final JTextField commentField =
+		JTextField commentField =
 			(JTextField) findComponentByName(d.getComponent(), "Comment");
-		final JCheckBox readCB = (JCheckBox) findComponentByName(d.getComponent(), "Read");
-		final JCheckBox writeCB = (JCheckBox) findComponentByName(d.getComponent(), "Write");
-		final JCheckBox executeCB = (JCheckBox) findComponentByName(d.getComponent(), "Execute");
+		JCheckBox readCB = (JCheckBox) findComponentByName(d.getComponent(), "Read");
+		JCheckBox writeCB = (JCheckBox) findComponentByName(d.getComponent(), "Write");
+		JCheckBox executeCB = (JCheckBox) findComponentByName(d.getComponent(), "Execute");
 		RegisterField initialValue =
 			(RegisterField) findComponentByName(d.getComponent(), "Initial Value");
 		assertNotNull(initialValue);
-		assertTrue(initialValue.isShowing());
-		final AddressInput addrField =
+		assertFalse(initialValue.isShowing());
+		AddressInput addrField =
 			(AddressInput) findComponentByName(d.getComponent(), "Source Addr");
 		assertNotNull(addrField);
-		assertTrue(!addrField.isShowing());
+		assertFalse(addrField.isShowing());
 
-		final JButton okButton = findButton(d.getComponent(), "OK");
-		SwingUtilities.invokeAndWait(() -> {
+		JButton okButton = findButton(d.getComponent(), "OK");
+		runSwing(() -> {
 			comboBox.setSelectedItem(MemoryBlockType.BYTE_MAPPED);
 			nameField.setText(".test");
 			lengthField.setText("0x100");
@@ -878,10 +885,10 @@ public class MemoryMapProvider2Test extends AbstractGhidraHeadedIntegrationTest 
 		});
 		assertTrue(addrField.isShowing());
 		if (addrField.getAddress() == null) {
-			assertTrue(!okButton.isEnabled());
+			assertFalse(okButton.isEnabled());
 			String msg = findLabelStr(d.getComponent(), "statusLabel");
 			assertEquals("Please enter a source address for the bit block", msg);
-			SwingUtilities.invokeAndWait(() -> addrField.setValue("01001000"));
+			runSwing(() -> addrField.setValue("01001000"));
 		}
 		else {
 			assertTrue(okButton.isEnabled());
@@ -892,9 +899,9 @@ public class MemoryMapProvider2Test extends AbstractGhidraHeadedIntegrationTest 
 		assertTrue(writeCB.isEnabled());
 		assertTrue(executeCB.isEnabled());
 
-		SwingUtilities.invokeAndWait(() -> okButton.getActionListeners()[0].actionPerformed(null));
+		runSwing(() -> okButton.getActionListeners()[0].actionPerformed(null));
 		program.flushEvents();
-		waitForPostedSwingRunnables();
+		waitForSwing();
 
 		MemoryBlock block = memory.getBlock(getAddr(0));
 		assertNotNull(block);
@@ -906,6 +913,7 @@ public class MemoryMapProvider2Test extends AbstractGhidraHeadedIntegrationTest 
 		assertEquals(Boolean.TRUE, model.getValueAt(0, MemoryMapModel.READ));
 		assertEquals(Boolean.TRUE, model.getValueAt(0, MemoryMapModel.WRITE));
 		assertEquals(Boolean.FALSE, model.getValueAt(0, MemoryMapModel.EXECUTE));
+		assertEquals(Boolean.FALSE, model.getValueAt(0, MemoryMapModel.OVERLAY));
 		assertEquals("Byte Mapped", model.getValueAt(0, MemoryMapModel.BLOCK_TYPE));
 		assertEquals(Boolean.FALSE, model.getValueAt(0, MemoryMapModel.INIT));
 		assertEquals("01001000", model.getValueAt(0, MemoryMapModel.SOURCE));
@@ -929,16 +937,16 @@ public class MemoryMapProvider2Test extends AbstractGhidraHeadedIntegrationTest 
 
 		DockingActionIf action = getAction(plugin, "Delete Block");
 		performAction(action, false);
-		waitForPostedSwingRunnables();
+		waitForSwing();
 
-		OptionDialog d = waitForDialogComponent(tool.getToolFrame(), OptionDialog.class, 2000);
+		OptionDialog d = waitForDialogComponent(OptionDialog.class);
 		assertNotNull(d);
 		assertEquals("Delete Memory Block?", d.getTitle());
 
-		final JButton button = findButton(d.getComponent(), "Yes");
+		JButton button = findButton(d.getComponent(), "Yes");
 		assertNotNull(button);
 
-		SwingUtilities.invokeLater(() -> button.getActionListeners()[0].actionPerformed(null));
+		runSwingLater(() -> button.getActionListeners()[0].actionPerformed(null));
 		Thread.sleep(500);
 		while (!program.canLock()) {
 			Thread.sleep(100);
@@ -946,10 +954,10 @@ public class MemoryMapProvider2Test extends AbstractGhidraHeadedIntegrationTest 
 		Thread.sleep(500);
 
 		program.flushEvents();
-		waitForPostedSwingRunnables();
+		waitForSwing();
 
 		assertEquals(".data", model.getValueAt(0, MemoryMapModel.NAME));
-		assertTrue(!memory.contains(minAddr));
+		assertFalse(memory.contains(minAddr));
 
 		undo(program);
 		assertEquals(".text", model.getValueAt(0, MemoryMapModel.NAME));
@@ -965,16 +973,16 @@ public class MemoryMapProvider2Test extends AbstractGhidraHeadedIntegrationTest 
 
 		DockingActionIf action = getAction(plugin, "Delete Block");
 		performAction(action, false);
-		waitForPostedSwingRunnables();
+		waitForSwing();
 
-		OptionDialog d = waitForDialogComponent(tool.getToolFrame(), OptionDialog.class, 2000);
+		OptionDialog d = waitForDialogComponent(OptionDialog.class);
 		assertNotNull(d);
 		assertEquals("Delete Memory Block?", d.getTitle());
 
-		final JButton button = findButton(d.getComponent(), "No");
+		JButton button = findButton(d.getComponent(), "No");
 		assertNotNull(button);
 
-		SwingUtilities.invokeLater(() -> button.getActionListeners()[0].actionPerformed(null));
+		runSwingLater(() -> button.getActionListeners()[0].actionPerformed(null));
 		assertEquals(".text", model.getValueAt(0, MemoryMapModel.NAME));
 	}
 
@@ -983,19 +991,18 @@ public class MemoryMapProvider2Test extends AbstractGhidraHeadedIntegrationTest 
 		// create an overlay block
 		int transactionID = program.startTransaction("test");
 		memory.createInitializedBlock(".overlay", getAddr(0), 0x100, (byte) 0xa,
-			TaskMonitorAdapter.DUMMY_MONITOR, true);
+			TaskMonitor.DUMMY, true);
 		program.endTransaction(transactionID, true);
 		program.flushEvents();
-		waitForPostedSwingRunnables();
+		waitForSwing();
 		int row = table.getModel().getRowCount() - 1;
 		table.setRowSelectionInterval(row, row);
 
 		DockingActionIf action = getAction(plugin, "Move Block");
 		performAction(action, false);
-		OptionDialog d = waitForDialogComponent(tool.getToolFrame(), OptionDialog.class, 2000);
+		OptionDialog d = waitForDialogComponent(OptionDialog.class);
 		assertNotNull(d);
 		assertEquals("Move Overlay Block Not Allowed", d.getTitle());
-
 	}
 
 	@Test
@@ -1003,10 +1010,10 @@ public class MemoryMapProvider2Test extends AbstractGhidraHeadedIntegrationTest 
 		// add a block at 0, length 0x100
 		int transactionID = program.startTransaction("test");
 		memory.createInitializedBlock(".test", getAddr(0), 0x100, (byte) 0,
-			TaskMonitorAdapter.DUMMY_MONITOR, false);
+			TaskMonitor.DUMMY, false);
 		program.endTransaction(transactionID, true);
 		program.flushEvents();
-		waitForPostedSwingRunnables();
+		waitForSwing();
 
 		table.setRowSelectionInterval(0, 0);
 
@@ -1014,63 +1021,63 @@ public class MemoryMapProvider2Test extends AbstractGhidraHeadedIntegrationTest 
 		assertTrue(action.isEnabled());
 		performAction(action, false);
 
-		waitForPostedSwingRunnables();
+		waitForSwing();
 		MoveBlockDialog d =
-			waitForDialogComponent(tool.getToolFrame(), MoveBlockDialog.class, 2000);
+			waitForDialogComponent(MoveBlockDialog.class);
 
 		assertNotNull(d);
 		assertEquals("Move Memory Block", d.getTitle());
 
 		// verify the labels
-		final JLabel nameLabel = (JLabel) findComponentByName(d.getComponent(), "blockName");
+		JLabel nameLabel = (JLabel) findComponentByName(d.getComponent(), "blockName");
 		assertNotNull(nameLabel);
 		assertEquals(".test", nameLabel.getText());
 
-		final JLabel origStartLabel = (JLabel) findComponentByName(d.getComponent(), "origStart");
+		JLabel origStartLabel = (JLabel) findComponentByName(d.getComponent(), "origStart");
 		assertNotNull(origStartLabel);
 		assertEquals(getAddr(0).toString(), origStartLabel.getText());
 
-		final JLabel origEndLabel = (JLabel) findComponentByName(d.getComponent(), "origEnd");
+		JLabel origEndLabel = (JLabel) findComponentByName(d.getComponent(), "origEnd");
 		assertNotNull(origEndLabel);
 		assertEquals(getAddr(0xffL).toString(), origEndLabel.getText());
 
-		final JLabel lengthLabel = (JLabel) findComponentByName(d.getComponent(), "length");
+		JLabel lengthLabel = (JLabel) findComponentByName(d.getComponent(), "length");
 		assertNotNull(lengthLabel);
 		assertEquals("256  (0x100)", lengthLabel.getText());
 
-		final AddressInput startField =
+		AddressInput startField =
 			(AddressInput) findComponentByName(d.getComponent(), "newStart");
 
 		assertNotNull(startField);
 		assertEquals(getAddr(0), startField.getAddress());
 
-		final AddressInput endField =
+		AddressInput endField =
 			(AddressInput) findComponentByName(d.getComponent(), "newEnd");
 		assertNotNull(endField);
 		assertEquals(getAddr(0xffL), endField.getAddress());
 
-		final JButton okButton = findButton(d.getComponent(), "OK");
+		JButton okButton = findButton(d.getComponent(), "OK");
 		assertNotNull(okButton);
-		assertTrue(!okButton.isEnabled());
+		assertFalse(okButton.isEnabled());
 
 		// move the block to 0x300
-		SwingUtilities.invokeAndWait(() -> startField.setValue(getAddr(0x0300).toString()));
+		runSwing(() -> startField.setValue(getAddr(0x0300).toString()));
 		assertEquals(getAddr(0x3ff), endField.getAddress());
 		assertTrue(okButton.isEnabled());
 
-		SwingUtilities.invokeAndWait(() -> okButton.getActionListeners()[0].actionPerformed(null));
+		runSwing(() -> okButton.getActionListeners()[0].actionPerformed(null));
 		// wait for thread to start
 		Thread.sleep(1000);
 
 		while (!program.canLock()) {
 			Thread.sleep(100);
 		}
+
 		program.flushEvents();
-		waitForPostedSwingRunnables();
+		waitForSwing();
 		assertEquals(".test", model.getValueAt(0, MemoryMapModel.NAME));
 		assertEquals(getAddr(0x300).toString(), model.getValueAt(0, MemoryMapModel.START));
 		assertEquals(getAddr(0x3ff).toString(), model.getValueAt(0, MemoryMapModel.END));
-
 	}
 
 	@Test
@@ -1078,10 +1085,10 @@ public class MemoryMapProvider2Test extends AbstractGhidraHeadedIntegrationTest 
 		// add a block at 0, length 0x100
 		int transactionID = program.startTransaction("test");
 		memory.createInitializedBlock(".test", getAddr(0), 0x100, (byte) 0,
-			TaskMonitorAdapter.DUMMY_MONITOR, false);
+			TaskMonitor.DUMMY, false);
 		program.endTransaction(transactionID, true);
 		program.flushEvents();
-		waitForPostedSwingRunnables();
+		waitForSwing();
 
 		table.setRowSelectionInterval(0, 0);
 
@@ -1089,52 +1096,52 @@ public class MemoryMapProvider2Test extends AbstractGhidraHeadedIntegrationTest 
 		assertTrue(action.isEnabled());
 		performAction(action, false);
 
-		waitForPostedSwingRunnables();
-		final MoveBlockDialog d =
-			waitForDialogComponent(tool.getToolFrame(), MoveBlockDialog.class, 2000);
+		waitForSwing();
+		MoveBlockDialog d =
+			waitForDialogComponent(MoveBlockDialog.class);
 
 		assertNotNull(d);
 		assertEquals("Move Memory Block", d.getTitle());
 
 		// verify the labels
-		final JLabel nameLabel = (JLabel) findComponentByName(d.getComponent(), "blockName");
+		JLabel nameLabel = (JLabel) findComponentByName(d.getComponent(), "blockName");
 		assertNotNull(nameLabel);
 		assertEquals(".test", nameLabel.getText());
 
-		final JLabel origStartLabel = (JLabel) findComponentByName(d.getComponent(), "origStart");
+		JLabel origStartLabel = (JLabel) findComponentByName(d.getComponent(), "origStart");
 		assertNotNull(origStartLabel);
 		assertEquals(getAddr(0).toString(), origStartLabel.getText());
 
-		final JLabel origEndLabel = (JLabel) findComponentByName(d.getComponent(), "origEnd");
+		JLabel origEndLabel = (JLabel) findComponentByName(d.getComponent(), "origEnd");
 		assertNotNull(origEndLabel);
 		assertEquals(getAddr(0xffL).toString(), origEndLabel.getText());
 
-		final JLabel lengthLabel = (JLabel) findComponentByName(d.getComponent(), "length");
+		JLabel lengthLabel = (JLabel) findComponentByName(d.getComponent(), "length");
 		assertNotNull(lengthLabel);
 		assertEquals("256  (0x100)", lengthLabel.getText());
 
-		final AddressInput startField =
+		AddressInput startField =
 			(AddressInput) findComponentByName(d.getComponent(), "newStart");
 
 		assertNotNull(startField);
 		assertEquals(getAddr(0), startField.getAddress());
 
-		final AddressInput endField =
+		AddressInput endField =
 			(AddressInput) findComponentByName(d.getComponent(), "newEnd");
 		assertNotNull(endField);
 		assertEquals(getAddr(0xffL), endField.getAddress());
 
-		final JButton okButton = findButton(d.getComponent(), "OK");
+		JButton okButton = findButton(d.getComponent(), "OK");
 		assertNotNull(okButton);
-		assertTrue(!okButton.isEnabled());
+		assertFalse(okButton.isEnabled());
 
 		// enter an invalid address
-		SwingUtilities.invokeAndWait(
+		runSwing(
 			() -> startField.setValue(getAddr(0x0300).toString() + "gggg"));
-		assertTrue(!okButton.isEnabled());
+		assertFalse(okButton.isEnabled());
 		String msg = findLabelStr(d.getComponent(), "statusLabel");
 		assertEquals("Invalid Address", msg);
-		runSwing(() -> d.close());
+		close(d);
 	}
 
 	@Test
@@ -1142,10 +1149,10 @@ public class MemoryMapProvider2Test extends AbstractGhidraHeadedIntegrationTest 
 		// add a block at 0, length 0x100
 		int transactionID = program.startTransaction("test");
 		memory.createInitializedBlock(".test", getAddr(0), 0x100, (byte) 0,
-			TaskMonitorAdapter.DUMMY_MONITOR, false);
+			TaskMonitor.DUMMY, false);
 		program.endTransaction(transactionID, true);
 		program.flushEvents();
-		waitForPostedSwingRunnables();
+		waitForSwing();
 
 		table.setRowSelectionInterval(0, 0);
 
@@ -1153,51 +1160,51 @@ public class MemoryMapProvider2Test extends AbstractGhidraHeadedIntegrationTest 
 		assertTrue(action.isEnabled());
 		performAction(action, false);
 
-		waitForPostedSwingRunnables();
-		final MoveBlockDialog d =
-			waitForDialogComponent(tool.getToolFrame(), MoveBlockDialog.class, 2000);
+		waitForSwing();
+		MoveBlockDialog d =
+			waitForDialogComponent(MoveBlockDialog.class);
 
 		assertNotNull(d);
 		assertEquals("Move Memory Block", d.getTitle());
 
 		// verify the labels
-		final JLabel nameLabel = (JLabel) findComponentByName(d.getComponent(), "blockName");
+		JLabel nameLabel = (JLabel) findComponentByName(d.getComponent(), "blockName");
 		assertNotNull(nameLabel);
 		assertEquals(".test", nameLabel.getText());
 
-		final JLabel origStartLabel = (JLabel) findComponentByName(d.getComponent(), "origStart");
+		JLabel origStartLabel = (JLabel) findComponentByName(d.getComponent(), "origStart");
 		assertNotNull(origStartLabel);
 		assertEquals(getAddr(0).toString(), origStartLabel.getText());
 
-		final JLabel origEndLabel = (JLabel) findComponentByName(d.getComponent(), "origEnd");
+		JLabel origEndLabel = (JLabel) findComponentByName(d.getComponent(), "origEnd");
 		assertNotNull(origEndLabel);
 		assertEquals(getAddr(0xffL).toString(), origEndLabel.getText());
 
-		final JLabel lengthLabel = (JLabel) findComponentByName(d.getComponent(), "length");
+		JLabel lengthLabel = (JLabel) findComponentByName(d.getComponent(), "length");
 		assertNotNull(lengthLabel);
 		assertEquals("256  (0x100)", lengthLabel.getText());
 
-		final AddressInput startField =
+		AddressInput startField =
 			(AddressInput) findComponentByName(d.getComponent(), "newStart");
 
 		assertNotNull(startField);
 		assertEquals(getAddr(0), startField.getAddress());
 
-		final AddressInput endField =
+		AddressInput endField =
 			(AddressInput) findComponentByName(d.getComponent(), "newEnd");
 		assertNotNull(endField);
 		assertEquals(getAddr(0xffL), endField.getAddress());
 
-		final JButton okButton = findButton(d.getComponent(), "OK");
+		JButton okButton = findButton(d.getComponent(), "OK");
 		assertNotNull(okButton);
-		assertTrue(!okButton.isEnabled());
+		assertFalse(okButton.isEnabled());
 
 		// enter an invalid address
-		SwingUtilities.invokeAndWait(() -> endField.setValue(getAddr(0x0300).toString() + "gggg"));
-		assertTrue(!okButton.isEnabled());
+		runSwing(() -> endField.setValue(getAddr(0x0300).toString() + "gggg"));
+		assertFalse(okButton.isEnabled());
 		String msg = findLabelStr(d.getComponent(), "statusLabel");
 		assertEquals("Invalid Address", msg);
-		runSwing(() -> d.close());
+		close(d);
 	}
 
 	@Test
@@ -1205,10 +1212,10 @@ public class MemoryMapProvider2Test extends AbstractGhidraHeadedIntegrationTest 
 		// add a block at 0, length 0x100
 		int transactionID = program.startTransaction("test");
 		memory.createInitializedBlock(".test", getAddr(0), 0x100, (byte) 0,
-			TaskMonitorAdapter.DUMMY_MONITOR, false);
+			TaskMonitor.DUMMY, false);
 		program.endTransaction(transactionID, true);
 		program.flushEvents();
-		waitForPostedSwingRunnables();
+		waitForSwing();
 
 		table.setRowSelectionInterval(0, 0);
 
@@ -1216,54 +1223,54 @@ public class MemoryMapProvider2Test extends AbstractGhidraHeadedIntegrationTest 
 		assertTrue(action.isEnabled());
 		performAction(action, false);
 
-		waitForPostedSwingRunnables();
-		final MoveBlockDialog d =
-			waitForDialogComponent(tool.getToolFrame(), MoveBlockDialog.class, 2000);
+		waitForSwing();
+		MoveBlockDialog d =
+			waitForDialogComponent(MoveBlockDialog.class);
 
 		assertNotNull(d);
 		assertEquals("Move Memory Block", d.getTitle());
 
 		// verify the labels
-		final JLabel nameLabel = (JLabel) findComponentByName(d.getComponent(), "blockName");
+		JLabel nameLabel = (JLabel) findComponentByName(d.getComponent(), "blockName");
 		assertNotNull(nameLabel);
 		assertEquals(".test", nameLabel.getText());
 
-		final JLabel origStartLabel = (JLabel) findComponentByName(d.getComponent(), "origStart");
+		JLabel origStartLabel = (JLabel) findComponentByName(d.getComponent(), "origStart");
 		assertNotNull(origStartLabel);
 		assertEquals(getAddr(0).toString(), origStartLabel.getText());
 
-		final JLabel origEndLabel = (JLabel) findComponentByName(d.getComponent(), "origEnd");
+		JLabel origEndLabel = (JLabel) findComponentByName(d.getComponent(), "origEnd");
 		assertNotNull(origEndLabel);
 		assertEquals(getAddr(0xffL).toString(), origEndLabel.getText());
 
-		final JLabel lengthLabel = (JLabel) findComponentByName(d.getComponent(), "length");
+		JLabel lengthLabel = (JLabel) findComponentByName(d.getComponent(), "length");
 		assertNotNull(lengthLabel);
 		assertEquals("256  (0x100)", lengthLabel.getText());
 
-		final AddressInput startField =
+		AddressInput startField =
 			(AddressInput) findComponentByName(d.getComponent(), "newStart");
 
 		assertNotNull(startField);
 		assertEquals(getAddr(0), startField.getAddress());
 
-		final AddressInput endField =
+		AddressInput endField =
 			(AddressInput) findComponentByName(d.getComponent(), "newEnd");
 		assertNotNull(endField);
 		assertEquals(getAddr(0xffL), endField.getAddress());
 
-		final JButton okButton = findButton(d.getComponent(), "OK");
+		JButton okButton = findButton(d.getComponent(), "OK");
 		assertNotNull(okButton);
-		assertTrue(!okButton.isEnabled());
+		assertFalse(okButton.isEnabled());
 
 		// enter an invalid address
-		SwingUtilities.invokeAndWait(() -> {
+		runSwing(() -> {
 			startField.setValue(getAddr(0x1000).toString());
 			endField.setValue(getAddr(0x10).toString());
 		});
-		assertTrue(!okButton.isEnabled());
+		assertFalse(okButton.isEnabled());
 		String msg = findLabelStr(d.getComponent(), "statusLabel");
 		assertEquals("End Address is too small", msg);
-		runSwing(() -> d.close());
+		close(d);
 	}
 
 	@Test
@@ -1271,10 +1278,10 @@ public class MemoryMapProvider2Test extends AbstractGhidraHeadedIntegrationTest 
 		// add a block at 0, length 0x100
 		int transactionID = program.startTransaction("test");
 		memory.createInitializedBlock(".test", getAddr(0), 0x100, (byte) 0,
-			TaskMonitorAdapter.DUMMY_MONITOR, false);
+			TaskMonitor.DUMMY, false);
 		program.endTransaction(transactionID, true);
 		program.flushEvents();
-		waitForPostedSwingRunnables();
+		waitForSwing();
 
 		table.setRowSelectionInterval(0, 0);
 
@@ -1282,57 +1289,55 @@ public class MemoryMapProvider2Test extends AbstractGhidraHeadedIntegrationTest 
 		assertTrue(action.isEnabled());
 		performAction(action, false);
 
-		waitForPostedSwingRunnables();
-		final MoveBlockDialog d =
-			waitForDialogComponent(tool.getToolFrame(), MoveBlockDialog.class, 2000);
+		waitForSwing();
+		MoveBlockDialog d =
+			waitForDialogComponent(MoveBlockDialog.class);
 
 		assertNotNull(d);
 		assertEquals("Move Memory Block", d.getTitle());
 
 		// verify the labels
-		final JLabel nameLabel = (JLabel) findComponentByName(d.getComponent(), "blockName");
+		JLabel nameLabel = (JLabel) findComponentByName(d.getComponent(), "blockName");
 		assertNotNull(nameLabel);
 		assertEquals(".test", nameLabel.getText());
 
-		final JLabel origStartLabel = (JLabel) findComponentByName(d.getComponent(), "origStart");
+		JLabel origStartLabel = (JLabel) findComponentByName(d.getComponent(), "origStart");
 		assertNotNull(origStartLabel);
 		assertEquals(getAddr(0).toString(), origStartLabel.getText());
 
-		final JLabel origEndLabel = (JLabel) findComponentByName(d.getComponent(), "origEnd");
+		JLabel origEndLabel = (JLabel) findComponentByName(d.getComponent(), "origEnd");
 		assertNotNull(origEndLabel);
 		assertEquals(getAddr(0xffL).toString(), origEndLabel.getText());
 
-		final JLabel lengthLabel = (JLabel) findComponentByName(d.getComponent(), "length");
+		JLabel lengthLabel = (JLabel) findComponentByName(d.getComponent(), "length");
 		assertNotNull(lengthLabel);
 		assertEquals("256  (0x100)", lengthLabel.getText());
 
-		final AddressInput startField =
+		AddressInput startField =
 			(AddressInput) findComponentByName(d.getComponent(), "newStart");
 
 		assertNotNull(startField);
 		assertEquals(getAddr(0), startField.getAddress());
 
-		final AddressInput endField =
+		AddressInput endField =
 			(AddressInput) findComponentByName(d.getComponent(), "newEnd");
 		assertNotNull(endField);
 		assertEquals(getAddr(0xffL), endField.getAddress());
 
-		final JButton okButton = findButton(d.getComponent(), "OK");
+		JButton okButton = findButton(d.getComponent(), "OK");
 		assertNotNull(okButton);
-		assertTrue(!okButton.isEnabled());
+		assertFalse(okButton.isEnabled());
 
 		// enter an invalid address
-		SwingUtilities.invokeAndWait(() -> startField.setValue("00000000"));
-		assertTrue(!okButton.isEnabled());
+		runSwing(() -> startField.setValue("00000000"));
+		assertFalse(okButton.isEnabled());
 		String msg = findLabelStr(d.getComponent(), "statusLabel");
 		assertEquals("Block is already at 00000000", msg);
-		runSwing(() -> d.close());
+		close(d);
 	}
 
-	///////////////////////////////////////////////////////////////////
-
 	private void showProvider() {
-		DockingActionIf action = getAction(plugin, "View Memory Map");
+		DockingActionIf action = getAction(plugin, "Memory Map");
 		performAction(action, true);
 		provider = plugin.getMemoryMapProvider();
 		table = provider.getTable();

@@ -25,15 +25,16 @@ import docking.action.KeyBindingData;
 import docking.action.MenuData;
 import docking.widgets.OptionDialog;
 import docking.widgets.OptionDialogBuilder;
-import ghidra.framework.main.datatable.ProjectDataActionContext;
-import ghidra.framework.main.datatable.ProjectDataContextAction;
+import ghidra.framework.main.datatable.ProjectDataContext;
+import ghidra.framework.main.datatable.FrontendProjectTreeAction;
 import ghidra.framework.model.DomainFile;
 import ghidra.framework.model.DomainFolder;
+import ghidra.util.HTMLUtilities;
 import ghidra.util.task.TaskLauncher;
 import resources.ResourceManager;
 import util.CollectionUtils;
 
-public class ProjectDataDeleteAction extends ProjectDataContextAction {
+public class ProjectDataDeleteAction extends FrontendProjectTreeAction {
 	private static Icon icon = ResourceManager.loadImage("images/page_delete.png");
 
 	public ProjectDataDeleteAction(String owner, String group) {
@@ -44,7 +45,7 @@ public class ProjectDataDeleteAction extends ProjectDataContextAction {
 	}
 
 	@Override
-	protected void actionPerformed(ProjectDataActionContext context) {
+	protected void actionPerformed(ProjectDataContext context) {
 		Set<DomainFile> files = CollectionUtils.asSet(context.getSelectedFiles());
 		Set<DomainFolder> folders = CollectionUtils.asSet(context.getSelectedFolders());
 
@@ -66,7 +67,7 @@ public class ProjectDataDeleteAction extends ProjectDataContextAction {
 		TaskLauncher.launch(deleteTask);
 	}
 
-	DeleteProjectFilesTask createDeleteTask(ProjectDataActionContext context, Set<DomainFile> files,
+	DeleteProjectFilesTask createDeleteTask(ProjectDataContext context, Set<DomainFile> files,
 			Set<DomainFolder> folders, int fileCount) {
 		return new DeleteProjectFilesTask(folders, files, fileCount, context.getComponent());
 	}
@@ -89,7 +90,7 @@ public class ProjectDataDeleteAction extends ProjectDataContextAction {
 			if (!selectedFiles.isEmpty()) {
 				DomainFile file = CollectionUtils.any(selectedFiles);
 				return "<HTML>Are you sure you want to <B><U>permanently</U></B> delete \"" +
-					file.getName() + "\"?";
+					HTMLUtilities.escapeHTML(file.getName()) + "\"?";
 			}
 
 			// only folders are selected, but they contain files
@@ -103,7 +104,7 @@ public class ProjectDataDeleteAction extends ProjectDataContextAction {
 	}
 
 	@Override
-	protected boolean isEnabledForContext(ProjectDataActionContext context) {
+	protected boolean isEnabledForContext(ProjectDataContext context) {
 		if (!context.hasOneOrMoreFilesAndFolders()) {
 			return false;
 		}

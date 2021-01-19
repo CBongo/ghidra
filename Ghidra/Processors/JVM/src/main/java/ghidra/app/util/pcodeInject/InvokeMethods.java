@@ -38,48 +38,85 @@ public class InvokeMethods {
 	static final String PARAM_SPACE = "parameterSpace";
 
 	//private constructor to enforce noninstantiability
-	private InvokeMethods(){
+	private InvokeMethods() {
 		throw new AssertionError();
 	}
 
 	/**
 	 * Emits the pcode for an invoke instruction.
+	 * @param pCode is the pcode accumulator
 	 * @param offset - the index of the constant pool element containing a symbolic reference 
 	 * to a method or a call site specifier.
 	 * @param constantPool - the constant pool
 	 * @param type - the JavaInvocationType of the invocation
-	 * @return - the pcode as a string
 	 */
+	public static void getPcodeForInvoke(PcodeOpEmitter pCode, int offset,
+			AbstractConstantPoolInfoJava[] constantPool,
+			JavaInvocationType type) {
 
-	public static String getPcodeForInvoke(int offset, AbstractConstantPoolInfoJava[] constantPool, JavaInvocationType type) {
+		String descriptor = DescriptorDecoder.getDescriptorForInvoke(offset, constantPool, type);
+		List<JavaComputationalCategory> categories =
+			DescriptorDecoder.getParameterCategories(descriptor);
+		boolean includeThisPointer = type.equals(JavaInvocationType.INVOKE_VIRTUAL) ||
+			type.equals(JavaInvocationType.INVOKE_SPECIAL) ||
+			type.equals(JavaInvocationType.INVOKE_INTERFACE);
 
-		StringBuilder pCode = new StringBuilder();
-		String descriptor = DescriptorDecoder.getDescriptorForInvoke(offset, constantPool, type);		
-		List<JavaComputationalCategory> categories = DescriptorDecoder.getParameterCategories(descriptor);
-		boolean includeThisPointer = type.equals(JavaInvocationType.INVOKE_VIRTUAL) || type.equals(JavaInvocationType.INVOKE_SPECIAL) || type.equals(JavaInvocationType.INVOKE_INTERFACE);
-		
 		int stackPurge = DescriptorDecoder.getStackPurge(descriptor);
-		if (includeThisPointer){
+		if (includeThisPointer) {
 			stackPurge += 4;
 		}
 		emitPcodeToMoveParams(pCode, categories, includeThisPointer, stackPurge);
 		emitPcodeToResolveMethodReference(pCode, offset, constantPool, type);
-		PcodeTextEmitter.emitIndirectCall(pCode, CALL_TARGET);
-		
-		JavaComputationalCategory retType = DescriptorDecoder.getReturnCategoryOfMethodDescriptor(descriptor);
-		switch (retType){
+		pCode.emitIndirectCall(CALL_TARGET);
+
+		JavaComputationalCategory retType =
+			DescriptorDecoder.getReturnCategoryOfMethodDescriptor(descriptor);
+		switch (retType) {
 			case CAT_1:
-				PcodeTextEmitter.emitPushCat1Value(pCode, CAT_1_RETURN);
+				pCode.emitPushCat1Value(CAT_1_RETURN);
 				break;
 			case CAT_2:
-				PcodeTextEmitter.emitPushCat2Value(pCode, CAT_2_RETURN);
+				pCode.emitPushCat2Value(CAT_2_RETURN);
 				break;
 			default:
 				break;
 		}
-		return pCode.toString();
 	}
 
+	/**
+	 * Emits the pcode for an invoke instruction.
+	 * @param pCode is the pcode accumulator
+	 * @param offset - the index of the constant pool element containing a symbolic reference 
+	 * to a method or a call site specifier.
+	 * @param constantPool - the constant pool
+	 */
+	public static void getPcodeForInvokeDynamic(PcodeOpEmitter pCode, int offset,
+			AbstractConstantPoolInfoJava[] constantPool) {
+		String invokeDynamicDescriptor = DescriptorDecoder.getDescriptorForInvoke(offset,
+			constantPool, JavaInvocationType.INVOKE_DYNAMIC);
+		List<JavaComputationalCategory> categories =
+			DescriptorDecoder.getParameterCategories(invokeDynamicDescriptor);
+
+		int stackPurge = DescriptorDecoder.getStackPurge(invokeDynamicDescriptor);
+
+		emitPcodeToMoveParams(pCode, categories, false, stackPurge);
+		emitPcodeToResolveMethodReference(pCode, offset, constantPool,
+			JavaInvocationType.INVOKE_DYNAMIC);
+		pCode.emitIndirectCall(CALL_TARGET);
+
+		JavaComputationalCategory retType =
+			DescriptorDecoder.getReturnCategoryOfMethodDescriptor(invokeDynamicDescriptor);
+		switch (retType) {
+			case CAT_1:
+				pCode.emitPushCat1Value(CAT_1_RETURN);
+				break;
+			case CAT_2:
+				pCode.emitPushCat2Value(CAT_2_RETURN);
+				break;
+			default:
+				break;
+		}
+	}
 
 	/**
 	 * Emits pcode to move the parameters from the stack to the space parameterSpace
@@ -88,22 +125,28 @@ public class InvokeMethods {
 	 * @param pCode - the pcode buffer
 	 * @param categories - the list of computational categories on the top of the stack
 	 * @param includeThisPointer - true if the first element on the stack is an implicit this parameter
+	 * @param totalSize - 
 	 */
-	static void emitPcodeToMoveParams(StringBuilder pCode, List<JavaComputationalCategory> categories, boolean includeThisPointer, int totalSize){
-				
+	static void emitPcodeToMoveParams(PcodeOpEmitter pCode,
+			List<JavaComputationalCategory> categories, boolean includeThisPointer, int totalSize) {
+
 		//pop the parameters off of the stack
-		for (int i = categories.size() - 1; i >= 0; --i){
-			switch (categories.get(i)){
+		for (int i = categories.size() - 1; i >= 0; --i) {
+			switch (categories.get(i)) {
 				case CAT_1:
-					PcodeTextEmitter.emitPopCat1Value(pCode, PARAMETER + Integer.toString(i));
+					pCode.emitPopCat1Value(PARAMETER + Integer.toString(i));
 					totalSize -= 4;
-					PcodeTextEmitter.emitWriteToMemory(pCode, PARAM_SPACE, 4, Integer.toString(totalSize) + ":4", PARAMETER + Integer.toString(i));
+					pCode.emitWriteToMemory(PARAM_SPACE, 4,
+						Integer.toString(totalSize) + ":4", PARAMETER + Integer.toString(i));
 					break;
 				case CAT_2:
-					PcodeTextEmitter.emitPopCat1Value(pCode, PARAMETER + Integer.toString(i));
-					PcodeTextEmitter.emitWriteToMemory(pCode, PARAM_SPACE, 4, Integer.toString(totalSize-8) + ":4", PARAMETER + Integer.toString(i));
-					PcodeTextEmitter.emitPopCat1Value(pCode, PARAMETER_PART2 + Integer.toString(i));
-					PcodeTextEmitter.emitWriteToMemory(pCode, PARAM_SPACE, 4, Integer.toString(totalSize-4) + ":4", PARAMETER_PART2 + Integer.toString(i));
+					pCode.emitPopCat1Value(PARAMETER + Integer.toString(i));
+					pCode.emitWriteToMemory(PARAM_SPACE, 4,
+						Integer.toString(totalSize - 8) + ":4", PARAMETER + Integer.toString(i));
+					pCode.emitPopCat1Value(PARAMETER_PART2 + Integer.toString(i));
+					pCode.emitWriteToMemory(PARAM_SPACE, 4,
+						Integer.toString(totalSize - 4) + ":4",
+						PARAMETER_PART2 + Integer.toString(i));
 					totalSize -= 8;
 					break;
 				default:
@@ -111,14 +154,14 @@ public class InvokeMethods {
 			}
 		}
 		//pop off the this pointer if there is one
-		if (includeThisPointer){
-			PcodeTextEmitter.emitPopCat1Value(pCode, THIS);
+		if (includeThisPointer) {
+			pCode.emitPopCat1Value(THIS);
 			totalSize -= 4;
-			PcodeTextEmitter.emitWriteToMemory(pCode, PARAM_SPACE, 4, Integer.toString(totalSize) + ":4", THIS);
+			pCode.emitWriteToMemory(PARAM_SPACE, 4,
+				Integer.toString(totalSize) + ":4", THIS);
 
 		}
 	}
-
 
 	/**
 	 * Emits pcode to assign the result of a cpool op to the call_target register for an invocation. 
@@ -127,25 +170,37 @@ public class InvokeMethods {
 	 * @param constantPool - the constant pool
 	 * @param type - the type of the invocation
 	 */
-	static void emitPcodeToResolveMethodReference(StringBuilder pCode, int offset, AbstractConstantPoolInfoJava[] constantPool, JavaInvocationType type){
-		switch (type){
+	static void emitPcodeToResolveMethodReference(PcodeOpEmitter pCode, int offset,
+			AbstractConstantPoolInfoJava[] constantPool, JavaInvocationType type) {
+		switch (type) {
 			case INVOKE_DYNAMIC:
-				PcodeTextEmitter.emitAssignRegisterFromPcodeOpCall(pCode, CALL_TARGET, ConstantPoolJava.CPOOL_OP, STATIC_OFFSET, Integer.toString(offset), ConstantPoolJava.CPOOL_INVOKEDYNAMIC);
+				pCode.emitAssignRegisterFromPcodeOpCall(CALL_TARGET,
+					ConstantPoolJava.CPOOL_OP, STATIC_OFFSET, Integer.toString(offset),
+					ConstantPoolJava.CPOOL_INVOKEDYNAMIC);
 				break;
 			case INVOKE_INTERFACE:
-				PcodeTextEmitter.emitAssignRegisterFromPcodeOpCall(pCode, CALL_TARGET, ConstantPoolJava.CPOOL_OP, THIS, Integer.toString(offset), ConstantPoolJava.CPOOL_INVOKEINTERFACE);
+				pCode.emitAssignRegisterFromPcodeOpCall(CALL_TARGET,
+					ConstantPoolJava.CPOOL_OP, THIS, Integer.toString(offset),
+					ConstantPoolJava.CPOOL_INVOKEINTERFACE);
 				break;
 			case INVOKE_SPECIAL:
-				PcodeTextEmitter.emitAssignRegisterFromPcodeOpCall(pCode, CALL_TARGET, ConstantPoolJava.CPOOL_OP, THIS, Integer.toString(offset), ConstantPoolJava.CPOOL_INVOKESPECIAL);
+				pCode.emitAssignRegisterFromPcodeOpCall(CALL_TARGET,
+					ConstantPoolJava.CPOOL_OP, THIS, Integer.toString(offset),
+					ConstantPoolJava.CPOOL_INVOKESPECIAL);
 				break;
 			case INVOKE_STATIC:
-				PcodeTextEmitter.emitAssignRegisterFromPcodeOpCall(pCode, CALL_TARGET, ConstantPoolJava.CPOOL_OP, STATIC_OFFSET, Integer.toString(offset), ConstantPoolJava.CPOOL_INVOKESTATIC);
+				pCode.emitAssignRegisterFromPcodeOpCall(CALL_TARGET,
+					ConstantPoolJava.CPOOL_OP, STATIC_OFFSET, Integer.toString(offset),
+					ConstantPoolJava.CPOOL_INVOKESTATIC);
 				break;
 			case INVOKE_VIRTUAL:
-				PcodeTextEmitter.emitAssignRegisterFromPcodeOpCall(pCode, CALL_TARGET, ConstantPoolJava.CPOOL_OP, THIS, Integer.toString(offset), ConstantPoolJava.CPOOL_INVOKEVIRTUAL);
+				pCode.emitAssignRegisterFromPcodeOpCall(CALL_TARGET,
+					ConstantPoolJava.CPOOL_OP, THIS, Integer.toString(offset),
+					ConstantPoolJava.CPOOL_INVOKEVIRTUAL);
 				break;
 			default:
-				throw new IllegalArgumentException("Unimplemented JavaMethodType: " + type.toString());
+				throw new IllegalArgumentException(
+					"Unimplemented JavaMethodType: " + type.toString());
 		}
 	}
 }

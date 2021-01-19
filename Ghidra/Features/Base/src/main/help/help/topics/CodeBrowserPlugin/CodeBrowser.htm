@@ -13,7 +13,7 @@
   </HEAD>
 
   <BODY>
-    <H1><A name="Code_Browser"></A>Listing View</H1>
+    <H1><A name="Code_Browser"></A><A name="Listing"></A>Listing View</H1>
 
     <P>The Listing View is the main windows for displaying and working with a program's instruction
     and data.</P>
@@ -111,24 +111,30 @@
       "help/topics/Tool/ToolOptions_Dialog.htm">Edit Tool Options</A> dialog for control over
       certain Navigation behaviors.</P>
 
+		
+	  <A name="Show_Xrefs"></A>
       <P>In the XRef field, sometimes there are too many addresses to display so the the field will
       display "[more]" to indicate that one or more cross-reference addresses are not shown.</P>
 
       <BLOCKQUOTE>
         <P><IMG border="0" src="../../shared/tip.png" alt=""> Double-clicking on the "<FONT color=
-        "green"><TT>[more]</TT></FONT>" text will cause a <A href=
-        "help/topics/LocationReferencesPlugin/Location_References.html#LocationReferencesPlugin">Location
-        References Dialog</A> to appear. Also, double-clicking on the XREF header text (<FONT
-        color="green"><TT>XREF[n]:</TT></FONT>) will too show this dialog.</P>
+        "green"><TT>XREF[n]:</TT></FONT> or <FONT><TT>[more]</TT></FONT>" text will cause a 
+        dialog containing all the Xrefs to appear.</P>
+        <P>
+        This differs from the <A href=
+        "help/topics/LocationReferencesPlugin/Location_References.html#LocationReferencesPlugin">
+        <B>Show References to ...</B></A> feature in that the Xrefs dialog is simply a display
+        of what already exists in the database, whereas <B>Show References to ...</B> will
+        perform a search to find references additional to what is in the database.
+        </P>
       </BLOCKQUOTE>
 
       <P align="left">This dialog lists all the Xref addresses, any labels that are at that address
       and a preview of the instruction at that address. Clicking on any row in the table will cause
-      the browser to navigate to that address. Double-clicking will navigate and dismiss the
-      dialog.</P>
+      the browser to navigate to that address</P>
     </BLOCKQUOTE>
 
-    <H2>Keyboard Controls</H2>
+    <H2><A NAME="Keyboard_Controls">Keyboard Controls</H2>
 
     <BLOCKQUOTE>
       <P>The following key mappings are used by the Listing:</P>
@@ -197,6 +203,39 @@
 
             <TD width="79%">Move the cursor to the right one position. If at the end of a line,
             move the cursor to first position of the next line.</TD>
+          </TR>
+          
+          <TR>
+          	<A NAME="Keyboard_Controls_Shift">
+            <TD width="21%" valign="top">&lt;Shift&gt;</TD>
+
+            <TD width="79%">Press shift when using the mouse scroll wheel to perform
+            horizontal scrolling.   This will only work when the horizontal scroll
+            bar is visible.
+            
+                        	<BLOCKQUOTE>
+                        	
+            	<P>
+            	<IMG border="0" src="../../shared/note.png" alt="">
+            	<SPAN style="font-size: 0.8em;">
+            	You can disable horizontal scrolling in the Listing (and all other 
+            	Field Panels) via the Tool Options at 
+            	<B>Edit
+            	<IMG alt="" border="0" src="../../shared/arrow.gif">
+            	Tool Options...
+            	<IMG alt="" border="0" src="../../shared/arrow.gif">
+            	Listing Fields
+            	<IMG alt="" border="0" src="../../shared/arrow.gif">
+            	Mouse
+            	<IMG alt="" border="0" src="../../shared/arrow.gif">
+            	Horizontal Scrolling
+            	</B>
+            	</SPAN>
+            	</P>
+            	</BLOCKQUOTE>
+            
+            </TD>            
+
           </TR>
         </TBODY>
       </TABLE>
@@ -465,7 +504,8 @@
         relationship between the hovered address and the base of memory and the containing memory
         block. For addresses in functions, the function offset is also shown; for addresses within
         a complex data (structure, array, etc.), the offset from the base of that data is
-        shown.</P>
+        shown. Also, if the byte value for the address can be traced back to the original imported
+        file, then the filename and offset for that location is displayed</P>
       </BLOCKQUOTE>
     </BLOCKQUOTE><!-- Function Name Hover Section-->
 

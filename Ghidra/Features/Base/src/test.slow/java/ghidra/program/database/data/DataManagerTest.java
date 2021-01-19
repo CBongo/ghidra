@@ -26,40 +26,22 @@ import ghidra.program.database.ProgramBuilder;
 import ghidra.program.database.ProgramDB;
 import ghidra.program.model.data.*;
 import ghidra.test.AbstractGhidraHeadedIntegrationTest;
+import ghidra.util.InvalidNameException;
+import ghidra.util.task.TaskMonitor;
 import ghidra.util.task.TaskMonitorAdapter;
 
-/**
- *
- * Tests for the DataManager.
- *  
- * 
- */
 public class DataManagerTest extends AbstractGhidraHeadedIntegrationTest {
 	private ProgramDB program;
 	private DataTypeManagerDB dataMgr;
 	private int transactionID;
 
-	/**
-	 * Constructor for DataManagerTest.
-	 * @param arg0
-	 */
-	public DataManagerTest() {
-		super();
-	}
-
-	/*
-	 * @see TestCase#setUp()
-	 */
 	@Before
 	public void setUp() throws Exception {
 		program = createDefaultProgram(testName.getMethodName(), ProgramBuilder._TOY, this);
-		dataMgr = program.getDataManager();
+		dataMgr = program.getDataTypeManager();
 		startTransaction();
 	}
 
-	/*
-	 * @see TestCase#tearDown()
-	 */
 	@After
 	public void tearDown() throws Exception {
 		endTransaction();
@@ -67,14 +49,23 @@ public class DataManagerTest extends AbstractGhidraHeadedIntegrationTest {
 	}
 
 	@Test
-    public void testGetUniqueName() throws Exception {
+	public void testSetName() throws InvalidNameException {
+		String oldName = dataMgr.getName();
+		String newName = "NewName";
+		dataMgr.setName("NewName");
+
+		assertEquals(newName, dataMgr.getName());
+	}
+
+	@Test
+	public void testGetUniqueName() throws Exception {
 		DataType bt = new EnumDataType("test", 2);
 		dataMgr.resolve(bt, null);
 		assertEquals("test_1", dataMgr.getUniqueName(CategoryPath.ROOT, "test"));
 	}
 
 	@Test
-    public void testGetDataTypeByID() throws Exception {
+	public void testGetDataTypeByID() throws Exception {
 		Category root = dataMgr.getRootCategory();
 
 		Category sub1 = root.createCategory("SubCat-A");
@@ -95,7 +86,7 @@ public class DataManagerTest extends AbstractGhidraHeadedIntegrationTest {
 	}
 
 	@Test
-    public void testFindDataTypes() throws Exception {
+	public void testFindDataTypes() throws Exception {
 		Category root = dataMgr.getRootCategory();
 
 		Category sub1 = root.createCategory("SubCat-A");
@@ -122,32 +113,32 @@ public class DataManagerTest extends AbstractGhidraHeadedIntegrationTest {
 		assertEquals(4, list.size());
 
 		ArrayList<DataType> dataTypeList = new ArrayList<DataType>();
-		dataMgr.findDataTypes("nu", dataTypeList, false, TaskMonitorAdapter.DUMMY_MONITOR);
+		dataMgr.findDataTypes("nu", dataTypeList, false, TaskMonitor.DUMMY);
 		assertEquals(0, dataTypeList.size());
 
 		dataTypeList.clear();
-		dataMgr.findDataTypes("*num", dataTypeList, false, TaskMonitorAdapter.DUMMY_MONITOR);
+		dataMgr.findDataTypes("*num", dataTypeList, false, TaskMonitor.DUMMY);
 		assertEquals(4, dataTypeList.size());
 
 		dataTypeList.clear();
-		dataMgr.findDataTypes("*num*", dataTypeList, false, TaskMonitorAdapter.DUMMY_MONITOR);
+		dataMgr.findDataTypes("*num*", dataTypeList, false, TaskMonitor.DUMMY);
 		assertEquals(4, dataTypeList.size());
 
 		dataTypeList.clear();
-		dataMgr.findDataTypes("num*", dataTypeList, false, TaskMonitorAdapter.DUMMY_MONITOR);
+		dataMgr.findDataTypes("num*", dataTypeList, false, TaskMonitor.DUMMY);
 		assertEquals(0, dataTypeList.size());
 
 		dataTypeList.clear();
-		dataMgr.findDataTypes("*n*m*", dataTypeList, false, TaskMonitorAdapter.DUMMY_MONITOR);
+		dataMgr.findDataTypes("*n*m*", dataTypeList, false, TaskMonitor.DUMMY);
 		assertEquals(4, dataTypeList.size());
 
 		dataTypeList.clear();
-		dataMgr.findDataTypes("*n*u*", dataTypeList, false, TaskMonitorAdapter.DUMMY_MONITOR);
+		dataMgr.findDataTypes("*n*u*", dataTypeList, false, TaskMonitor.DUMMY);
 		assertEquals(4, dataTypeList.size());
 	}
 
 	@Test
-    public void testFindDataTypesWildcard() throws Exception {
+	public void testFindDataTypesWildcard() throws Exception {
 		Category root = dataMgr.getRootCategory();
 
 		Category sub1 = root.createCategory("SubCat-A");
@@ -180,7 +171,7 @@ public class DataManagerTest extends AbstractGhidraHeadedIntegrationTest {
 	}
 
 	@Test
-    public void testFindDataType() throws Exception {
+	public void testFindDataType() throws Exception {
 		Category root = dataMgr.getRootCategory();
 		Category subc = root.createCategory("subc");
 		subc.createCategory("subc2");
@@ -193,7 +184,7 @@ public class DataManagerTest extends AbstractGhidraHeadedIntegrationTest {
 	}
 
 	@Test
-    public void testCreateCategoryHierarchy() throws Exception {
+	public void testCreateCategoryHierarchy() throws Exception {
 		String fullName = "/cat1/cat2/cat3/cat4/cat5";
 		CategoryPath cp = new CategoryPath(fullName);
 		dataMgr.createCategory(cp);
@@ -211,7 +202,7 @@ public class DataManagerTest extends AbstractGhidraHeadedIntegrationTest {
 	}
 
 	@Test
-    public void testCreateArray() throws Exception {
+	public void testCreateArray() throws Exception {
 		ArrayDataType adt = new ArrayDataType(new ByteDataType(), 3, 1);
 		Array array = (Array) dataMgr.addDataType(adt, null);
 		assertNotNull(array);
@@ -222,7 +213,7 @@ public class DataManagerTest extends AbstractGhidraHeadedIntegrationTest {
 	}
 
 	@Test
-    public void testCreateTypedef() throws Exception {
+	public void testCreateTypedef() throws Exception {
 		ArrayDataType adt = new ArrayDataType(new ByteDataType(), 3, 1);
 		Array array = (Array) dataMgr.addDataType(adt, null);
 		TypedefDataType tdt = new TypedefDataType("ArrayTypedef", array);
@@ -232,7 +223,7 @@ public class DataManagerTest extends AbstractGhidraHeadedIntegrationTest {
 	}
 
 	@Test
-    public void testCreatePointer() throws Exception {
+	public void testCreatePointer() throws Exception {
 
 		ArrayDataType adt = new ArrayDataType(new ByteDataType(), 5, 1);
 		Array array = (Array) dataMgr.addDataType(adt, null);
@@ -249,7 +240,7 @@ public class DataManagerTest extends AbstractGhidraHeadedIntegrationTest {
 	}
 
 	@Test
-    public void testCreatePointers() throws Exception {
+	public void testCreatePointers() throws Exception {
 
 		Array array = new ArrayDataType(new ByteDataType(), 5, 1);
 		TypeDef td = new TypedefDataType("ByteTypedef", array);
@@ -269,7 +260,7 @@ public class DataManagerTest extends AbstractGhidraHeadedIntegrationTest {
 	}
 
 	@Test
-    public void testRemoveDataType() throws Exception {
+	public void testRemoveDataType() throws Exception {
 		Array array = new ArrayDataType(new ByteDataType(), 5, 1);
 		TypeDef td = new TypedefDataType("ByteTypedef", array);
 		Pointer p = new Pointer32DataType(td);
@@ -292,7 +283,7 @@ public class DataManagerTest extends AbstractGhidraHeadedIntegrationTest {
 	}
 
 	@Test
-    public void testRemoveDataType2() throws Exception {
+	public void testRemoveDataType2() throws Exception {
 		Array array = new ArrayDataType(new ByteDataType(), 5, 1);
 		TypeDef td = new TypedefDataType("ByteTypedef", array);
 		Pointer p = new Pointer32DataType(td);
@@ -319,10 +310,70 @@ public class DataManagerTest extends AbstractGhidraHeadedIntegrationTest {
 //		program.saveAs(programFile, "testdb", null);
 //
 //				
-//	}	
+//	}
+
+// TODO: This should be addressed at some point
+//	
+//	@Test
+//	public void testReplaceBuiltInDataType() throws Exception {
+//		// Byte based types
+//		TypeDef btd =
+//			(TypeDef) dataMgr.resolve(new TypedefDataType("ByteTypedef", ByteDataType.dataType),
+//				null);
+//		Array barray =
+//			(Array) dataMgr.resolve(new ArrayDataType(ByteDataType.dataType, 5, btd.getLength()),
+//				null);
+//		Array barray2 =
+//			(Array) dataMgr.resolve(new ArrayDataType(barray, 2, barray.getLength()), null);
+//		TypeDef btd1 = (TypeDef) dataMgr.resolve(new TypedefDataType("ByteTypedef1", barray), null);
+//		Pointer bp = (Pointer) dataMgr.resolve(new PointerDataType(btd), null);
+//		Pointer bp2 = (Pointer) dataMgr.resolve(new PointerDataType(bp), null);
+//		TypeDef btd2 = (TypeDef) dataMgr.resolve(new TypedefDataType("ByteTypedef2", bp2), null);
+//
+//		// Int based types
+//		TypeDef itd =
+//			(TypeDef) dataMgr.resolve(new TypedefDataType("ByteTypedef", IntegerDataType.dataType),
+//				null);
+//		Array iarray =
+//			(Array) dataMgr.resolve(new ArrayDataType(ByteDataType.dataType, 5, itd.getLength()),
+//				null);
+//		Array iarray2 =
+//			(Array) dataMgr.resolve(new ArrayDataType(iarray, 2, iarray.getLength()), null);
+//		TypeDef itd1 = (TypeDef) dataMgr.resolve(new TypedefDataType("ByteTypedef1", iarray), null);
+//		Pointer ip = (Pointer) dataMgr.resolve(new PointerDataType(itd), null);
+//		Pointer ip2 = (Pointer) dataMgr.resolve(new PointerDataType(ip), null);
+//		TypeDef itd2 = (TypeDef) dataMgr.resolve(new TypedefDataType("ByteTypedef2", ip2), null);
+//
+//		dataMgr.replaceDataType(btd.getBaseDataType(), IntegerDataType.dataType, false);
+//
+//		assertTrue(btd.getBaseDataType().isEquivalent(IntegerDataType.dataType));
+//
+//		if (!barray.isDeleted()) {
+//			Msg.debug(this, "barray: " + barray.getDisplayName());
+//			fail("Expected barray to be replaced by iarray");
+//		}
+//
+//		if (!barray2.isDeleted()) {
+//			Msg.debug(this, "barray2: " + barray.getDisplayName());
+//			fail("Expected barray2 to be replaced by iarray2");
+//		}
+//
+//		if (!bp.isDeleted()) {
+//			Msg.debug(this, "bp: " + bp.getDisplayName());
+//			fail("Expected bp to be replaced by ip");
+//		}
+//
+//		if (!bp2.isDeleted()) {
+//			Msg.debug(this, "bp2: " + bp2.getDisplayName());
+//			fail("Expected bp2 to be replaced by ip2");
+//		}
+//
+//		assertTrue(itd.getBaseDataType() == btd.getBaseDataType());
+//		assertTrue(itd2.getBaseDataType() == btd2.getBaseDataType());
+//	}
 
 	@Test
-    public void testCreateStructure() {
+	public void testCreateStructure() {
 		StructureDataType sdt = new StructureDataType("test", 0);
 		Structure struct = (Structure) dataMgr.addDataType(sdt, null);
 		assertNotNull(struct);
@@ -333,7 +384,7 @@ public class DataManagerTest extends AbstractGhidraHeadedIntegrationTest {
 	}
 
 	@Test
-    public void testCreateUnion() {
+	public void testCreateUnion() {
 		UnionDataType udt = new UnionDataType("test");
 		Union union = (Union) dataMgr.addDataType(udt, null);
 		assertNotNull(union);
@@ -342,7 +393,7 @@ public class DataManagerTest extends AbstractGhidraHeadedIntegrationTest {
 	}
 
 	@Test
-    public void testCreateFunctionDef() {
+	public void testCreateFunctionDef() {
 		FunctionDefinitionDataType fdt =
 			new FunctionDefinitionDataType(new FunctionDefinitionDataType("test"));
 		FunctionDefinition funcDef = (FunctionDefinition) dataMgr.addDataType(fdt, null);
@@ -366,7 +417,7 @@ public class DataManagerTest extends AbstractGhidraHeadedIntegrationTest {
 	}
 
 	@Test
-    public void testDataTypeSizeChanged() {
+	public void testDataTypeSizeChanged() {
 
 		Structure dt = new StructureDataType("MyStruct", 100);
 		dt.insert(0, new ByteDataType());
@@ -391,7 +442,7 @@ public class DataManagerTest extends AbstractGhidraHeadedIntegrationTest {
 	}
 
 	@Test
-    public void testResolveDataType() {
+	public void testResolveDataType() {
 
 		DataTypeManager dtm = new StandAloneDataTypeManager("Test");
 		int id = dtm.startTransaction("");
@@ -409,7 +460,7 @@ public class DataManagerTest extends AbstractGhidraHeadedIntegrationTest {
 	}
 
 	@Test
-    public void testResolveDataType2() throws Exception {
+	public void testResolveDataType2() throws Exception {
 		DataTypeManager dtm = new StandAloneDataTypeManager("Test");
 		int id = dtm.startTransaction("");
 		Category otherRoot = dataMgr.getRootCategory();
@@ -424,7 +475,7 @@ public class DataManagerTest extends AbstractGhidraHeadedIntegrationTest {
 	}
 
 	@Test
-    public void testResolveDataType3() throws Exception {
+	public void testResolveDataType3() throws Exception {
 		DataTypeManager dtm = new StandAloneDataTypeManager("Test");
 		int id = dtm.startTransaction("");
 		Category otherRoot = dataMgr.getRootCategory();
@@ -443,9 +494,8 @@ public class DataManagerTest extends AbstractGhidraHeadedIntegrationTest {
 		dtm.close();
 	}
 
-
 	@Test
-    public void testDoubleReplace() throws Exception {
+	public void testDoubleReplace() throws Exception {
 		Structure struct = new StructureDataType("test", 0);
 		struct.add(new ByteDataType());
 		struct.add(new WordDataType());

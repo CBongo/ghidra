@@ -21,7 +21,7 @@ import javax.swing.KeyStroke;
 import docking.ActionContext;
 import docking.action.*;
 import generic.jar.ResourceFile;
-import ghidra.app.script.GhidraScriptUtil;
+import ghidra.app.script.GhidraScriptInfoManager;
 import ghidra.app.script.ScriptInfo;
 import ghidra.util.HelpLocation;
 import ghidra.util.SystemUtilities;
@@ -30,14 +30,16 @@ class ScriptAction extends DockingAction {
 	private static final String SCRIPT_GROUP = "_SCRIPT_GROUP_";
 
 	private GhidraScriptMgrPlugin plugin;
+	private GhidraScriptInfoManager infoManager;
 	private ResourceFile script;
 
 	/** Signals that the keybinding value has been set by the user from the GUI (used for persistence) */
 	private boolean isUserDefinedKeyBinding = false;
 
 	ScriptAction(GhidraScriptMgrPlugin plugin, ResourceFile script) {
-		super(script.getName(), plugin.getName(), false);
+		super(script.getName(), plugin.getName());
 		this.plugin = plugin;
+		this.infoManager = plugin.getProvider().getInfoManager();
 		this.script = script;
 		setEnabled(true);
 		setHelpLocation(new HelpLocation(plugin.getName(), plugin.getName()));
@@ -50,13 +52,7 @@ class ScriptAction extends DockingAction {
 	}
 
 	@Override
-	public void setKeyBindingData(KeyBindingData keyBindingData) {
-		isUserDefinedKeyBinding = false; // reset
-		if (keyBindingData == null) {
-			// simply clearing out any keybinding data settings
-			super.setKeyBindingData(keyBindingData);
-			return;
-		}
+	public void setUnvalidatedKeyBindingData(KeyBindingData keyBindingData) {
 
 		// 
 		// Unobvious Dependencies!: 
@@ -73,6 +69,19 @@ class ScriptAction extends DockingAction {
 		KeyBindingData newKeyBindingData = checkForFallbackKeybindingCondition(keyBindingData);
 		updateUserDefinedKeybindingStatus(newKeyBindingData);
 		super.setUnvalidatedKeyBindingData(newKeyBindingData);
+		plugin.getProvider().keyBindingUpdated();
+	}
+
+	@Override
+	public void setKeyBindingData(KeyBindingData keyBindingData) {
+		isUserDefinedKeyBinding = false; // reset
+		if (keyBindingData == null) {
+			// simply clearing out any keybinding data settings
+			super.setKeyBindingData(keyBindingData);
+			return;
+		}
+
+		setUnvalidatedKeyBindingData(keyBindingData);
 	}
 
 	private KeyBindingData checkForFallbackKeybindingCondition(KeyBindingData keyBindingData) {
@@ -83,7 +92,7 @@ class ScriptAction extends DockingAction {
 		}
 
 		// check to see if we have a fallback value         
-		ScriptInfo info = GhidraScriptUtil.getScriptInfo(script);
+		ScriptInfo info = infoManager.getExistingScriptInfo(script);
 		KeyStroke metadataKeyStroke = info.getKeyBinding();
 		if (metadataKeyStroke == null) {
 			// there is no fallback value; the current keybinding data is what we want
@@ -98,7 +107,7 @@ class ScriptAction extends DockingAction {
 		// we have a user defined keybinding if the keystroke for the action differs from 
 		// that which is defined in the metadata of the script
 		KeyStroke actionKeyStroke = keyBindingData.getKeyBinding();
-		ScriptInfo info = GhidraScriptUtil.getScriptInfo(script);
+		ScriptInfo info = infoManager.getExistingScriptInfo(script);
 		KeyStroke metadataKeyBinding = info.getKeyBinding();
 		isUserDefinedKeyBinding = !SystemUtilities.isEqual(actionKeyStroke, metadataKeyBinding);
 	}
@@ -112,7 +121,11 @@ class ScriptAction extends DockingAction {
 	}
 
 	void refresh() {
-		ScriptInfo info = GhidraScriptUtil.getScriptInfo(script);
+		/* this is called during script manager initial config
+		 * before any other access to script info, so we expect to
+		 * create a new ScriptInfo with the next call.
+		 */
+		ScriptInfo info = infoManager.getScriptInfo(script);
 		KeyStroke stroke = info.getKeyBinding();
 		if (!isUserDefinedKeyBinding) {
 			setKeyBindingData(new KeyBindingData(stroke));

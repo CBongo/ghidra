@@ -26,6 +26,7 @@ import javax.swing.table.TableModel;
 import docking.ActionContext;
 import docking.action.DockingAction;
 import docking.action.ToolBarData;
+import docking.widgets.label.GLabel;
 import docking.widgets.table.*;
 import docking.widgets.textfield.GValidatedTextField.MaxLengthField;
 import ghidra.app.context.ProgramActionContext;
@@ -80,9 +81,11 @@ class MemoryMapProvider extends ComponentProviderAdapter {
 	MemoryMapProvider(MemoryMapPlugin plugin) {
 		super(plugin.getTool(), "Memory Map", plugin.getName(), ProgramActionContext.class);
 		this.plugin = plugin;
+
 		setHelpLocation(new HelpLocation(plugin.getName(), getName()));
 		memManager = plugin.getMemoryMapManager();
 		setIcon(ResourceManager.loadImage(MEMORY_IMAGE));
+		addToToolbar();
 		mainPanel = buildMainPanel();
 		addToTool();
 		addLocalActions();
@@ -106,9 +109,6 @@ class MemoryMapProvider extends ComponentProviderAdapter {
 		return new ProgramActionContext(this, program);
 	}
 
-	/**
-	 * Set the status text on this dialog.
-	 */
 	void setStatusText(String msg) {
 		tool.setStatusInfo(msg);
 	}
@@ -150,6 +150,8 @@ class MemoryMapProvider extends ComponentProviderAdapter {
 		column.setCellRenderer(new GBooleanCellRenderer());
 		column = memTable.getColumn(MemoryMapModel.VOLATILE_COL);
 		column.setCellRenderer(new GBooleanCellRenderer());
+		column = memTable.getColumn(MemoryMapModel.OVERLAY_COL);
+		column.setCellRenderer(new GBooleanCellRenderer());
 		column = memTable.getColumn(MemoryMapModel.INIT_COL);
 		column.setCellRenderer(new GBooleanCellRenderer());
 
@@ -176,7 +178,7 @@ class MemoryMapProvider extends ComponentProviderAdapter {
 			enableOptions(model);
 		});
 
-		memPanel.add(new JLabel("Memory Blocks", SwingConstants.CENTER), BorderLayout.NORTH);
+		memPanel.add(new GLabel("Memory Blocks", SwingConstants.CENTER), BorderLayout.NORTH);
 		memPanel.add(memPane, BorderLayout.CENTER);
 
 		return memPanel;
@@ -366,9 +368,6 @@ class MemoryMapProvider extends ComponentProviderAdapter {
 		}
 	}
 
-	/**
-	 * @return
-	 */
 	JTable getTable() {
 		return memTable;
 	}
@@ -423,29 +422,52 @@ class MemoryMapProvider extends ComponentProviderAdapter {
 		TableColumn column;
 
 		column = memTable.getColumn(MemoryMapModel.READ_COL);
-		column.setMaxWidth(25);
-		column.setMinWidth(25);
-		column.setResizable(false);
+		if (column != null) {
+			column.setMaxWidth(25);
+			column.setMinWidth(25);
+			column.setResizable(false);
+		}
 
 		column = memTable.getColumn(MemoryMapModel.WRITE_COL);
-		column.setMaxWidth(25);
-		column.setMinWidth(25);
-		column.setResizable(false);
+		if (column != null) {
+			column.setMaxWidth(25);
+			column.setMinWidth(25);
+			column.setResizable(false);
+		}
 
 		column = memTable.getColumn(MemoryMapModel.EXECUTE_COL);
-		column.setMaxWidth(25);
-		column.setMinWidth(25);
-		column.setResizable(false);
+		if (column != null) {
+			column.setMaxWidth(25);
+			column.setMinWidth(25);
+			column.setResizable(false);
+		}
 
 		column = memTable.getColumn(MemoryMapModel.VOLATILE_COL);
-		column.setMaxWidth(50);
-		column.setMinWidth(50);
-		column.setResizable(false);
+		if (column != null) {
+			column.setMaxWidth(57);
+			column.setMinWidth(57);
+			column.setResizable(false);
+		}
+
+		column = memTable.getColumn(MemoryMapModel.OVERLAY_COL);
+		if (column != null) {
+			column.setMaxWidth(55);
+			column.setMinWidth(55);
+			column.setResizable(false);
+		}
+
+		column = memTable.getColumn(MemoryMapModel.BLOCK_TYPE_COL);
+		if (column != null) {
+			column.setMinWidth(60);
+//			column.setResizable(true);
+		}
 
 		column = memTable.getColumn(MemoryMapModel.INIT_COL);
-		column.setMaxWidth(60);
-		column.setMinWidth(60);
-		column.setResizable(false);
+		if (column != null) {
+			column.setMaxWidth(68);
+			column.setMinWidth(68);
+			column.setResizable(false);
+		}
 	}
 
 	/**
@@ -461,7 +483,8 @@ class MemoryMapProvider extends ComponentProviderAdapter {
 		public void mousePressed(MouseEvent e) {
 			setStatusText("");
 			if (!e.isPopupTrigger()) {
-				if ((e.getModifiers() & (InputEvent.CTRL_MASK | InputEvent.SHIFT_MASK)) == 0) {
+				if ((e.getModifiersEx() &
+					(InputEvent.CTRL_DOWN_MASK | InputEvent.SHIFT_DOWN_MASK)) == 0) {
 					selectAddress();
 				}
 			}
@@ -541,7 +564,7 @@ class MemoryMapProvider extends ComponentProviderAdapter {
 		if (block == null) {
 			return;
 		}
-		if (block.getType() == MemoryBlockType.OVERLAY) {
+		if (block.isOverlay()) {
 			Msg.showInfo(getClass(), getComponent(), "Expand Overlay Block Not Allowed",
 				"Overlay blocks cannot be expanded.");
 		}
@@ -560,7 +583,7 @@ class MemoryMapProvider extends ComponentProviderAdapter {
 			return;
 		}
 
-		if (block.getType() == MemoryBlockType.OVERLAY) {
+		if (block.isOverlay()) {
 			Msg.showInfo(getClass(), getComponent(), "Move Overlay Block Not Allowed",
 				"Overlay blocks cannot be moved.");
 		}
@@ -577,7 +600,7 @@ class MemoryMapProvider extends ComponentProviderAdapter {
 		if (block == null) {
 			return;
 		}
-		if (block.getType() == MemoryBlockType.OVERLAY) {
+		if (block.isOverlay()) {
 			Msg.showInfo(getClass(), getComponent(), "Split Overlay Block Not Allowed",
 				"Overlay blocks cannot be split.");
 		}
@@ -626,10 +649,7 @@ class MemoryMapProvider extends ComponentProviderAdapter {
 		memManager.mergeBlocks(blocks);
 	}
 
-	/**
-	 * @param cursor
-	 */
-	public void setCursor(Cursor cursor) {
+	void setCursor(Cursor cursor) {
 		tool.getToolFrame().setCursor(cursor);
 	}
 
@@ -648,19 +668,20 @@ class MemoryMapProvider extends ComponentProviderAdapter {
 		return plugin.getTool();
 	}
 
-	// ==================================================================================================
-	// Inner Classes
-	// ==================================================================================================
+// ==================================================================================================
+// Inner Classes
+// ==================================================================================================
 
 	private class MemoryMapTable extends GhidraTable {
 		MemoryMapTable(TableModel model) {
-			super(model, true);
+			super(model);
+			setAutoEditEnabled(true);
 			setActionsEnabled(true);
 			setVisibleRowCount(10);
 		}
 
 		@Override
-		protected <T> SelectionManager createSelectionManager(TableModel model) {
+		protected <T> SelectionManager createSelectionManager() {
 			return null;
 		}
 	}

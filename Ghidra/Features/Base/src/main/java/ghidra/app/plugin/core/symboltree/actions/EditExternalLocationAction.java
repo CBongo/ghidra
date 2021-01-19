@@ -40,8 +40,6 @@ public class EditExternalLocationAction extends DockingAction {
 	 * Creates the action for editing an existing external location or external function in the 
 	 * symbol tree.
 	 * @param plugin the symbol tree plugin, which owns this action.
-	 * @param contextClass context class specific to plugin to be used to differentiate 
-	 * ProgramSymbolActionContext instances.
 	 */
 	public EditExternalLocationAction(Plugin plugin) {
 		super("Edit External Location", plugin.getName());
@@ -63,7 +61,7 @@ public class EditExternalLocationAction extends DockingAction {
 		if (s == null || !s.isExternal()) {
 			return null;
 		}
-		if (s.getSymbolType() == SymbolType.CODE || s.getSymbolType() == SymbolType.FUNCTION) {
+		if (s.getSymbolType() == SymbolType.LABEL || s.getSymbolType() == SymbolType.FUNCTION) {
 			return s;
 		}
 		return null;

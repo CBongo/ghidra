@@ -20,16 +20,22 @@ package ghidra.framework;
  * <p>
  * The version format is \d\.\d(\.\d)?(\-.+)?
  * <p>
+ * Note: this class has a natural ordering that is inconsistent with equals (the <code>tag</code>
+ * part of the version is disregarded in the {@link #compareTo(ApplicationVersion)} method).
+ * <p>
  * Examples:
+ * <ul>
  * <li>7.4
  * <li>7.4.1
- * <li>7.4.1-DEV
+ * <li>7.4.1-BETA
+ * </ul>
  */
 public class ApplicationVersion implements Comparable<ApplicationVersion> {
 
 	private int major;
 	private int minor;
 	private int patch;
+	private String tag;
 
 	/**
 	 * Creates a new {@link ApplicationVersion} object from the given version string.
@@ -69,12 +75,30 @@ public class ApplicationVersion implements Comparable<ApplicationVersion> {
 		return patch;
 	}
 
+	/**
+	 * Gets the tag.
+	 * 
+	 * @return The tag.  Could be the empty string.
+	 */
+	public String getTag() {
+		return tag;
+	}
+
 	@Override
 	public String toString() {
-		if (patch == 0) {
-			return String.format("%d.%d", major, minor);
+		StringBuilder builder = new StringBuilder();
+		builder.append(major);
+		builder.append(".");
+		builder.append(minor);
+		if (patch > 0) {
+			builder.append(".");
+			builder.append(patch);
 		}
-		return String.format("%d.%d.%d", major, minor, patch);
+		if (!tag.isEmpty()) {
+			builder.append("-");
+			builder.append(tag);
+		}
+		return builder.toString();
 	}
 
 	@Override
@@ -107,6 +131,7 @@ public class ApplicationVersion implements Comparable<ApplicationVersion> {
 		result = prime * result + major;
 		result = prime * result + minor;
 		result = prime * result + patch;
+		result += tag.hashCode();
 		return result;
 	}
 
@@ -131,11 +156,14 @@ public class ApplicationVersion implements Comparable<ApplicationVersion> {
 		if (patch != other.patch) {
 			return false;
 		}
+		if (!tag.equals(other.tag)) {
+			return false;
+		}
 		return true;
 	}
 
 	/**
-	 * Parses the major, minor, and optional patch integers out of the given version string.
+	 * Parses the major, minor, patch, and tag components out of the given version string.
 	 * 
 	 * @param version A version string.
 	 * @throws IllegalArgumentException if the version string failed to parse.  The 
@@ -146,8 +174,12 @@ public class ApplicationVersion implements Comparable<ApplicationVersion> {
 			throw new IllegalArgumentException("Version is null");
 		}
 
+		tag = "";
 		int dashIndex = version.indexOf('-');
 		if (dashIndex != -1) {
+			if (dashIndex + 1 < version.length()) {
+				tag = version.substring(dashIndex + 1);
+			}
 			version = version.substring(0, dashIndex);
 		}
 
@@ -163,8 +195,10 @@ public class ApplicationVersion implements Comparable<ApplicationVersion> {
 			patch = parse(versionParts[2], "patch");
 		}
 		else {
+			String plural = version.length() > 1 ? "s" : "";
 			throw new IllegalArgumentException(
-				"Version has " + versionParts.length + " parts but 2 or 3 are required");
+				"Version '" + version + "' has " + versionParts.length +
+					" part" + plural + " but 2 or 3 are required");
 		}
 	}
 

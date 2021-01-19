@@ -23,18 +23,17 @@ import java.util.*;
 import javax.swing.*;
 import javax.swing.tree.TreePath;
 
-import org.junit.Assert;
-
 import docking.*;
 import docking.action.DockingActionIf;
 import docking.test.AbstractDockingTest;
 import docking.widgets.OptionDialog;
-import docking.widgets.tree.*;
+import docking.widgets.tree.GTree;
+import docking.widgets.tree.GTreeNode;
 import generic.test.AbstractGTest;
 import generic.test.AbstractGenericTest;
 import ghidra.framework.main.FrontEndTool;
 import ghidra.framework.main.SharedProjectUtil;
-import ghidra.framework.main.datatable.ProjectDataActionContext;
+import ghidra.framework.main.datatable.ProjectDataContext;
 import ghidra.framework.main.datatree.*;
 import ghidra.framework.model.*;
 import ghidra.framework.plugintool.PluginTool;
@@ -64,7 +63,7 @@ public class FrontEndTestEnv {
 	protected FrontEndTool frontEndTool;
 	protected DataTree tree;
 	protected DomainFolder rootFolder;
-	protected GTreeRootNode rootNode;
+	protected GTreeNode rootNode;
 
 	public FrontEndTestEnv() throws Exception {
 		this(false);
@@ -88,7 +87,7 @@ public class FrontEndTestEnv {
 		rootFolder.createFile(PROGRAM_A, p, TaskMonitor.DUMMY);
 		p.release(this);
 
-		rootNode = tree.getRootNode();
+		rootNode = tree.getViewRoot();
 		waitForTree();
 	}
 
@@ -135,7 +134,7 @@ public class FrontEndTestEnv {
 	}
 
 	public GTreeNode getRootNode() {
-		return tree.getRootNode();
+		return tree.getModelRoot();
 	}
 
 	/** 
@@ -323,7 +322,7 @@ public class FrontEndTestEnv {
 			}
 		}
 
-		return new ProjectDataActionContext(null, rootFolder.getProjectData(), nodes[0], folderList,
+		return new ProjectDataContext(null, rootFolder.getProjectData(), nodes[0], folderList,
 			fileList, tree, true);
 
 	}
@@ -336,20 +335,19 @@ public class FrontEndTestEnv {
 		return env.showTool();
 	}
 
-	public List<Tool> getTools() {
-		Tool[] tools = frontEndTool.getProject().getToolManager().getActiveWorkspace().getTools();
+	public List<PluginTool> getTools() {
+		PluginTool[] tools = frontEndTool.getProject().getToolManager().getActiveWorkspace().getTools();
 		return new ArrayList<>(Arrays.asList(tools));
 	}
 
-	public List<DockingActionIf> getFrontEndActions() {
-		return frontEndTool.getDockingActionsByOwnerName("FrontEndPlugin");
+	public Set<DockingActionIf> getFrontEndActions() {
+		return AbstractDockingTest.getActionsByOwner(frontEndTool, "FrontEndPlugin");
 	}
 
 	public DockingActionIf getAction(String actionName) {
-		List<DockingActionIf> a =
-			frontEndTool.getDockingActionsByFullActionName(actionName + " (FrontEndPlugin)");
-		Assert.assertEquals(1, a.size());
-		return a.get(0);
+		DockingActionIf action =
+			AbstractDockingTest.getAction(frontEndTool, "FrontEndPlugin", actionName);
+		return action;
 	}
 
 	public void performFrontEndAction(DockingActionIf action) {
@@ -381,7 +379,7 @@ public class FrontEndTestEnv {
 		if (exclusive) {
 			JCheckBox cb = AbstractDockingTest.findComponent(dialog, JCheckBox.class);
 			assertNotNull(cb);
-			assertEquals("Request exclusive check out", cb.getText());
+			assertEquals("Request exclusive checkout", cb.getText());
 			runSwing(() -> cb.setSelected(true));
 		}
 
@@ -416,7 +414,7 @@ public class FrontEndTestEnv {
 		waitForTasks();
 	}
 
-	protected void editProgram(Program program, ModifyProgramCallback modifyProgramCallback)
+	public void editProgram(Program program, ModifyProgramCallback modifyProgramCallback)
 			throws CancelledException, IOException {
 		int transactionID = program.startTransaction("test");
 		try {
@@ -431,7 +429,7 @@ public class FrontEndTestEnv {
 		}
 	}
 
-	protected void editProgram(DomainFile df, Object consumer, ModifyProgramCallback edit)
+	public void editProgram(DomainFile df, Object consumer, ModifyProgramCallback edit)
 			throws Exception {
 
 		Program program = (Program) df.getDomainObject(this, true, false, TaskMonitor.DUMMY);
@@ -445,7 +443,7 @@ public class FrontEndTestEnv {
 		}
 	}
 
-	interface ModifyProgramCallback {
+	public interface ModifyProgramCallback {
 		public void call(Program p) throws Exception;
 	}
 }

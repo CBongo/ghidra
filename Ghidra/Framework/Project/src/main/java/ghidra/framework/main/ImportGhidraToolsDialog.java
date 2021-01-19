@@ -20,14 +20,15 @@ import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.util.*;
 import java.util.List;
+import java.util.stream.Stream;
 
 import javax.swing.*;
 import javax.swing.border.TitledBorder;
 
-import com.google.common.collect.Iterables;
-
 import docking.DialogComponentProvider;
 import docking.options.editor.ButtonPanelFactory;
+import docking.tool.ToolConstants;
+import docking.widgets.checkbox.GCheckBox;
 import docking.widgets.list.ListPanel;
 import ghidra.framework.ToolUtils;
 import ghidra.framework.model.ToolTemplate;
@@ -40,7 +41,7 @@ class ImportGhidraToolsDialog extends DialogComponentProvider {
 
 	private ListPanel listPanel;
 	private JPanel mainPanel;
-	private JCheckBox[] checkboxes;
+	private GCheckBox[] checkboxes;
 	private String[] tools;
 	private JButton selectAllButton;
 	private JButton deselectAllButton;
@@ -54,7 +55,7 @@ class ImportGhidraToolsDialog extends DialogComponentProvider {
 	ImportGhidraToolsDialog(FrontEndTool tool) {
 
 		super("Import Ghidra Tools", true);
-		setHelpLocation(new HelpLocation("Tool", "Import Ghidra Tools"));
+		setHelpLocation(new HelpLocation(ToolConstants.TOOL_HELP_TOPIC, "Import Ghidra Tools"));
 
 		this.tool = tool;
 
@@ -161,19 +162,18 @@ class ImportGhidraToolsDialog extends DialogComponentProvider {
 		Set<ToolTemplate> defaultTools = ToolUtils.getDefaultApplicationTools();
 		Set<ToolTemplate> extraTools = ToolUtils.getExtraApplicationTools();
 
-		Iterable<String> defaultToolNames =
-			Iterables.transform(defaultTools, ToolTemplate::getPath);
-		Iterable<String> extraToolNames = Iterables.transform(extraTools, ToolTemplate::getPath);
+		Stream<String> defaultToolNames = defaultTools.stream().map(ToolTemplate::getPath);
+		Stream<String> extraToolNames = extraTools.stream().map(ToolTemplate::getPath);
 
 		int elementCount = defaultTools.size() + extraTools.size();
 		tools = new String[elementCount];
-		checkboxes = new JCheckBox[elementCount];
+		checkboxes = new GCheckBox[elementCount];
 
 		Iterator<String> itr = defaultToolNames.iterator();
 		int count = 0;
 		while (itr.hasNext()) {
 			tools[count] = itr.next();
-			checkboxes[count] = new JCheckBox(tools[count], false);
+			checkboxes[count] = new GCheckBox(tools[count], false);
 			checkboxes[count].setBackground(Color.WHITE);
 			count++;
 		}
@@ -181,7 +181,7 @@ class ImportGhidraToolsDialog extends DialogComponentProvider {
 		itr = extraToolNames.iterator();
 		while (itr.hasNext()) {
 			tools[count] = itr.next();
-			checkboxes[count] = new JCheckBox(tools[count], false);
+			checkboxes[count] = new GCheckBox(tools[count], false);
 			checkboxes[count].setBackground(Color.LIGHT_GRAY);
 			count++;
 		}

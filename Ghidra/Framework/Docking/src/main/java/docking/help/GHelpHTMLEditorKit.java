@@ -15,6 +15,7 @@
  */
 package docking.help;
 
+import java.awt.Desktop;
 import java.awt.Image;
 import java.beans.PropertyChangeEvent;
 import java.beans.PropertyChangeListener;
@@ -52,6 +53,8 @@ import utilities.util.FileUtilities;
 public class GHelpHTMLEditorKit extends HTMLEditorKit {
 
 	private static final String G_HELP_STYLE_SHEET = "help/shared/Frontpage.css";
+
+	private static final Pattern EXTERNAL_URL_PATTERN = Pattern.compile("https?://.*");
 
 	/** A pattern to strip the font size value from a line of CSS */
 	private static final Pattern FONT_SIZE_PATTERN = Pattern.compile("font-size:\\s*(\\d{1,2})");
@@ -116,6 +119,10 @@ public class GHelpHTMLEditorKit extends HTMLEditorKit {
 			}
 
 			if (e.getEventType() == HyperlinkEvent.EventType.ACTIVATED) {
+				if (isExternalLink(e)) {
+					browseExternalLink(e);
+					return;
+				}
 				Msg.trace(this, "Link activated: " + e.getURL());
 				e = validateURL(e);
 				Msg.trace(this, "Validated event: " + e.getURL());
@@ -124,6 +131,28 @@ public class GHelpHTMLEditorKit extends HTMLEditorKit {
 			for (HyperlinkListener listener : delegateListeners) {
 				listener.hyperlinkUpdate(e);
 			}
+		}
+	}
+
+	private boolean isExternalLink(HyperlinkEvent e) {
+		String description = e.getDescription();
+		return description != null && EXTERNAL_URL_PATTERN.matcher(description).matches();
+	}
+
+	private void browseExternalLink(HyperlinkEvent e) {
+		String description = e.getDescription();
+		if (!Desktop.isDesktopSupported()) {
+			Msg.info(this, "Unable to launch external browser for " + description);
+			return;
+		}
+
+		try {
+			//  use an external browser
+			URI uri = e.getURL().toURI();
+			Desktop.getDesktop().browse(uri);
+		}
+		catch (URISyntaxException | IOException e1) {
+			Msg.error(this, "Error browsing to external URL " + description, e1);
 		}
 	}
 
@@ -380,7 +409,32 @@ public class GHelpHTMLEditorKit extends HTMLEditorKit {
 	 */
 	private class GHelpImageView extends ImageView {
 
-		private Image myImage;
+		/*
+		 * 						Unusual Code Alert!
+		 * This class exists to enable our help system to find custom icons defined in source
+		 * code.   The default behavior herein is to supply a URL to the base class to load.  This
+		 * works fine.   
+		 * 
+		 * There is another use case where we wish to have the base class load an image of our
+		 * choosing.  Why?  Well, we modify, in memory, some icons we use.  We do this for things
+		 * like overlays and rotations.
+		 * 
+		 * In order to have our base class use the image that we want (and not the one
+		 * it loads via a URL), we have to play a small game.   We have to allow the base class
+		 * to load the image it wants, which is done asynchronously.  If we install our custom
+		 * image during that process, the loading will throw away the image and not render
+		 * anything.    
+		 * 
+		 * To get the base class to use our image, we override getImage().  However, we should 
+		 * only return our image when the base class is finished loading.  (See the base class'
+		 * paint() method for why we need to do this.)
+		 * 
+		 * Note: if we start seeing unusual behavior, like images not rendering, or any size
+		 * issues, then we can revert this code.
+		 */
+		private Image image;
+		private float spanX;
+		private float spanY;
 
 		public GHelpImageView(Element elem) {
 			super(elem);
@@ -388,10 +442,33 @@ public class GHelpHTMLEditorKit extends HTMLEditorKit {
 
 		@Override
 		public Image getImage() {
-			if (myImage != null) {
-				return myImage;
+			Image superImage = super.getImage();
+			if (image == null) {
+				// no custom image
+				return superImage;
 			}
-			return super.getImage();
+
+			if (isLoading()) {
+				return superImage;
+			}
+
+			return image;
+		}
+
+		private boolean isLoading() {
+			return spanX < 1 || spanY < 1;
+		}
+
+		@Override
+		public float getPreferredSpan(int axis) {
+			float span = super.getPreferredSpan(axis);
+			if (axis == View.X_AXIS) {
+				spanX = span;
+			}
+			else {
+				spanY = span;
+			}
+			return span;
 		}
 
 		@Override
@@ -419,10 +496,10 @@ public class GHelpHTMLEditorKit extends HTMLEditorKit {
 				return null;
 			}
 
-			ImageIcon icon = iconProvider.getIcon();
-			myImage = icon.getImage();
+			ImageIcon imageIcon = iconProvider.getIcon();
+			this.image = imageIcon.getImage();
 
-			URL url = iconProvider.getUrl();
+			URL url = iconProvider.getOrCreateUrl();
 			return url;
 		}
 
